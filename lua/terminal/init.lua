@@ -116,7 +116,16 @@ function M.setup(opts)
 
   local native = require("terminal.backends.native").new(state.registry)
   state.backends = { native = native }
-  local name, note = backends.resolve(config.get("backend"), environment(), state.backends)
+  local env = environment()
+  local wezterm = require("terminal.backends.wezterm")
+  local wezterm_ok, wezterm_reason = wezterm.available(env)
+  if wezterm_ok then
+    state.backends.wezterm = wezterm.new(state.registry)
+  end
+  local name, note = backends.resolve(config.get("backend"), env, state.backends)
+  if note and config.get("backend") == "wezterm" and wezterm_reason then
+    note = ("backend 'wezterm' is not available (%s) -- using native"):format(wezterm_reason)
+  end
   state.backend = state.backends[name]
   if note then
     vim.schedule(function()
@@ -183,6 +192,11 @@ function M.open(target)
   end
 
   local handle = find_live(root, name)
+  if handle and not b.show and b.visible and not b.visible(handle) then
+    -- A backend that cannot show a hidden terminal again (a pane the user closed): start a new one.
+    b.close(handle)
+    handle = nil
+  end
   if handle then
     if b.visible and b.visible(handle) then
       if focus then

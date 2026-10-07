@@ -40,8 +40,9 @@ your shell so a file name with a space or a `$(...)` stays data.
 ```
 
 The terminal layer is a **backend** behind one API. Today the `native` backend (Neovim's
-own `:terminal`) is implemented; WezTerm and tmux backends — status in the tab title,
-navigation across pane borders, terminals that outlive Neovim — are the next steps.
+own `:terminal`) and a `wezterm` backend (terminals as WezTerm panes) exist; the nvim status
+also goes to WezTerm (tab title, right status). A tmux backend and navigation across pane
+borders are the next steps.
 
 ## Table of contents
 
@@ -65,6 +66,10 @@ answers.
 
 - [All options](docs/configuration.md) — every `setup()` option and its default.
 - [Commands](docs/commands.md) / [Bindings cheatsheet](docs/BINDINGS.md)
+
+**Backends**
+
+- [Backends](docs/backends.md) — native windows or WezTerm panes.
 
 **Status export**
 

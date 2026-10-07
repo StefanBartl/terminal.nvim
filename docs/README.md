@@ -8,5 +8,6 @@
 | What can I configure? | [configuration.md](configuration.md) |
 | Which `:Terminal` subcommands exist? | [commands.md](commands.md) |
 | Which keys does it bind? | [BINDINGS.md](BINDINGS.md) |
+| Where can terminals live? | [backends.md](backends.md) |
 | What does it tell WezTerm? | [status.md](status.md) |
 | How is it built? | [architecture.md](architecture.md) |
