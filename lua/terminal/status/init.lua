@@ -55,8 +55,10 @@ end
 --- `export`: "auto" (every one whose environment signal is present), a name, a list of names,
 --- or `false` (none).
 ---
---- "auto" also stays out of a Neovim that runs inside another Neovim's terminal (`$NVIM` is set):
---- it would write to the very pane the outer one owns. A name asks for the exporter anyway.
+--- "auto" also stays out of a Neovim that runs inside another *running* Neovim's terminal (`$NVIM`
+--- is set and that server answers): it would write to the very pane the outer one owns. A dead
+--- `$NVIM` (a tmux server that was started from a Neovim terminal) does not count. A name asks
+--- for the exporter anyway.
 ---@param export string|string[]|boolean
 ---@param env table<string, string|nil>
 ---@return Terminal.StatusExporter[] chosen

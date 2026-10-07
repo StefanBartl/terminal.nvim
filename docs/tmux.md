@@ -16,7 +16,8 @@ Inside tmux three things work together:
 set -g allow-passthrough on
 
 # Show what Neovim is doing (empty when no Neovim with terminal.nvim runs in the pane).
-set -g status-right '#{?#{@terminal_mode},#{@terminal_mode} #{@terminal_branch} #{@terminal_diag} | ,}%H:%M'
+# The pane's command has to look like a Vim as well: a Neovim that crashed cannot remove its options.
+set -g status-right '#{?#{&&:#{@terminal_mode},#{||:#{m:*vim*,#{pane_current_command}},#{||:#{m:vi,#{pane_current_command}},#{m:view,#{pane_current_command}}}}},#{@terminal_mode} #{@terminal_branch} #{@terminal_diag} | ,}%H:%M'
 ```
 
 `:checkhealth terminal` reports `allow-passthrough` and the detected tmux.

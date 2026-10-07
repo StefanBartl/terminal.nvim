@@ -643,13 +643,10 @@ function M.pin(target, opts)
   if not pinned then
     -- The multiplexer failed at run time (its CLI is gone, a timeout): the user keeps a terminal.
     -- It is a new one -- the output and history of the old one are lost either way.
-    state.backends.native.spawn(restore)
-    fail(
-      ("pin: terminal '%s': %s (the native terminal was started again)"):format(
-        name,
-        perr or "cannot start"
-      )
-    )
+    local restored, rerr = state.backends.native.spawn(restore)
+    local outcome = restored and "the native terminal was started again"
+      or ("the native terminal could not be started again: %s"):format(rerr or "unknown reason")
+    fail(("pin: terminal '%s': %s (%s)"):format(name, perr or "cannot start", outcome))
     return false, perr
   end
   return true, nil, pinned

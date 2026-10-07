@@ -46,7 +46,10 @@ end
 --- NVIM` in tmux.conf).
 ---@type fun(address: string): boolean
 M.alive = function(address)
-  local ok, channel = pcall(vim.fn.sockconnect, "pipe", address, { rpc = true })
+  -- `--listen host:port` gives a TCP address (no path separator, ends in :<port>); everything
+  -- else is a unix socket path or a Windows named pipe.
+  local mode = (not address:find("[/\\]") and address:find(":%d+$")) and "tcp" or "pipe"
+  local ok, channel = pcall(vim.fn.sockconnect, mode, address, { rpc = true })
   if not ok or type(channel) ~= "number" or channel <= 0 then
     return false
   end

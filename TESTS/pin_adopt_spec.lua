@@ -172,6 +172,49 @@ describe("terminal pin / adopt", function()
       end
     )
 
+    it("says so when the native terminal could not be started again either", function()
+      local real = require("terminal.backends.native")
+      local fail_spawn = false
+      package.loaded["terminal.backends.native"] = {
+        new = function(registry)
+          local backend = real.new(registry)
+          local spawn = backend.spawn
+          backend.spawn = function(spec)
+            if fail_spawn then
+              return nil, "no room for a window"
+            end
+            return spawn(spec)
+          end
+          return backend
+        end,
+      }
+      local ok, err = pcall(function()
+        boot(true)
+        terminal.open({ name = "work" })
+        jobs.settle()
+        fail_spawn = true
+        local original = wezterm.default_runner
+        wezterm.default_runner = function()
+          return { code = 1, stdout = "", stderr = "mux is gone" }
+        end
+        local pinned = terminal.pin({ name = "work" })
+        wezterm.default_runner = original
+        assert.is_false(pinned)
+        vim.wait(100)
+        assert.equals(
+          0,
+          #terminal.list(true),
+          "the terminal is lost, and the message must not claim otherwise"
+        )
+        local said = table.concat(notices, "\n")
+        assert.truthy(said:find("could not be started again", 1, true), said)
+        assert.truthy(said:find("no room for a window", 1, true), said)
+        assert.is_nil(said:find("was started again", 1, true), said)
+      end)
+      package.loaded["terminal.backends.native"] = real
+      assert(ok, err)
+    end)
+
     it("an unknown backend is a failure, not an error", function()
       boot(true)
       terminal.open({ name = "work" })
