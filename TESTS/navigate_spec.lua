@@ -158,10 +158,11 @@ describe("terminal.navigate.go", function()
   it(
     "a held key at the edge runs one process at a time; the latest press waits its turn",
     function()
-      local started, finish = {}, nil
+      local started, finish, seen_opts = {}, nil, nil
       local original = vim.system
-      vim.system = function(argv, _opts, on_exit)
+      vim.system = function(argv, opts, on_exit)
         started[#started + 1] = argv
+        seen_opts = opts
         finish = on_exit
         return {}
       end
@@ -171,6 +172,7 @@ describe("terminal.navigate.go", function()
       end
       navigate.go("j")
       assert.equals(1, #started, "the key repeat does not start a process per press")
+      assert.equals(2000, seen_opts.timeout, "a hung multiplexer is reaped")
       finish()
       assert.is_true(vim.wait(500, function()
         return #started == 2

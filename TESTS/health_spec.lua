@@ -48,6 +48,28 @@ describe("terminal.health", function()
     assert.truthy(log[1]:find("WEZTERM_PANE = 3", 1, true))
   end)
 
+  it(
+    "inside WezTerm on a Neovim without nvim_ui_send it warns that the export needs 0.12",
+    function()
+      local saved = vim.api.nvim_ui_send
+      vim.api.nvim_ui_send = nil
+      local r, log = recorder()
+      pcall(health.check_wezterm, r, { WEZTERM_PANE = "3" })
+      vim.api.nvim_ui_send = saved
+      local warned = false
+      for _, line in ipairs(log) do
+        if
+          line:find("^warn:")
+          and line:find("nvim_ui_send", 1, true)
+          and line:find("0.12", 1, true)
+        then
+          warned = true
+        end
+      end
+      assert.is_true(warned, table.concat(log, "\n"))
+    end
+  )
+
   it("the full check runs without raising", function()
     local ok, err = pcall(health.check)
     assert.is_true(ok, tostring(err))

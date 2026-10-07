@@ -118,3 +118,11 @@ jobs:
           nvim --headless -u NONE -l TESTS/live/tmux.lua || true
           cat "$SMOKE_OUT"
           grep -q "^RESULT ok$" "$SMOKE_OUT"
+      # Ownership of a tmux pane against a real process tree: a Neovim nested in another one's
+      # terminal stays out, one in a pane of a tmux server started from that terminal does not.
+      - run: |
+          export LIB_NVIM_DIR="$PWD/.deps/lib.nvim"
+          export SMOKE_OUT="$RUNNER_TEMP/tmux-nested.txt"
+          nvim --headless -u NONE -l TESTS/live/nested.lua || true
+          cat "$SMOKE_OUT"
+          grep -q "^RESULT ok$" "$SMOKE_OUT"

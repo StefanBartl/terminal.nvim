@@ -78,7 +78,10 @@ function M.check()
     if #active > 0 then
       health.ok("Status export active: " .. table.concat(active, ", "))
     else
-      health.info("Status export: no exporter active (not inside WezTerm/tmux, or disabled)")
+      health.info(
+        "Status export: no exporter active (not inside WezTerm/tmux, disabled, "
+          .. "or inside WezTerm on a Neovim older than 0.12)"
+      )
     end
   end
   local ok_nav, nav = pcall(require, "terminal.navigate")

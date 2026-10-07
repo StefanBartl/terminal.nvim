@@ -33,7 +33,8 @@ what an exporter publishes differs from what it sent last** (the tmux exporter c
 E/W counts, macro and modified flag: a change in `cwd`, filetype or the info and hint counts costs it no
 process). An exporter that fails is switched off once, with one notice — and still cleaned up when
 Neovim exits. A Neovim **without a UI** (a headless script) publishes nothing, silently; the status goes
-out when a UI attaches (`UIEnter`). A dataset over `status.max_bytes` is reported once, not on every event.
+out when a UI attaches (`UIEnter`) — also to a UI that attaches *again* (another WezTerm pane after
+`:detach`): it has seen nothing, so the "nothing changed" gate is reset for it. A dataset over `status.max_bytes` is reported once, not on every event.
 
 ## Exporters
 
@@ -48,12 +49,15 @@ a list picks explicitly; `false` sends nothing. The sequence is written with
 envelope (and tmux needs `set -g allow-passthrough on`).
 
 The tmux exporter writes options of the pane in `$TMUX_PANE`, so only the Neovim that **owns** the pane
-may: `auto` skips a Neovim that runs inside another **running** Neovim's terminal (`$NVIM` is set and
-that server answers — `git commit` opening a nested editor must not overwrite the outer one's status),
-a name (`export = "tmux"`) forces it, and the options are removed on exit only by the instance that
-wrote them. A tmux server that was *started* from a Neovim terminal hands `$NVIM` to every pane for
-good; once that Neovim is gone the address is dead and ignored, and `set-environment -gu NVIM` in
-`tmux.conf` (the Configs repo has it) keeps the variable out of the panes altogether.
+may: `auto` skips a Neovim that runs inside the terminal of another **running** Neovim (`$NVIM` names a
+server that answers *and* is an ancestor of this process — `git commit` opening a nested editor must not
+overwrite the outer one's status). A tmux server that was merely *started* from a Neovim terminal hands
+`$NVIM` to every pane for good, but a Neovim in one of its panes is not a descendant of that terminal: it
+owns its pane and exports (the process tree is read from `/proc`, or `ps`; where it cannot be read, or the
+address names no process — a custom `--listen` — a running outer Neovim counts as the owner). A name
+(`export = "tmux"`) forces the exporter, and the options are removed on exit only by the instance that wrote
+them. `set-environment -gu NVIM` in `tmux.conf` (the Configs repo has it) keeps the variable out of the panes
+altogether.
 
 ## The WezTerm side
 

@@ -127,16 +127,50 @@ describe("terminal pin / adopt", function()
       end
     end)
 
-    it("starts a native terminal again when wezterm cli fails at run time", function()
+    --- WezTerm answers every query but cannot split a pane: the failure comes AFTER the ping.
+    local function split_fails()
+      local original = wezterm.default_runner
+      wezterm.default_runner = function(argv, opts)
+        if argv[3] == "split-pane" then
+          return { code = 1, stdout = "", stderr = "mux is gone" }
+        end
+        return original(argv, opts)
+      end
+      return function()
+        wezterm.default_runner = original
+      end
+    end
+
+    it("refuses before the terminal ends when the multiplexer does not answer at all", function()
       boot(true)
       local native = terminal.open({ name = "work" })
       jobs.settle()
       local original = wezterm.default_runner
       wezterm.default_runner = function()
-        return { code = 1, stdout = "", stderr = "mux is gone" }
+        return { code = 124, stdout = "", stderr = "timed out" }
       end
       local ok, err = terminal.pin({ name = "work" })
       wezterm.default_runner = original
+      assert.is_false(ok)
+      assert.truthy(err:find("timed out", 1, true))
+      assert.is_true(
+        vim.api.nvim_buf_is_valid(native.bufnr),
+        "the running terminal was not touched"
+      )
+      assert.equals(native, terminal.list()[1])
+      vim.wait(100)
+      assert.truthy(table.concat(notices, "\n"):find("not reachable", 1, true))
+    end)
+
+    it("starts a native terminal again when the pane cannot be split at run time", function()
+      boot(true)
+      local native = terminal.open({ name = "work" })
+      jobs.settle()
+      local undo = split_fails()
+      local ok, err = terminal.pin({ name = "work" })
+      undo()
+      vim.wait(100)
+      assert.truthy(table.concat(notices, "\n"):find("was started again", 1, true))
       assert.is_false(ok)
       assert.truthy(err:find("mux is gone", 1, true))
       -- the old terminal ended (its output and history are gone), the user still has a terminal
@@ -193,12 +227,9 @@ describe("terminal pin / adopt", function()
         terminal.open({ name = "work" })
         jobs.settle()
         fail_spawn = true
-        local original = wezterm.default_runner
-        wezterm.default_runner = function()
-          return { code = 1, stdout = "", stderr = "mux is gone" }
-        end
+        local undo = split_fails()
         local pinned = terminal.pin({ name = "work" })
-        wezterm.default_runner = original
+        undo()
         assert.is_false(pinned)
         vim.wait(100)
         assert.equals(

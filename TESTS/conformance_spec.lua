@@ -3,6 +3,9 @@
 -- native (real windows and jobs), wezterm and tmux (fake CLIs, see support/fakes.lua). A new
 -- backend adds one `contract(...)` call.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
 local jobs = dofile(here .. "/support/jobs.lua")
 local fakes = dofile(here .. "/support/fakes.lua")

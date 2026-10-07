@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/quote_spec.lua -- terminal.core.quote (pure shell quoting)
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local quote = require("terminal.core.quote")
 
 -- Strings an attacker (or an unlucky file name) could use to break out of a quoted word.

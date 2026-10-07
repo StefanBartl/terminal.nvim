@@ -202,6 +202,15 @@ function M.new(registry, runner, own_pane, opts)
     return true, nil
   end
 
+  --- Whether the multiplexer answers right now (one cheap query). `pin` asks before it ends the
+  --- terminal it is about to replace.
+  ---@return boolean up
+  ---@return string|nil err
+  function backend.ping()
+    local all, err = panes()
+    return all ~= nil, err
+  end
+
   ---@param spec Terminal.SpawnSpec
   ---@return Terminal.Handle|nil
   ---@return string|nil

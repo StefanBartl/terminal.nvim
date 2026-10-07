@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/native_spec.lua -- terminal.backends.native: the backend contract on real windows/jobs.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
 local jobs = dofile(here .. "/support/jobs.lua")
 

@@ -57,6 +57,78 @@ M.alive = function(address)
   return true
 end
 
+--- The parent process id of `pid`; nil when it cannot be read (no /proc and no `ps`).
+---@type fun(pid: integer): integer|nil
+M.parent_of = function(pid)
+  local f = io.open(("/proc/%d/stat"):format(pid), "r")
+  if f then
+    local line = f:read("*l")
+    f:close()
+    -- "<pid> (<comm, may hold spaces and parentheses>) <state> <ppid> ..."
+    local ppid = line and line:match("^%d+ %b() %S (%d+)")
+    if ppid then
+      return tonumber(ppid)
+    end
+  end
+  -- Not on Windows: a `ps` there (Git Bash) numbers processes in its own namespace.
+  if vim.fn.has("win32") == 0 and vim.fn.executable("ps") == 1 then
+    local ok, res = pcall(function()
+      return vim
+        .system({ "ps", "-o", "ppid=", "-p", tostring(pid) }, { text = true, timeout = 1000 })
+        :wait()
+    end)
+    local parent = ok and res.code == 0 and tonumber(vim.trim(res.stdout or "")) or nil
+    if parent then
+      return parent
+    end
+  end
+  return nil
+end
+
+--- Whether the process `pid` is an ancestor of this Neovim: true / false, nil when the chain
+--- cannot be followed.
+---@param pid integer
+---@return boolean|nil
+function M.is_ancestor(pid)
+  local current = vim.uv.os_getpid()
+  for _ = 1, 64 do
+    local parent = M.parent_of(current)
+    if parent == nil then
+      return nil
+    end
+    if parent == pid then
+      return true
+    end
+    if parent <= 1 then
+      return false
+    end
+    current = parent
+  end
+  return false
+end
+
+--- Whether this Neovim runs inside the terminal of the (running) Neovim at `address`: the one
+--- `$NVIM` names. A Neovim in a pane of a tmux server that merely *was started* from that
+--- terminal has the same `$NVIM` but is not a descendant of it -- it owns its pane. The default
+--- address (`nvim.<pid>.<n>`) names the server process, so the process tree decides; a custom
+--- `--listen` address names no process, and a running Neovim there is taken as the outer one.
+---@param address string
+---@return boolean
+function M.nested(address)
+  if not M.alive(address) then
+    return false
+  end
+  local pid = tonumber(address:match("nvim%.(%d+)%.%d+$"))
+  if pid == nil then
+    return true
+  end
+  local ancestor = M.is_ancestor(pid)
+  if ancestor == nil then
+    return true
+  end
+  return ancestor
+end
+
 ---@param env table<string, string|nil>
 ---@return boolean ok
 ---@return string|nil reason
@@ -67,7 +139,7 @@ function M.available(env)
   if env.TMUX_PANE == nil or env.TMUX_PANE == "" then
     return false, "$TMUX_PANE is not set"
   end
-  if env.NVIM ~= nil and env.NVIM ~= "" and M.alive(env.NVIM) then
+  if env.NVIM ~= nil and env.NVIM ~= "" and M.nested(env.NVIM) then
     return false,
       "this Neovim runs inside another Neovim's terminal ($NVIM is set); the outer one owns the pane"
   end

@@ -3,6 +3,9 @@
 -- (file names, branch names, selections, config values) into something a shell or a terminal
 -- interprets. Seeded and deterministic: a failure reproduces.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local quote = require("terminal.core.quote")
 local osc = require("terminal.core.osc")
 local status = require("terminal.core.status")

@@ -510,7 +510,17 @@ function M.run(cmd, opts)
     local name, cwd, root = resolve(target)
     local old = state.registry:find(root, name)
     if old then
-      backend_of(old).close(old)
+      local closed, cerr = backend_of(old).close(old)
+      if not closed then
+        -- The earlier terminal is still there (a pane that could not be killed): starting another
+        -- under the same name would orphan it.
+        local msg = ("terminal '%s': cannot replace the earlier one: %s"):format(
+          name,
+          cerr or "cannot close"
+        )
+        fail(msg)
+        return false, msg
+      end
     end
     local focus = opts.focus ~= false
     local spec = build_spec(name, opts.cwd or cwd, root, {
@@ -630,6 +640,20 @@ function M.pin(target, opts)
       local msg = ("pin: terminal '%s': %s"):format(name, refused or "cannot start")
       fail(msg)
       return false, refused
+    end
+  end
+
+  -- A multiplexer that does not answer is found out now, not after the terminal is gone.
+  if target_backend.ping then
+    local up, down = target_backend.ping()
+    if not up then
+      local msg = ("pin: terminal '%s': %s is not reachable (%s)"):format(
+        name,
+        target_backend.name,
+        down or "no answer"
+      )
+      fail(msg)
+      return false, down
     end
   end
 

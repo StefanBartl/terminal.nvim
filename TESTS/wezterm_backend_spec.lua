@@ -226,6 +226,40 @@ describe("terminal.backends.wezterm", function()
       assert.equals(0, registry:count())
     end)
 
+    it("close with gone = true only forgets the handle: no process", function()
+      local h = backend.spawn(spec())
+      local before = #state.calls
+      assert.is_true((backend.close(h, { gone = true })))
+      assert.equals(before, #state.calls)
+      assert.equals(0, registry:count())
+    end)
+
+    it("ping is one list and says whether the mux answers", function()
+      local before = #state.calls
+      assert.is_true((backend.ping()))
+      assert.equals(before + 1, #state.calls)
+      state.list_fails = true
+      local up, err = backend.ping()
+      assert.is_false(up)
+      assert.truthy(err:find("timed out", 1, true))
+      state.list_fails = false
+    end)
+
+    it("a command string that is an executable as it stands is kept in one piece", function()
+      local original = vim.fn.executable
+      vim.fn.executable = function(name)
+        if name == "C:\\Program Files\\PowerShell\\7\\pwsh.exe" then
+          return 1
+        end
+        return original(name)
+      end
+      backend.spawn(spec({ cmd = "C:\\Program Files\\PowerShell\\7\\pwsh.exe" }))
+      vim.fn.executable = original
+      local argv = state.calls[#state.calls].argv
+      local dash = vim.fn.index(argv, "--")
+      assert.same({ "C:\\Program Files\\PowerShell\\7\\pwsh.exe" }, vim.list_slice(argv, dash + 2))
+    end)
+
     it("list asks wezterm only when it owns a pane", function()
       assert.same({}, backend.list())
       assert.equals(0, #state.calls)
@@ -370,15 +404,61 @@ describe("terminal facade with the wezterm backend", function()
     local first = terminal.open()
     state.list_fails = true
     terminal.toggle()
-    terminal.open()
+    local again = terminal.open()
     state.list_fails = false
     assert.is_not_nil(state.panes[first.pane])
     assert.equals(1, #terminal.list())
-    local kills = vim.tbl_filter(function(c)
-      return c.argv[1] == "kill-pane"
-    end, state.calls)
-    assert.equals(0, #kills)
+    -- the same pane, not a second one next to it: "gone" would have spawned a replacement
+    assert.equals(first, again)
+    assert.equals(first, terminal.list()[1])
+    local function count(sub)
+      return #vim.tbl_filter(function(c)
+        return c.argv[1] == sub
+      end, state.calls)
+    end
+    assert.equals(1, count("split-pane"))
+    assert.equals(0, count("kill-pane"))
   end)
+
+  it(
+    "run --direct does not start a second pane under the name of one it could not close",
+    function()
+      local first = terminal.open({ name = "build" })
+      state.kill_fails = true
+      local ok, err = terminal.run({ "make" }, { direct = true, name = "build" })
+      state.kill_fails = false
+      assert.is_false(ok)
+      assert.truthy(err:find("cannot replace", 1, true), err)
+      assert.equals(first, terminal.list()[1])
+      local splits = vim.tbl_filter(function(c)
+        return c.argv[1] == "split-pane"
+      end, state.calls)
+      assert.equals(1, #splits)
+    end
+  )
+
+  it(
+    "a shell given as a string with arguments is split for the pane (no shell sits in between)",
+    function()
+      terminal.setup({
+        backend = "wezterm",
+        layout = "vsplit",
+        shell = "pwsh -NoLogo",
+        commands = false,
+        keymaps = { preset = false },
+        status = { enable = false },
+      })
+      terminal.open({ name = "str" })
+      local split
+      for _, c in ipairs(state.calls) do
+        if c.argv[1] == "split-pane" then
+          split = c.argv
+        end
+      end
+      local dash = vim.fn.index(split, "--")
+      assert.same({ "pwsh", "-NoLogo" }, vim.list_slice(split, dash + 2))
+    end
+  )
 
   it("start_insert = false still focuses the pane it opens", function()
     terminal.setup({

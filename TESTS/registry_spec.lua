@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/registry_spec.lua -- terminal.core.registry, terminal.core.context, terminal.backends
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local registry = require("terminal.core.registry")
 local context = require("terminal.core.context")
 local backends = require("terminal.backends")

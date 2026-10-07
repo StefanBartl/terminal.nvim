@@ -328,6 +328,39 @@ describe("terminal.status (publishing)", function()
     assert.equals(1, #writes)
   end)
 
+  it("a UI that attaches again gets the status even when nothing changed", function()
+    local attached = true
+    vim.api.nvim_list_uis = function()
+      return attached and { {} } or {}
+    end
+    publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+    publisher.publish_now()
+    assert.equals(1, #writes)
+    -- the UI goes away and a new one (another WezTerm pane after `:detach`) attaches: it has seen
+    -- nothing, so the unchanged dataset must go out again
+    attached = false
+    publisher.publish_now()
+    attached = true
+    writes = {}
+    vim.api.nvim_exec_autocmds("UIEnter", { group = "terminal.status", modeline = false })
+    assert.is_true(vim.wait(1000, function()
+      return #writes >= 1
+    end))
+    local vars = decode(writes[1])
+    assert.equals("1", vars.MUX_NVIM)
+  end)
+
+  it("without nvim_ui_send (Neovim 0.11) the exporter says why: it needs 0.12", function()
+    local saved = vim.api.nvim_ui_send
+    vim.api.nvim_ui_send = nil
+    local chosen, notes = publisher.choose("wezterm", { WEZTERM_PANE = "3" })
+    vim.api.nvim_ui_send = saved
+    assert.same({}, chosen)
+    assert.equals(1, #notes)
+    assert.truthy(notes[1]:find("0.12", 1, true), notes[1])
+    assert.is_nil(notes[1]:find("0.11+ needed", 1, true))
+  end)
+
   it("UIEnter is one of the events that trigger a publish", function()
     publisher.setup(cfg(), { WEZTERM_PANE = "3" })
     writes = {}

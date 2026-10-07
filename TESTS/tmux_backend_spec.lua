@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/tmux_backend_spec.lua -- the tmux backend and status exporter against a fake `tmux`.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local registry_mod = require("terminal.core.registry")
 local tmux = require("terminal.backends.tmux")
 local exporter = require("terminal.status.exporters.tmux")
@@ -241,6 +244,25 @@ describe("terminal.backends.tmux", function()
       assert.equals(before + 2, #state.calls)
     end)
 
+    it("close with gone = true only forgets the handle: no process", function()
+      local h = backend.spawn(spec())
+      local before = #state.calls
+      assert.is_true((backend.close(h, { gone = true })))
+      assert.equals(before, #state.calls)
+      assert.equals(0, registry:count())
+    end)
+
+    it("ping is one list and says whether tmux answers", function()
+      local before = #state.calls
+      assert.is_true((backend.ping()))
+      assert.equals(before + 1, #state.calls)
+      state.list_fails = true
+      local up, err = backend.ping()
+      assert.is_false(up)
+      assert.truthy(err:find("timed out", 1, true))
+      state.list_fails = false
+    end)
+
     it("list asks tmux only when it owns a pane", function()
       assert.same({}, backend.list())
       assert.equals(0, #state.calls)
@@ -403,18 +425,119 @@ describe("terminal.status.exporters.tmux", function()
     end
   )
 
-  it("alive: a running Neovim server answers", function()
-    local address = vim.fn.serverstart()
-    assert.is_true(exporter.alive(address))
-    vim.fn.serverstop(address)
+  --- A Neovim server in ANOTHER process. (Inside one process a server answers on any connect mode,
+  --- so a check against `serverstart()` cannot tell a wrong mode from a right one.)
+  ---@param address string
+  ---@return integer job
+  local function outer_neovim(address)
+    local job = vim.fn.jobstart({
+      vim.v.progpath,
+      "--headless",
+      "-u",
+      "NONE",
+      "-i",
+      "NONE",
+      "--listen",
+      address,
+    })
+    vim.wait(8000, function()
+      return exporter.alive(address)
+    end, 50)
+    return job
+  end
+
+  local function free_port()
+    local server = vim.uv.new_tcp()
+    server:bind("127.0.0.1", 0)
+    local port = server:getsockname().port
+    server:close()
+    return port
+  end
+
+  it("alive: a Neovim in another process answers on a unix socket / named pipe", function()
+    local address = vim.fn.has("win32") == 1
+        and ("\\\\.\\pipe\\terminal-nvim-spec-" .. vim.uv.os_getpid())
+      or (vim.fn.tempname() .. ".sock")
+    local job = outer_neovim(address)
+    local up = exporter.alive(address)
+    vim.fn.jobstop(job)
+    vim.fn.jobwait({ job }, 3000)
+    assert.is_true(up)
+    assert.is_false(exporter.alive(address), "stopped: nobody answers")
   end)
 
-  it("alive: a server listening on TCP (--listen host:port) answers too", function()
-    local address = vim.fn.serverstart("127.0.0.1:0")
-    assert.truthy(address:find("^127%.0%.0%.1:%d+$"), address)
-    assert.is_true(exporter.alive(address))
-    vim.fn.serverstop(address)
-    assert.is_false(exporter.alive(address), "stopped: nobody answers")
+  it(
+    "alive: a Neovim in another process listening on TCP (--listen host:port) answers too",
+    function()
+      local address = "127.0.0.1:" .. free_port()
+      local job = outer_neovim(address)
+      local up = exporter.alive(address)
+      vim.fn.jobstop(job)
+      vim.fn.jobwait({ job }, 3000)
+      assert.is_true(up, "judged dead: sockconnect needs the tcp mode for host:port")
+      assert.is_false(exporter.alive(address), "stopped: nobody answers")
+    end
+  )
+
+  it("nested: a running outer Neovim counts only when it is an ancestor of this process", function()
+    local saved_alive, saved_parent = exporter.alive, exporter.parent_of
+    exporter.alive = function()
+      return true
+    end
+    local me = vim.uv.os_getpid()
+    local parents = { [me] = 500, [500] = 400, [400] = 1 }
+    exporter.parent_of = function(pid)
+      return parents[pid]
+    end
+    local ok, err = pcall(function()
+      assert.is_true(
+        exporter.nested("/run/user/1/nvim.400.0"),
+        "an ancestor: this Neovim is nested"
+      )
+      assert.is_false(
+        exporter.nested("/run/user/1/nvim.999.0"),
+        "running but not an ancestor (a tmux server that was started from its terminal): owns its pane"
+      )
+      assert.is_true(exporter.nested("127.0.0.1:6666"), "an address without a pid: assume nested")
+      exporter.parent_of = function()
+        return nil
+      end
+      assert.is_true(exporter.nested("/run/user/1/nvim.400.0"), "chain unreadable: assume nested")
+      exporter.alive = function()
+        return false
+      end
+      assert.is_false(exporter.nested("/run/user/1/nvim.400.0"), "outer Neovim gone")
+    end)
+    exporter.alive, exporter.parent_of = saved_alive, saved_parent
+    assert(ok, err)
+  end)
+
+  it(
+    "nested: available refuses an ancestor and accepts a Neovim that merely shares $NVIM",
+    function()
+      local saved_alive, saved_parent = exporter.alive, exporter.parent_of
+      exporter.alive = function()
+        return true
+      end
+      local me = vim.uv.os_getpid()
+      exporter.parent_of = function(pid)
+        return pid == me and 400 or 1
+      end
+      local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1" }
+      local nested =
+        exporter.available(vim.tbl_extend("force", env, { NVIM = "/run/user/1/nvim.400.0" }))
+      local owner =
+        exporter.available(vim.tbl_extend("force", env, { NVIM = "/run/user/1/nvim.777.0" }))
+      exporter.alive, exporter.parent_of = saved_alive, saved_parent
+      assert.is_false(nested)
+      assert.is_true(owner)
+    end
+  )
+
+  it("parent_of agrees with the OS where it can read the process tree", function()
+    local parent = exporter.parent_of(vim.uv.os_getpid())
+    -- nil where the tree cannot be read (Windows); the real parent everywhere else
+    assert.is_true(parent == nil or parent == vim.uv.os_getppid(), tostring(parent))
   end)
 
   it("ready needs an attached UI (a headless run leaves the pane alone)", function()
@@ -477,5 +600,135 @@ describe("terminal.status.exporters.tmux", function()
     assert.equals("no server", err)
     assert.is_false((exporter.publish("not json")))
     exporter.run, vim.env.TMUX_PANE = saved_run, saved_pane
+  end)
+end)
+
+describe("terminal facade with the tmux backend", function()
+  local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/]") or "."
+  local jobs = dofile(here .. "/support/jobs.lua")
+  local terminal, state
+  local saved = {}
+
+  ---@param extra? table
+  local function boot(extra)
+    for _, mod in ipairs({ "terminal", "terminal.config", "terminal.bindings", "terminal.status" }) do
+      package.loaded[mod] = nil
+    end
+    local runner
+    runner, state = fake()
+    tmux.default_runner = runner
+    terminal = require("terminal")
+    terminal.setup(vim.tbl_extend("force", {
+      backend = "tmux",
+      layout = "vsplit",
+      shell = { "sh" },
+      commands = false,
+      keymaps = { preset = false },
+      status = { enable = false },
+      navigate = { handoff = false },
+    }, extra or {}))
+  end
+
+  before_each(function()
+    saved.env = { TMUX = vim.env.TMUX, TMUX_PANE = vim.env.TMUX_PANE }
+    saved.executable = vim.fn.executable
+    saved.runner = tmux.default_runner
+    vim.env.TMUX, vim.env.TMUX_PANE = "/tmp/tmux-1/default,1,0", "%0"
+    vim.fn.executable = function(name)
+      if name == "tmux" then
+        return 1
+      end
+      return saved.executable(name)
+    end
+  end)
+
+  after_each(function()
+    for _, h in ipairs(terminal and terminal.list(true) or {}) do
+      jobs.settle()
+      terminal.close({ name = h.name })
+    end
+    vim.env.TMUX, vim.env.TMUX_PANE = saved.env.TMUX, saved.env.TMUX_PANE
+    vim.fn.executable = saved.executable
+    tmux.default_runner = saved.runner
+  end)
+
+  local function count(sub)
+    return #vim.tbl_filter(function(c)
+      return c[1] == sub or c[#c] == sub
+    end, state.calls)
+  end
+
+  it("is chosen when named and available", function()
+    boot()
+    assert.equals("tmux", terminal.status().backend)
+  end)
+
+  it("a failed list does not replace a live pane", function()
+    boot()
+    local first = terminal.open()
+    state.list_fails = true
+    terminal.toggle()
+    local again = terminal.open()
+    state.list_fails = false
+    assert.equals(first, again)
+    assert.equals(first, terminal.list()[1])
+    assert.equals(1, #vim.tbl_filter(function(c)
+      return c[1] == "split-window"
+    end, state.calls))
+    assert.equals(0, #vim.tbl_filter(function(c)
+      return c[1] == "kill-pane"
+    end, state.calls))
+  end)
+
+  it("toggle on a pane the user closed asks once, then splits (no kill, no second list)", function()
+    boot()
+    local first = terminal.open()
+    state.panes[first.pane] = nil
+    local before = #state.calls
+    terminal.toggle()
+    local subs = {}
+    for i = before + 1, #state.calls do
+      subs[#subs + 1] = state.calls[i][1]
+    end
+    assert.same({ "list-panes", "split-window" }, subs)
+  end)
+
+  it(
+    "pin with an env the pane cannot take is refused before the native terminal is touched",
+    function()
+      boot({ backend = "auto", env = { FOO = "1" }, shell = jobs.sleeper() })
+      local native = terminal.open({ name = "work", layout = "vsplit" })
+      jobs.settle()
+      local ok, err = terminal.pin({ name = "work" }, { backend = "tmux" })
+      assert.is_false(ok)
+      assert.truthy(err:find("environment", 1, true))
+      assert.is_true(vim.api.nvim_buf_is_valid(native.bufnr))
+      assert.equals(0, count("split-window"))
+    end
+  )
+
+  it("pin refuses before ending the terminal when tmux does not answer", function()
+    boot({ backend = "auto", shell = jobs.sleeper() })
+    local native = terminal.open({ name = "work", layout = "vsplit" })
+    jobs.settle()
+    state.list_fails = true
+    local ok, err = terminal.pin({ name = "work" }, { backend = "tmux" })
+    state.list_fails = false
+    assert.is_false(ok)
+    assert.truthy(err:find("timed out", 1, true))
+    assert.is_true(vim.api.nvim_buf_is_valid(native.bufnr))
+    assert.equals(native, terminal.list()[1])
+  end)
+
+  it("run quotes only portable words in a pane whose shell is unknown", function()
+    boot({ shell = "" })
+    local original_notify = vim.notify
+    vim.notify = function() end
+    local ok, err = terminal.run({ "echo", "$(calc.exe)" }, { name = "other" })
+    vim.notify = original_notify
+    assert.is_false(ok)
+    assert.truthy(err:find("default shell", 1, true))
+    assert.is_true((terminal.run({ "git", "status", "--short" }, { name = "other" })))
+    assert.equals("git status --short", (state.keys[#state.keys]:gsub("[\r\n]+$", "")))
   end)
 end)

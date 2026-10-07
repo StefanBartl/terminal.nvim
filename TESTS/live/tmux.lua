@@ -169,6 +169,28 @@ local ok, err = pcall(function()
   check("focus selects the pane again", backend.focus(h) == true and backend.focused(h) == true)
   check("list shows it", #backend.list() == 1)
 
+  -- A directory whose name ends in ';' is still that directory (tmux reads a trailing ';' of -c as
+  -- the end of the command).
+  local odd_dir = "/tmp/terminal-nvim-live;cwd;"
+  run({ "mkdir", "-p", odd_dir })
+  local odd = backend.spawn({
+    name = "odd",
+    root = "/live",
+    cwd = odd_dir,
+    layout = "split",
+    split = { size = 0.3 },
+    cmd = { "sh", "-c", "pwd; sleep 20" },
+    focus = false,
+  })
+  check("a pane in a ';'-named directory spawned", odd ~= nil, odd)
+  vim.wait(800)
+  local odd_cap = odd and tmux("capture-pane", "-p", "-t", odd.pane).stdout or ""
+  check("it started in that directory", odd_cap:find(odd_dir, 1, true) ~= nil, odd_cap)
+  if odd then
+    backend.close(odd)
+  end
+  run({ "rm", "-rf", odd_dir })
+
   -- Navigation hand-off at the edge: `select-pane -R` alone wraps around, the guarded form must not.
   local handoff = require("terminal.navigate.handoff").all.tmux
   local function hand_off(dir)

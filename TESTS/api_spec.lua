@@ -366,6 +366,13 @@ describe("terminal (facade)", function()
     it("direct: title, cwd and float overrides reach the window and the job", function()
       local dir = vim.fn.tempname()
       vim.fn.mkdir(dir, "p")
+      -- what jobstart is asked for: the directory of the JOB, not only what the handle remembers
+      local started_in
+      local jobstart = vim.fn.jobstart
+      vim.fn.jobstart = function(command, job_opts)
+        started_in = job_opts and job_opts.cwd
+        return jobstart(command, job_opts)
+      end
       local _, _, h = terminal.run(jobs.sleeper(), {
         direct = true,
         name = "git",
@@ -373,6 +380,7 @@ describe("terminal (facade)", function()
         cwd = dir,
         float = { width = 0.5, height = 0.5 },
       })
+      vim.fn.jobstart = jobstart
       -- Assert first, clean up always: a failed assertion must not leave the directory behind.
       local ok, err = pcall(function()
         local win = vim.fn.win_findbuf(h.bufnr)[1]
@@ -380,6 +388,7 @@ describe("terminal (facade)", function()
         assert.truthy(vim.inspect(cfg.title):find("lazygit", 1, true))
         assert.is_true(cfg.width < vim.o.columns * 0.6)
         assert.equals(dir, h.cwd, "the job starts in the directory that was asked for")
+        assert.equals(dir, started_in, "jobstart got the directory")
       end)
       vim.fn.delete(dir, "d")
       if not ok then

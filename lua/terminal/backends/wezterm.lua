@@ -128,6 +128,15 @@ function M.new(registry, runner, own_pane)
     return true, nil
   end
 
+  --- Whether the multiplexer answers right now (one cheap query). `pin` asks before it ends the
+  --- terminal it is about to replace.
+  ---@return boolean up
+  ---@return string|nil err
+  function backend.ping()
+    local all, err = panes()
+    return all ~= nil, err
+  end
+
   ---@param spec Terminal.SpawnSpec
   ---@return Terminal.Handle|nil
   ---@return string|nil
@@ -152,7 +161,14 @@ function M.new(registry, runner, own_pane)
     end
     local cmd = spec.cmd
     if type(cmd) == "string" and cmd ~= "" then
-      cmd = { cmd }
+      -- No shell sits between WezTerm and the program: "pwsh -NoLogo" would be looked up as ONE
+      -- program name. A string that is an executable as it stands (a path with spaces) is kept;
+      -- anything else is split on white space (quotes are not interpreted: use a list for those).
+      if vim.fn.executable(cmd) == 1 then
+        cmd = { cmd }
+      else
+        cmd = vim.split(cmd, "%s+", { trimempty = true })
+      end
     end
     if type(cmd) == "table" and #cmd > 0 then
       args[#args + 1] = "--"

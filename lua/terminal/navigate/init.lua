@@ -3,8 +3,9 @@
 --- inside Neovim, ask the surrounding multiplexer to focus the neighbouring pane.
 ---
 --- Floating windows never hand off (a float has no neighbours). The hand-off is fire-and-forget:
---- the key press returns at once, the multiplexer command runs in the background and its failure
---- (no neighbour in that direction, ...) is ignored -- it is the normal case at the outer edge.
+--- the key press does not wait for the multiplexer command (starting the process still costs a
+--- few milliseconds, tens on Windows), it runs in the background and its failure (no neighbour in
+--- that direction, ...) is ignored -- it is the normal case at the outer edge.
 
 local core = require("terminal.core.navigate")
 local handoff = require("terminal.navigate.handoff")

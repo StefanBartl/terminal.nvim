@@ -159,9 +159,6 @@ local EVENTS = {
   "RecordingLeave",
   "FocusGained",
   "WinEnter",
-  -- A UI that attaches after startup (a GUI client, `:connect`): what could not be published
-  -- without one goes out now.
-  "UIEnter",
 }
 
 --- Start (or restart) status export according to `cfg.status`.
@@ -202,6 +199,18 @@ function M.setup(cfg, env)
       runtime.debounce.call()
     end,
     desc = "terminal.nvim: publish the status dataset",
+  })
+  -- A UI that attaches (after startup: a GUI client, `:connect`, a new WezTerm pane after
+  -- `:detach`) is a new terminal that has seen nothing yet: what could not be published without
+  -- one goes out now, and so does what was published to the UI before it -- the delta gate must
+  -- not hold it back.
+  vim.api.nvim_create_autocmd("UIEnter", {
+    group = group,
+    callback = function()
+      runtime.last = {}
+      runtime.debounce.call()
+    end,
+    desc = "terminal.nvim: send the status to a newly attached UI",
   })
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = group,

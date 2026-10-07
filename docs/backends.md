@@ -47,6 +47,10 @@ Differences from `native`, on purpose:
 
 - **No floats.** `float` becomes a right split.
 - **`env` is refused**: `wezterm cli` cannot set environment variables for a command.
+- **No shell in between**: a `shell` (or command) given as a string with arguments, `"pwsh -NoLogo"`, is split
+  on white space for the pane (a string that is an executable as it stands, such as a path with spaces, is
+  kept in one piece; quotes are not interpreted: use a list for those). `native` hands such a string to
+  Neovim's `jobstart`, which runs it through the shell.
 - **The exit of the command is not reported**: `run(..., { direct = true, on_exit = fn })`
   never calls `fn`, and `close = ...` has no effect; the pane closes when the program ends
   (WezTerm's own setting).
