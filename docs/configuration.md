@@ -59,7 +59,7 @@ require("terminal").setup({
 
   auto_insert = {           -- enter Insert mode in every terminal buffer on these events
     enable = false,
-    events = { "TermOpen" },
+    events = { "TermOpen" },  -- unknown event names are reported and dropped
   },
 
   run = { name = "run" },   -- terminal used by `run` and `send` when no name is given

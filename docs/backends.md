@@ -12,7 +12,18 @@ the same for all of them.
 `auto` is `native`, also inside WezTerm or tmux: a multiplexer backend is a deliberate choice.
 Reporting Neovim's *status* to WezTerm is separate and additive: see [status.md](status.md).
 A backend that is named but not available (not inside WezTerm, `wezterm` not on `$PATH`) falls
-back to `native` with one notice that says why.
+back to `native` with one notice that says why. A multiplexer backend is looked at only when the
+config names it (or `pin` / a pinned terminal needs it): finding `wezterm` or `tmux` on `$PATH` takes
+tens of milliseconds on Windows and `setup()` does not pay that on every start.
+
+## Asking a multiplexer
+
+`open`, `toggle` and `list` ask the multiplexer **once** (one `list` process answers "does the pane
+exist" and "does it have focus"); `list` asks nothing when no pane is registered. A query that
+**fails** (a timeout, a hung mux) means "unknown", not "gone": the pane is never replaced or killed on the
+strength of a failed question, and `close` keeps a pane it could not kill registered and says so.
+Toggling a pane in another WezTerm tab asks the client which pane has focus (`list-clients`), because
+`is_active` in the pane list only means "active within its own tab".
 
 ## The `tmux` backend
 

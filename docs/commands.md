@@ -23,8 +23,10 @@ One compound command, `:Terminal <action> [args] [flags]`, with `<Tab>` completi
 ## Pin and adopt
 
 `pin` is **not** a transfer: a process cannot move between a Neovim `:terminal` and a pane. The
-native terminal is closed and the same command (and directory) is started again in a pane of
-tmux or WezTerm, under the same name; output and shell history of the old one are gone. From
+native terminal is closed — only after the pane has started, so a pane that cannot be started
+(for example because `env` is set, which a pane cannot take) leaves the terminal you have — and the same
+command (and directory) is started again in a pane of tmux or WezTerm, under the same name; output and
+shell history of the old one are gone. From
 then on `toggle`, `send`, `close` act on the pane. The backend is tmux inside tmux, else WezTerm.
 
 `adopt` shows a pane's screen (`wezterm cli get-text` / `tmux capture-pane -p`) in a read-only
@@ -43,7 +45,10 @@ This is deliberate — a selection that contains a line break would otherwise ru
 - From Lua, `require("terminal").run({ "git", "commit", "-m", msg })` takes an **argv list**
   and quotes every word for the terminal's shell (POSIX, PowerShell or cmd.exe), so a
   message with spaces, quotes or `$(...)` stays data. A word containing a line break or NUL
-  is refused: it would end the command line.
+  is refused: it would end the command line. In a **tmux or WezTerm pane** the shell is the
+  multiplexer's default, which Neovim cannot see: set `shell` (e.g. `shell = "pwsh"`) and the words
+  are quoted for it; without it only words made of letters, digits and `. _ / : -` are accepted
+  (they mean the same in every shell) and anything else is refused with that hint.
 - `--direct` starts the command as the job itself (no shell in between). The terminal stays
   after it ends, an earlier terminal of the same name is replaced, and from Lua
   `on_exit(code)` reports the exit code: `run({ "make" }, { direct = true, on_exit = fn })`.

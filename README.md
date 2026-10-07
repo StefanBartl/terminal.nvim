@@ -58,7 +58,7 @@ answers.
 
 **The Basics**
 
-- [Requirements](docs/requirements.md) — Neovim version and required plugins.
+- [Requirements](docs/requirements.md) — Neovim version (0.11+, 0.12+ for the WezTerm status export), tmux 3.1+, required plugins.
 - [Installation](docs/installation.md) — plugin managers and load-trigger variants.
 - [Quickstart](docs/quickstart.md) — the first things to run after installing.
 

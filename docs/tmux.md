@@ -27,6 +27,15 @@ Same as the WezTerm backend: no floats (`float` is a right split), `env` is refu
 command is not reported, a pane that was closed is replaced on the next `open`. `send` types
 literally after `--`, so text like `-l C-c Enter; kill-server` is typed, not interpreted.
 
+tmux reads a trailing `;` of any argument as the end of a command (and `\;` as an escaped one), so every
+piece of data that becomes an argument — typed text, a directory, the words of a command, a pane-option
+value — is escaped with a backslash in front of a final `;` (`backends.tmux.word`). Without that,
+`select 1;` would lose its semicolon and a command word `notes;` followed by `run-shell` would start a
+tmux command. `TESTS/live/tmux.lua` types such lines into a pane running `cat` and compares the screen.
+
+`tmux 3.1+` takes `split-window -l 30%`; an older tmux gets `-p 30` (the version is asked once, on the
+first split; `:checkhealth terminal` shows it).
+
 ## Tests
 
 `TESTS/tmux_backend_spec.lua` runs against a fake `tmux`. `TESTS/live/tmux.lua` starts a **private**

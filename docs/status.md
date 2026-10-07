@@ -13,7 +13,7 @@ receiving side):
 |---|---|
 | `v` | schema version (now `1`); a receiver ignores unknown fields and refuses a higher version |
 | `pid` | the Neovim process |
-| `mode` | `nvim_get_mode().mode` (`n`, `i`, `v`, `V`, `t`, ...) |
+| `mode` | `nvim_get_mode().mode` (`n`, `i`, `v`, `V`, `t`, ...); the two control-character modes are spelled out: `^V` (blockwise Visual, `no^V` operator-pending) and `^S` (Select block) |
 | `file`, `ft` | file name (last path component; `terminal` for terminal buffers) and filetype |
 | `cwd`, `branch` | working directory and git branch (from gitsigns, else `.git/HEAD`) |
 | `e`, `w`, `i`, `h` | diagnostic counts: error, warning, info, hint |
@@ -29,8 +29,11 @@ title.
 
 Only on events that can change a field — mode, buffer, directory, diagnostics, macro
 recording, the modified flag, focus — debounced (`status.debounce_ms`, 80), and **only when
-the dataset differs from the one sent last**. An exporter that fails is switched off once,
-with one notice.
+what an exporter publishes differs from what it sent last** (the tmux exporter carries mode, file, branch,
+E/W counts, macro and modified flag: a change in `cwd`, filetype or the info and hint counts costs it no
+process). An exporter that fails is switched off once, with one notice — and still cleaned up when
+Neovim exits. A Neovim **without a UI** (a headless script) publishes nothing, silently; the status goes
+out when a UI attaches (`UIEnter`). A dataset over `status.max_bytes` is reported once, not on every event.
 
 ## Exporters
 
@@ -41,8 +44,13 @@ with one notice.
 
 `status.export = "auto"` uses every exporter whose environment signal is present; a name or
 a list picks explicitly; `false` sends nothing. The sequence is written with
-`nvim_ui_send` in **one** call; under tmux it is wrapped in the passthrough envelope (and
-tmux needs `set -g allow-passthrough on`).
+`nvim_ui_send` (**Neovim 0.12+**) in **one** call; under tmux it is wrapped in the passthrough
+envelope (and tmux needs `set -g allow-passthrough on`).
+
+The tmux exporter writes options of the pane in `$TMUX_PANE`, so only the Neovim that **owns** the pane
+may: `auto` skips a Neovim that runs inside another Neovim's terminal (`$NVIM` is set — `git commit`
+opening a nested editor must not overwrite the outer one's status), a name (`export = "tmux"`) forces
+it, and the options are removed on exit only by the instance that wrote them.
 
 ## The WezTerm side
 

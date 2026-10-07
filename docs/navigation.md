@@ -17,11 +17,16 @@ require("terminal").navigate("h", 2)   -- two windows left
 - **Fire-and-forget.** The multiplexer command runs in the background; the key press returns at
   once and a failure (no pane in that direction, the normal case at the outer edge) is ignored.
 - **Innermost first.** Inside tmux inside WezTerm only tmux is asked.
+- **One process at a time.** A key held down at the edge does not start a process per repeat: while one
+  hand-off runs, the latest press waits behind it (and the process has a 2 s timeout).
 
 | Hand-off | Environment | Command |
 |---|---|---|
 | `wezterm` | `$WEZTERM_PANE` | `wezterm cli activate-pane-direction Left/Down/Up/Right` |
-| `tmux` | `$TMUX` | `tmux select-pane -L/-D/-U/-R` |
+| `tmux` | `$TMUX` | `tmux if-shell -F '#{pane_at_left}' '' 'select-pane -L'` (and `-D`/`-U`/`-R` with `bottom`/`top`/`right`) |
+
+`select-pane -L` alone wraps around at the window's edge and would focus the pane on the far side; the
+`pane_at_*` test keeps the key a no-op there.
 
 `navigate.handoff` is `"auto"` (what the environment has), a name, a list of names or `false`.
 
