@@ -7,12 +7,17 @@ the same for all of them.
 |---|---|---|
 | `native` | Neovim `:terminal` windows (float, split, vsplit, tab) | `backend = "auto"` (default) or `"native"` |
 | `wezterm` | panes / tabs of the WezTerm window Neovim runs in | `backend = "wezterm"` |
-| `tmux` | panes of the tmux session | planned |
+| `tmux` | panes of the tmux window ([tmux.md](tmux.md)) | `backend = "tmux"` |
 
 `auto` is `native`, also inside WezTerm or tmux: a multiplexer backend is a deliberate choice.
 Reporting Neovim's *status* to WezTerm is separate and additive: see [status.md](status.md).
 A backend that is named but not available (not inside WezTerm, `wezterm` not on `$PATH`) falls
 back to `native` with one notice that says why.
+
+## The `tmux` backend
+
+Panes through the `tmux` CLI (needs `$TMUX`, `$TMUX_PANE`); the same mapping and the same
+differences as below. See [tmux.md](tmux.md).
 
 ## The `wezterm` backend
 

@@ -43,6 +43,7 @@ local function environment()
   return {
     TMUX = vim.env.TMUX,
     WEZTERM_PANE = vim.env.WEZTERM_PANE,
+    TMUX_PANE = vim.env.TMUX_PANE,
   }
 end
 
@@ -122,9 +123,17 @@ function M.setup(opts)
   if wezterm_ok then
     state.backends.wezterm = wezterm.new(state.registry)
   end
+  local tmux = require("terminal.backends.tmux")
+  local tmux_ok, tmux_reason = tmux.available(env)
+  if tmux_ok then
+    state.backends.tmux = tmux.new(state.registry)
+  end
   local name, note = backends.resolve(config.get("backend"), env, state.backends)
-  if note and config.get("backend") == "wezterm" and wezterm_reason then
+  local wanted = config.get("backend")
+  if note and wanted == "wezterm" and wezterm_reason then
     note = ("backend 'wezterm' is not available (%s) -- using native"):format(wezterm_reason)
+  elseif note and wanted == "tmux" and tmux_reason then
+    note = ("backend 'tmux' is not available (%s) -- using native"):format(tmux_reason)
   end
   state.backend = state.backends[name]
   if note then

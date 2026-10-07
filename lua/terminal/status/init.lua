@@ -29,6 +29,9 @@ local runtime = { exporters = {}, last = {}, debounce = nil, max_bytes = 1024 }
 ---@internal
 ---@type table<string, fun(): Terminal.StatusExporter>
 local EXPORTERS = {
+  tmux = function()
+    return (require("terminal.status.exporters.tmux"))
+  end,
   wezterm = function()
     return (require("terminal.status.exporters.wezterm"))
   end,
@@ -141,7 +144,12 @@ function M.setup(cfg, env)
     return
   end
 
-  env = env or { WEZTERM_PANE = vim.env.WEZTERM_PANE, TMUX = vim.env.TMUX }
+  env = env
+    or {
+      WEZTERM_PANE = vim.env.WEZTERM_PANE,
+      TMUX = vim.env.TMUX,
+      TMUX_PANE = vim.env.TMUX_PANE,
+    }
   local chosen, notes = M.choose(cfg.status.export, env)
   if #notes > 0 then
     vim.schedule(function()

@@ -94,3 +94,27 @@ jobs:
           path: ${{ runner.temp }}/test-output.log
           if-no-files-found: ignore
           retention-days: 14
+
+  # The tmux backend and status exporter against a REAL tmux server (a private socket). The suite
+  # itself uses a fake tmux; this job is where the real one is exercised.
+  tmux-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: StefanBartl/lib.nvim
+          path: .deps/lib.nvim
+          ref: ci-verified
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: |
+          export LIB_NVIM_DIR="$PWD/.deps/lib.nvim"
+          export SMOKE_OUT="$RUNNER_TEMP/tmux-live.txt"
+          nvim --headless -u NONE -l TESTS/live/tmux.lua || true
+          cat "$SMOKE_OUT"
+          grep -q "^RESULT ok$" "$SMOKE_OUT"

@@ -36,6 +36,7 @@ with one notice.
 
 | Exporter | Where | How |
 |---|---|---|
+| `tmux` | inside tmux (`$TMUX`) | pane options `@terminal_mode`, `@terminal_file`, `@terminal_branch`, `@terminal_diag`, `@terminal_rec`, `@terminal_mod` ([tmux.md](tmux.md)) |
 | `wezterm` | inside WezTerm (`$WEZTERM_PANE`) | per-pane user variables via OSC 1337 `SetUserVar` (`MUX_NVIM`, `MUX_PIPE`, `MUX_STATUS`) |
 
 `status.export = "auto"` uses every exporter whose environment signal is present; a name or

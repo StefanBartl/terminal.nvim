@@ -9,6 +9,7 @@
 | Which `:Terminal` subcommands exist? | [commands.md](commands.md) |
 | Which keys does it bind? | [BINDINGS.md](BINDINGS.md) |
 | How do I move across pane borders? | [navigation.md](navigation.md) |
+| What about tmux? | [tmux.md](tmux.md) |
 | Where can terminals live? | [backends.md](backends.md) |
 | What does it tell WezTerm? | [status.md](status.md) |
 | How is it built? | [architecture.md](architecture.md) |
