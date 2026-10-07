@@ -22,6 +22,12 @@ set -g status-right '#{?#{&&:#{@terminal_mode},#{||:#{m:*vim*,#{pane_current_com
 
 `:checkhealth terminal` reports `allow-passthrough` and the detected tmux.
 
+A theme plugin that sets `status-right` itself (catppuccin-tmux does, unconditionally, while TPM loads it) replaces
+that line. The author's `Configs/terminals/tmux/tmux.conf` keeps the segment in a user option
+(`@terminal_status_segment`), references it with `#{E:@terminal_status_segment}` and, after `run '.../tpm'`, puts it
+back in front of whatever the theme made; `Configs/terminals/tmux/tests/tmux_conf_check.sh` runs the file against a
+fake theme.
+
 ## Differences from `native`
 
 Same as the WezTerm backend: no floats (`float` is a right split), `env` is refused, the exit of the
