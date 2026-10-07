@@ -6,11 +6,36 @@
 local M = {}
 
 ---@internal
+--- Branch per directory, kept for a moment: a status update can fire several times a second
+--- (mode changes, buffer switches) and the answer almost never changes in that time. Reading
+--- `.git/HEAD` was the whole cost of an update.
+---@type table<string, { at: number, value: string|false }>
+local branch_cache = {}
+local BRANCH_TTL_MS = 2000
+
+---@internal
 --- Branch of the repository that contains `dir`: from gitsigns when it already knows, else by
 --- reading `.git/HEAD` (one small file). A detached HEAD gives the short hash.
 ---@param dir string
 ---@return string|nil
 local function branch_of(dir)
+  local now = vim.uv.now()
+  local cached = branch_cache[dir]
+  if cached and now - cached.at < BRANCH_TTL_MS then
+    return cached.value or nil
+  end
+  local value = M.read_branch(dir)
+  if vim.tbl_count(branch_cache) > 64 then
+    branch_cache = {} -- bounded: a long session visits many directories
+  end
+  branch_cache[dir] = { at = now, value = value or false }
+  return value
+end
+
+--- Uncached: the branch of the repository that contains `dir`.
+---@param dir string
+---@return string|nil
+function M.read_branch(dir)
   local head = vim.b.gitsigns_head
   if type(head) == "string" and head ~= "" then
     return head
