@@ -19,6 +19,20 @@ describe("terminal.backends.tmux", function()
     backend = tmux.new(registry, runner, "%0")
   end)
 
+  --- The recorded calls without the one-off `tmux -V` probe.
+  local function calls()
+    return vim.tbl_filter(function(c)
+      return c[#c] ~= "-V"
+    end, state.calls)
+  end
+
+  --- The commands tmux ran, without the version probe.
+  local function ran()
+    return vim.tbl_filter(function(c)
+      return c[1] ~= "-V"
+    end, state.executed)
+  end
+
   ---@param over? table
   local function spec(over)
     return vim.tbl_extend("force", {
@@ -54,9 +68,10 @@ describe("terminal.backends.tmux", function()
         "30%",
         "-c",
         "/proj",
+        "--",
         "make",
         "test",
-      }, state.calls[1])
+      }, calls()[1])
       assert.equals(h, registry:get("/proj::t1"))
     end)
 
@@ -70,9 +85,63 @@ describe("terminal.backends.tmux", function()
     end)
 
     it("without focus the new pane is created detached (-d)", function()
-      backend.spawn(spec({ start_insert = false }))
-      assert.truthy(vim.tbl_contains(state.calls[1], "-d"))
+      backend.spawn(spec({ focus = false }))
+      assert.truthy(vim.tbl_contains(calls()[1], "-d"))
       assert.equals("%0", state.active)
+    end)
+
+    it("start_insert = false is not 'do not focus': the pane is still selected", function()
+      backend.spawn(spec({ start_insert = false }))
+      assert.is_false(vim.tbl_contains(calls()[1], "-d"))
+      assert.equals("%1", state.active)
+    end)
+
+    it("a word that ends in ';' stays one word and starts no tmux command", function()
+      backend.spawn(spec({ cmd = { "cat", "notes;", "run-shell", "touch /tmp/pwned" } }))
+      assert.equals(1, #ran())
+      assert.equals("split-window", ran()[1][1])
+      assert.truthy(vim.tbl_contains(ran()[1], "notes;"))
+      assert.truthy(vim.tbl_contains(ran()[1], "run-shell"))
+    end)
+
+    it("a directory ending in ';' stays the directory", function()
+      backend.spawn(spec({ cwd = "/proj/odd;" }))
+      assert.equals(1, #ran())
+      local at
+      for i, a in ipairs(ran()[1]) do
+        if a == "-c" then
+          at = i
+        end
+      end
+      assert.equals("/proj/odd;", ran()[1][at + 1])
+    end)
+
+    it("an old tmux (before 3.1) gets -p <percent>, a new or unknown one -l <percent>%", function()
+      local function size_args(version)
+        local runner
+        runner, state = fake()
+        state.version = version
+        tmux.new(registry_mod.new(), runner, "%0").spawn(spec())
+        local split = vim.tbl_filter(function(c)
+          return c[1] == "split-window"
+        end, state.executed)[1]
+        local i = vim.fn.index(split, "-h") + 1
+        return split[i + 1], split[i + 2]
+      end
+      assert.same({ "-p", "30" }, { size_args("tmux 3.0a") })
+      assert.same({ "-p", "30" }, { size_args("tmux 2.9") })
+      assert.same({ "-l", "30%" }, { size_args("tmux 3.1") })
+      assert.same({ "-l", "30%" }, { size_args("tmux next-3.5") })
+      assert.same({ "-l", "30%" }, { size_args("tmux master") })
+    end)
+
+    it("asks for the version once, not on every spawn", function()
+      backend.spawn(spec({ name = "a" }))
+      backend.spawn(spec({ name = "b" }))
+      local probes = vim.tbl_filter(function(c)
+        return c[#c] == "-V"
+      end, state.calls)
+      assert.equals(1, #probes)
     end)
 
     it("refuses env, bad output and a failing tmux", function()
@@ -97,7 +166,8 @@ describe("terminal.backends.tmux", function()
       runner, state = fake()
       local b = tmux.new(registry, runner, "%0", { socket = "spec" })
       b.spawn(spec())
-      assert.same({ "-L", "spec", "split-window" }, vim.list_slice(state.calls[1], 1, 3))
+      assert.same({ "-L", "spec", "-V" }, vim.list_slice(state.calls[1], 1, 3))
+      assert.same({ "-L", "spec", "split-window" }, vim.list_slice(state.calls[2], 1, 3))
     end)
   end)
 
@@ -110,6 +180,14 @@ describe("terminal.backends.tmux", function()
         { "send-keys", "-t", "%1", "-l", "--", "-l C-c Enter; kill-server" },
         state.calls[#state.calls]
       )
+    end)
+
+    it("a trailing ';' arrives as typed text, not as the end of the command", function()
+      local h = backend.spawn(spec())
+      for _, text in ipairs({ "select 1;", "find . -exec rm {} \\;", ";", "a;b;", "x\\\\;" }) do
+        assert.is_true((backend.send(h, text)))
+        assert.equals(text, state.keys[#state.keys], text)
+      end
     end)
 
     it("refuses a NUL byte", function()
@@ -134,6 +212,56 @@ describe("terminal.backends.tmux", function()
       assert.is_false(backend.visible(h))
     end)
 
+    it(
+      "a failed list is 'unknown', not 'gone': visible is nil, the pane is not replaced",
+      function()
+        local h = backend.spawn(spec())
+        state.list_fails = true
+        assert.is_nil(backend.visible(h))
+        assert.is_nil((backend.probe(h)))
+        assert.is_false(backend.focused(h))
+        state.list_fails = false
+        assert.is_true(backend.visible(h))
+      end
+    )
+
+    it("probe answers visible and focused with ONE list", function()
+      local h = backend.spawn(spec())
+      local before = #state.calls
+      local p = backend.probe(h)
+      assert.same({ visible = true, focused = true }, p)
+      assert.equals(before + 1, #state.calls)
+    end)
+
+    it("focus and hide are one tmux process each", function()
+      local h = backend.spawn(spec())
+      local before = #state.calls
+      backend.hide(h)
+      backend.focus(h)
+      assert.equals(before + 2, #state.calls)
+    end)
+
+    it("list asks tmux only when it owns a pane", function()
+      assert.same({}, backend.list())
+      assert.equals(0, #state.calls)
+      backend.spawn(spec())
+      local before = #state.calls
+      backend.list()
+      assert.equals(before + 1, #state.calls)
+    end)
+
+    it("close keeps the handle when the pane cannot be killed, and says so", function()
+      local h = backend.spawn(spec())
+      state.kill_fails = true
+      local ok, err = backend.close(h)
+      assert.is_false(ok)
+      assert.truthy(err:find("cannot kill", 1, true))
+      assert.equals(h, registry:get(h.id))
+      state.kill_fails = false
+      assert.is_true((backend.close(h)))
+      assert.equals(0, registry:count())
+    end)
+
     it("list forgets a pane that no longer exists", function()
       local a = backend.spawn(spec({ name = "a" }))
       backend.spawn(spec({ name = "b" }))
@@ -151,6 +279,33 @@ describe("terminal.backends.tmux", function()
       assert.equals(0, registry:count())
       assert.is_true(backend.close(h))
     end)
+  end)
+end)
+
+describe("terminal.backends.tmux (pure)", function()
+  it("word: a trailing ';' gets a backslash, nothing else changes", function()
+    assert.equals("a\\;", tmux.word("a;"))
+    assert.equals("\\;", tmux.word(";"))
+    assert.equals("a\\\\;", tmux.word("a\\;"))
+    assert.equals("a;b", tmux.word("a;b"))
+    assert.equals("plain", tmux.word("plain"))
+    assert.equals("", tmux.word(""))
+  end)
+
+  it("parse_version reads tmux -V lines", function()
+    assert.same({ 3, 4 }, { tmux.parse_version("tmux 3.4") })
+    assert.same({ 3, 0 }, { tmux.parse_version("tmux 3.0a") })
+    assert.same({ 3, 5 }, { tmux.parse_version("tmux next-3.5") })
+    assert.is_nil((tmux.parse_version("tmux master")))
+    assert.is_nil((tmux.parse_version("")))
+  end)
+
+  it("has_percent_size: 3.1 and later, unknown counts as new", function()
+    assert.is_false(tmux.has_percent_size(3, 0))
+    assert.is_false(tmux.has_percent_size(2, 9))
+    assert.is_true(tmux.has_percent_size(3, 1))
+    assert.is_true(tmux.has_percent_size(4, 0))
+    assert.is_true(tmux.has_percent_size(nil, nil))
   end)
 end)
 
@@ -199,6 +354,71 @@ describe("terminal.status.exporters.tmux", function()
       "@terminal_mode",
       "n",
     }, argv)
+  end)
+
+  it("a value that ends in ';' is escaped so tmux keeps it", function()
+    local argv = exporter._command("%3", { ["@terminal_branch"] = "feature;" }, false)
+    assert.equals("feature\\;", argv[7])
+  end)
+
+  it(
+    "key: only what the pane options carry (cwd, ft, info and hint counts do not count)",
+    function()
+      local base =
+        { mode = "n", file = "a.lua", branch = "main", e = 1, w = 0, rec = "", mod = false }
+      local key = exporter.key(base)
+      local noise = { cwd = "/x", ft = "lua", i = 4, h = 9 }
+      assert.equals(key, exporter.key(vim.tbl_extend("force", base, noise)))
+      assert.are_not.equal(key, exporter.key(vim.tbl_extend("force", base, { mode = "i" })))
+      assert.are_not.equal(key, exporter.key(vim.tbl_extend("force", base, { e = 2 })))
+      assert.are_not.equal(key, exporter.key(vim.tbl_extend("force", base, { branch = "dev" })))
+    end
+  )
+
+  it("available refuses a Neovim inside another Neovim's terminal ($NVIM)", function()
+    local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1" }
+    assert.is_true((exporter.available(env)))
+    local nested = vim.tbl_extend("force", env, { NVIM = "/tmp/nvim.sock" })
+    local ok, why = exporter.available(nested)
+    assert.is_false(ok)
+    assert.truthy(why:find("NVIM", 1, true))
+  end)
+
+  it("ready needs an attached UI (a headless run leaves the pane alone)", function()
+    assert.equals(#vim.api.nvim_list_uis() > 0, exporter.ready())
+  end)
+
+  it("clear touches the pane only when this instance published", function()
+    local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
+    vim.env.TMUX_PANE = "%9"
+    local runs = 0
+    exporter.run = function()
+      runs = runs + 1
+      return { code = 0, stderr = "" }
+    end
+    exporter.clear()
+    assert.equals(0, runs)
+    exporter.publish(vim.json.encode({ mode = "n" }))
+    assert.equals(1, runs)
+    exporter.clear()
+    assert.equals(2, runs)
+    exporter.clear()
+    assert.equals(2, runs)
+    exporter.run, vim.env.TMUX_PANE = saved_run, saved_pane
+  end)
+
+  it("a publish that fails half-way still counts as published (so clear cleans up)", function()
+    local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
+    vim.env.TMUX_PANE = "%9"
+    local seen = {}
+    exporter.run = function(argv)
+      seen[#seen + 1] = argv
+      return { code = #seen == 1 and 1 or 0, stderr = "boom" }
+    end
+    assert.is_false((exporter.publish(vim.json.encode({ mode = "n" }))))
+    exporter.clear()
+    assert.equals(2, #seen)
+    exporter.run, vim.env.TMUX_PANE = saved_run, saved_pane
   end)
 
   it("clear unsets instead of setting", function()

@@ -7,12 +7,25 @@ local quote = require("terminal.core.quote")
 local osc = require("terminal.core.osc")
 local status = require("terminal.core.status")
 
+local bit = require("bit")
+
 -- A small deterministic generator (no math.random: the sequence must not change between runs).
-local function lcg(seed)
-  local state = seed
+-- xorshift32 on LuaJIT's 32-bit `bit` operations: every bit is mixed. (An LCG written with Lua
+-- doubles overflows 2^53, loses its low bits and then draws from a handful of values -- the
+-- "random" bytes never contained ESC or BEL, the very characters these specs are about.)
+local function xorshift(seed)
+  local x = bit.tobit(seed ~= 0 and seed or 0x2545F491)
+  local function step()
+    x = bit.bxor(x, bit.lshift(x, 13))
+    x = bit.bxor(x, bit.rshift(x, 17))
+    x = bit.bxor(x, bit.lshift(x, 5))
+    return x
+  end
+  for _ = 1, 24 do
+    step() -- small seeds start in a poor corner of the sequence; let it mix
+  end
   return function(n)
-    state = (state * 1103515245 + 12345) % 2147483648
-    return (state % n) + 1
+    return (step() % n) + 1
   end
 end
 
@@ -101,9 +114,27 @@ local function posix_parse(line)
   return words
 end
 
+describe("the property generator", function()
+  it("covers its whole range, ESC and BEL included", function()
+    for _, seed in ipairs({ 7, 23, 29, 20261007 }) do
+      local rand = xorshift(seed)
+      local seen = {}
+      for _ = 1, 4000 do
+        seen[rand(256)] = true
+      end
+      local distinct = 0
+      for _ in pairs(seen) do
+        distinct = distinct + 1
+      end
+      assert.is_true(distinct > 240, ("seed %d: only %d distinct values"):format(seed, distinct))
+      assert.is_true(seen[28] and seen[8], ("seed %d never drew ESC or BEL"):format(seed))
+    end
+  end)
+end)
+
 describe("terminal.core.quote (property)", function()
   it("posix: whatever the words, a POSIX shell parses the line back to the same words", function()
-    local rand = lcg(20261007)
+    local rand = xorshift(20261007)
     for _ = 1, 400 do
       local argv = {}
       for i = 1, rand(5) do
@@ -118,7 +149,7 @@ describe("terminal.core.quote (property)", function()
   it(
     "powershell: every quote character inside a quoted word is doubled, so none ends it",
     function()
-      local rand = lcg(7)
+      local rand = xorshift(7)
       local quotes = { "'", "\226\128\152", "\226\128\153", "\226\128\154", "\226\128\155" }
       for _ = 1, 400 do
         local word = random_word(rand, 14)
@@ -138,7 +169,7 @@ describe("terminal.core.quote (property)", function()
   )
 
   it("powershell: a bare word never starts a statement, splat, array or operator", function()
-    local rand = lcg(11)
+    local rand = xorshift(11)
     for _ = 1, 400 do
       local q = quote.word(random_word(rand, 10), "powershell")
       if q:sub(1, 1) ~= "'" then
@@ -148,7 +179,7 @@ describe("terminal.core.quote (property)", function()
   end)
 
   it("cmd: a quoted word never contains an unescaped quote or a percent sign", function()
-    local rand = lcg(13)
+    local rand = xorshift(13)
     for _ = 1, 400 do
       local word = random_word(rand, 12)
       local q, err = quote.word(word, "cmd")
@@ -163,7 +194,7 @@ describe("terminal.core.quote (property)", function()
   end)
 
   it("no family ever returns a line with a control character", function()
-    local rand = lcg(17)
+    local rand = xorshift(17)
     for _, kind in ipairs({ "posix", "powershell", "cmd" }) do
       for _ = 1, 200 do
         local line = quote.argv_to_line({ "echo", random_word(rand, 10) }, kind)
@@ -179,7 +210,7 @@ describe("terminal.core.osc and status (property)", function()
   it(
     "a user-var sequence has exactly one introducer and one terminator, whatever the value",
     function()
-      local rand = lcg(23)
+      local rand = xorshift(23)
       for _ = 1, 300 do
         local raw = {}
         for i = 1, rand(30) do
@@ -205,7 +236,7 @@ describe("terminal.core.osc and status (property)", function()
   end)
 
   it("sanitised status text never carries a control character", function()
-    local rand = lcg(29)
+    local rand = xorshift(29)
     for _ = 1, 300 do
       local bytes = {}
       for i = 1, rand(40) do
@@ -228,7 +259,7 @@ describe("terminal.core.osc and status (property)", function()
   it(
     "the encoded dataset stays within the byte limit or is refused, never truncated mid-field",
     function()
-      local rand = lcg(31)
+      local rand = xorshift(31)
       for _ = 1, 100 do
         local long = string.rep("x", rand(600))
         local s = status.build({ mode = "n", file = long, cwd = long, branch = long })
@@ -242,4 +273,27 @@ describe("terminal.core.osc and status (property)", function()
       end
     end
   )
+end)
+
+describe("terminal.backends.tmux (property)", function()
+  local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/]") or "."
+  local fake = dofile(here .. "/support/fakes.lua").tmux
+  local tmux = require("terminal.backends.tmux")
+
+  it("any word reaches tmux as itself: no trailing ';' ends the command or goes missing", function()
+    local rand = xorshift(41)
+    local run, state = fake()
+    for _ = 1, 600 do
+      local word = random_word(rand, 10)
+      -- the interesting endings are over-represented on purpose
+      local tail = ({ "", ";", ";", "\\;", ";;" })[rand(5)]
+      word = word .. tail
+      run({ "tmux", "send-keys", "-t", "%0", "-l", "--", tmux.word(word) })
+      assert.equals(word, state.keys[#state.keys], ("%q"):format(word))
+    end
+    -- every call was one send-keys: nothing a word contained started another command
+    for _, cmd in ipairs(state.executed) do
+      assert.equals("send-keys", cmd[1])
+    end
+  end)
 end)

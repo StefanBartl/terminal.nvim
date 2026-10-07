@@ -6,13 +6,14 @@ local M = {}
 
 ---@alias Terminal.Direction "h"|"j"|"k"|"l"
 
---- Direction keys and the words the multiplexers use.
----@type table<string, { wezterm: string, tmux: string }>
+--- Direction keys and the words the multiplexers use. `edge` is the tmux format variable
+--- (`#{pane_at_<edge>}`) that is 1 when the pane touches that side of its window.
+---@type table<string, { wezterm: string, tmux: string, edge: string }>
 M.DIRECTIONS = {
-  h = { wezterm = "Left", tmux = "-L" },
-  j = { wezterm = "Down", tmux = "-D" },
-  k = { wezterm = "Up", tmux = "-U" },
-  l = { wezterm = "Right", tmux = "-R" },
+  h = { wezterm = "Left", tmux = "-L", edge = "left" },
+  j = { wezterm = "Down", tmux = "-D", edge = "bottom" },
+  k = { wezterm = "Up", tmux = "-U", edge = "top" },
+  l = { wezterm = "Right", tmux = "-R", edge = "right" },
 }
 
 --- Whether `dir` is one of h j k l.

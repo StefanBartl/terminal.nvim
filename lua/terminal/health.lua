@@ -141,6 +141,11 @@ function M.check_wezterm(health, env)
     return
   end
   health.ok("WezTerm: $WEZTERM_PANE = " .. env.WEZTERM_PANE)
+  if type(vim.api.nvim_ui_send) ~= "function" then
+    health.warn("Neovim has no `nvim_ui_send` (needs 0.12+): the WezTerm status export is off", {
+      "Upgrade Neovim to 0.12 or newer to get the tab title and right status",
+    })
+  end
   if not exe("wezterm") then
     health.warn("`wezterm` is not on $PATH", {
       "The wezterm backend and the navigation hand-off need `wezterm cli`",
@@ -187,6 +192,14 @@ function M.check_tmux(health, env)
   if not exe("tmux") then
     health.warn("`tmux` is not on $PATH")
     return
+  end
+  local banner = run({ "tmux", "-V" })
+  local major, minor = require("terminal.backends.tmux").parse_version(banner or "")
+  if major then
+    health.ok(("tmux %d.%d"):format(major, minor))
+    if not require("terminal.backends.tmux").has_percent_size(major, minor) then
+      health.info("tmux is older than 3.1: pane sizes are passed as `-p <percent>`")
+    end
   end
   local value = run({ "tmux", "show", "-gv", "allow-passthrough" })
   if M.passthrough_enabled(value) then

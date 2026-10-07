@@ -245,6 +245,14 @@ function M.new(registry)
     return handle.bufnr ~= nil and api.nvim_get_current_buf() == handle.bufnr
   end
 
+  --- Visible and focused in one answer (the facade asks every backend this way).
+  ---@param handle Terminal.Handle
+  ---@return { visible: boolean, focused: boolean }
+  function backend.probe(handle)
+    local visible = backend.visible(handle)
+    return { visible = visible, focused = visible and backend.focused(handle) }
+  end
+
   ---@param handle Terminal.Handle
   ---@return boolean ok
   ---@return string|nil err

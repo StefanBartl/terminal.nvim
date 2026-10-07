@@ -45,6 +45,12 @@ local WIDE_TYPES = {
 local OPEN_TABLES = { env = true, keymaps = true }
 
 ---@internal
+--- Lists of autocommand event names: every entry must be an event Neovim knows. A bad name would
+--- otherwise raise from `nvim_create_autocmd` in the middle of `setup()`.
+---@type table<string, true>
+local EVENT_LISTS = { ["auto_insert.events"] = true }
+
+---@internal
 ---@param list string[]
 ---@param value any
 ---@return boolean
@@ -83,6 +89,29 @@ function M.validate(schema, opts, prefix)
           table.concat(ENUMS[path], "|"),
           vim.inspect(v)
         )
+      end
+    elseif EVENT_LISTS[path] then
+      if type(v) ~= "table" then
+        problems[#problems + 1] = ("config key '%s' should be a list of event names, got %s"):format(
+          path,
+          type(v)
+        )
+      else
+        local events = {}
+        for _, ev in ipairs(v) do
+          if type(ev) == "string" and vim.fn.exists("##" .. ev) == 1 then
+            events[#events + 1] = ev
+          else
+            problems[#problems + 1] = ("config key '%s': %s is not an autocommand event -- ignored"):format(
+              path,
+              vim.inspect(ev)
+            )
+          end
+        end
+        -- Nothing valid left: the key is dropped and the default list applies.
+        if #events > 0 then
+          clean[k] = events
+        end
       end
     elseif OPEN_TABLES[path] then
       if type(v) == "table" or (path == "keymaps" and v == false) then

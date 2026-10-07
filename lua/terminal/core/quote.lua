@@ -12,7 +12,7 @@
 
 local M = {}
 
----@alias Terminal.ShellKind "posix"|"powershell"|"cmd"
+---@alias Terminal.ShellKind "posix"|"powershell"|"cmd"|"portable"
 
 --- Which quoting family a shell belongs to. Unknown shells are treated as POSIX.
 ---
@@ -99,6 +99,22 @@ local function cmd(s)
   return '"' .. body .. '"', nil
 end
 
+---@internal
+--- For a shell that is not known (a multiplexer pane's default shell): a word is accepted only
+--- when it means the same in POSIX shells, PowerShell and cmd.exe -- letters, digits and
+--- `. _ / : -`. There is no quoting that is right for all three, so anything else is refused.
+---@param s string
+---@return string|nil
+---@return string|nil err
+local function portable(s)
+  if s:find("^[%w%._/:-]+$") then
+    return s, nil
+  end
+  return nil,
+    "the terminal runs its multiplexer's default shell, which is unknown here, so this word "
+      .. "cannot be quoted for it (set `shell` in the config, or use `direct`)"
+end
+
 --- Quote one word for the given shell family.
 ---@param s string
 ---@param kind Terminal.ShellKind
@@ -109,6 +125,8 @@ function M.word(s, kind)
     return powershell(s), nil
   elseif kind == "cmd" then
     return cmd(s)
+  elseif kind == "portable" then
+    return portable(s)
   end
   return posix(s), nil
 end

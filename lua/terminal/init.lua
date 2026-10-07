@@ -20,6 +20,8 @@ local M = {}
 ---@field registry Terminal.Registry
 ---@field backends table<string, Terminal.Backend>
 ---@field backend Terminal.Backend|nil
+---@field env table<string, string|nil> The environment `setup()` looked at
+---@field unavailable table<string, string> Multiplexer backends found unusable, with the reason
 ---@field deps Terminal.ContextDeps
 
 ---@type Terminal.State
@@ -28,6 +30,8 @@ local state = {
   registry = registry_mod.new(),
   backends = {},
   backend = nil,
+  env = {},
+  unavailable = {},
   deps = context.from_editor(),
 }
 
@@ -82,7 +86,7 @@ local function fail(err)
 end
 
 ---@internal
----@param extra? { layout?: Terminal.Layout, start_insert?: boolean, on_exit_cb?: fun(code: integer) }
+---@param extra? { layout?: Terminal.Layout, start_insert?: boolean, focus?: boolean, on_exit_cb?: fun(code: integer) }
 ---@param name string
 ---@param cwd string
 ---@param root string
@@ -104,9 +108,33 @@ local function build_spec(name, cwd, root, extra)
     float = config.get("float"),
     split = config.get("split"),
     start_insert = start_insert,
+    focus = extra.focus,
     on_exit = config.get("on_exit"),
     on_exit_cb = extra.on_exit_cb,
   }
+end
+
+---@internal
+--- The multiplexer backend `name`, registered on first use.
+---@param name "wezterm"|"tmux"
+---@return Terminal.Backend|nil
+---@return string|nil reason Why it is not usable
+local function multiplexer(name)
+  local existing = state.backends[name]
+  if existing then
+    return existing, nil
+  end
+  if state.unavailable[name] then
+    return nil, state.unavailable[name]
+  end
+  local mod = require("terminal.backends." .. name)
+  local ok, reason = mod.available(state.env)
+  if not ok then
+    state.unavailable[name] = reason or "not available"
+    return nil, state.unavailable[name]
+  end
+  state.backends[name] = mod.new(state.registry)
+  return state.backends[name], nil
 end
 
 --- Set the plugin up. Safe to call again: the options are replaced, the terminals stay.
@@ -117,23 +145,21 @@ function M.setup(opts)
 
   local native = require("terminal.backends.native").new(state.registry)
   state.backends = { native = native }
+  state.unavailable = {}
   local env = environment()
-  local wezterm = require("terminal.backends.wezterm")
-  local wezterm_ok, wezterm_reason = wezterm.available(env)
-  if wezterm_ok then
-    state.backends.wezterm = wezterm.new(state.registry)
-  end
-  local tmux = require("terminal.backends.tmux")
-  local tmux_ok, tmux_reason = tmux.available(env)
-  if tmux_ok then
-    state.backends.tmux = tmux.new(state.registry)
-  end
-  local name, note = backends.resolve(config.get("backend"), env, state.backends)
+  state.env = env
+  -- A multiplexer backend is looked at (and registered) only when the config names it, or later
+  -- when `pin` or a pinned terminal needs it: whether its CLI is installed is a lookup over
+  -- $PATH, which costs tens of milliseconds on Windows -- not something every startup pays.
   local wanted = config.get("backend")
-  if note and wanted == "wezterm" and wezterm_reason then
-    note = ("backend 'wezterm' is not available (%s) -- using native"):format(wezterm_reason)
-  elseif note and wanted == "tmux" and tmux_reason then
-    note = ("backend 'tmux' is not available (%s) -- using native"):format(tmux_reason)
+  local reason
+  if wanted == "wezterm" or wanted == "tmux" then
+    local _, why = multiplexer(wanted)
+    reason = why
+  end
+  local name, note = backends.resolve(wanted, env, state.backends)
+  if note and reason then
+    note = ("backend '%s' is not available (%s) -- using native"):format(wanted, reason)
   end
   state.backend = state.backends[name]
   if note then
@@ -143,9 +169,29 @@ function M.setup(opts)
   end
 
   state.ready = true
-  require("terminal.bindings").setup()
-  require("terminal.status").setup(config.get_all())
-  require("terminal.navigate").setup(config.get_all(), env)
+  -- Each part on its own: a failure in one (a binding that cannot be created) must not leave
+  -- status export and navigation unconfigured.
+  local steps = {
+    { "bindings", require("terminal.bindings").setup },
+    {
+      "status",
+      function()
+        require("terminal.status").setup(config.get_all())
+      end,
+    },
+    {
+      "navigation",
+      function()
+        require("terminal.navigate").setup(config.get_all(), env)
+      end,
+    },
+  }
+  for _, step in ipairs(steps) do
+    local ok, err = pcall(step[2])
+    if not ok then
+      fail(("setup: %s failed: %s"):format(step[1], tostring(err)))
+    end
+  end
 end
 
 ---@internal
@@ -162,7 +208,22 @@ end
 ---@param handle Terminal.Handle
 ---@return Terminal.Backend
 local function backend_of(handle)
-  return state.backends[handle.backend] or backend()
+  return state.backends[handle.backend] or multiplexer(handle.backend) or backend()
+end
+
+---@internal
+--- Where `handle` is and whether it has focus: one question to its backend (a multiplexer answers
+--- with ONE process instead of one per question). nil = the backend could not say; the terminal
+--- is then assumed to be there and is never replaced on the strength of a failed query.
+---@param b Terminal.Backend
+---@param handle Terminal.Handle
+---@return { visible: boolean, focused: boolean }|nil
+local function probe(b, handle)
+  if b.probe then
+    return (b.probe(handle))
+  end
+  local visible = b.visible ~= nil and b.visible(handle) == true
+  return { visible = visible, focused = visible and b.focused ~= nil and b.focused(handle) == true }
 end
 
 ---@internal
@@ -211,19 +272,24 @@ function M.open(target)
 
   local handle = find_live(root, name)
   local b = handle and backend_of(handle) or default
-  if handle and not b.show and b.visible and not b.visible(handle) then
+  local where = handle and probe(b, handle)
+  if handle and where and not where.visible and not b.show then
     -- A backend that cannot show a hidden terminal again (a pane the user closed): start a new one.
     b.close(handle)
     handle = nil
   end
   if handle then
-    if b.visible and b.visible(handle) then
+    if where == nil or where.visible then
       if focus then
-        b.focus(handle)
+        local ok, ferr = b.focus(handle)
+        if not ok then
+          fail(("terminal '%s': %s"):format(name, ferr or "cannot focus"))
+        end
       end
       return handle, nil
     end
-    local spec = build_spec(name, cwd, root, { layout = layout, start_insert = start_insert })
+    local spec =
+      build_spec(name, cwd, root, { layout = layout, start_insert = start_insert, focus = focus })
     local ok, err = b.show(handle, spec)
     if not ok then
       fail(("terminal '%s': %s"):format(name, err or "cannot show"))
@@ -234,7 +300,8 @@ function M.open(target)
     if stale then
       backend_of(stale).close(stale)
     end
-    local spec = build_spec(name, cwd, root, { layout = layout, start_insert = start_insert })
+    local spec =
+      build_spec(name, cwd, root, { layout = layout, start_insert = start_insert, focus = focus })
     local err
     handle, err = default.spawn(spec)
     if not handle then
@@ -276,12 +343,18 @@ function M.toggle(target)
   local name, _, root = resolve(target)
   local handle = find_live(root, name)
   local b = handle and backend_of(handle)
-  if handle and b.visible and b.visible(handle) then
-    if b.focused and b.focused(handle) then
+  local where = handle and probe(b, handle)
+  if handle and (where == nil or where.visible) then
+    if where and where.focused then
       M.hide(target)
     else
-      b.focus(handle)
-      if config.get("start_insert") then
+      local ok, err = b.focus(handle)
+      if not ok then
+        fail(("terminal '%s': %s"):format(name, err or "cannot focus"))
+      end
+      -- Insert mode belongs to a Neovim window; a multiplexer pane takes its own input, and
+      -- Neovim must stay in Normal mode in the pane the user just left.
+      if ok and handle.backend == "native" and config.get("start_insert") then
         vim.cmd("startinsert")
       end
     end
@@ -312,8 +385,15 @@ end
 ---@return Terminal.Handle[]
 function M.list(all)
   backend()
-  for _, b in pairs(state.backends) do
-    b.list() -- prunes handles whose buffer or pane is gone
+  -- Prune the handles whose buffer or pane is gone; a backend is asked once, and only when it
+  -- owns a handle.
+  local asked = {}
+  for _, h in ipairs(state.registry:list()) do
+    local b = backend_of(h)
+    if not asked[b] then
+      asked[b] = true
+      b.list()
+    end
   end
   if all then
     return state.registry:list()
@@ -365,6 +445,25 @@ end
 ---@field env? table<string, string> With `direct`: extra environment for the job
 ---@field on_open? fun(handle: Terminal.Handle) With `direct`: called once the window and job exist (set buffer keymaps here)
 
+---@internal
+--- The quoting family for words typed into terminal `name`. A native terminal runs the configured
+--- shell (or Neovim's 'shell'); so does a multiplexer pane when `shell` is configured. Without
+--- one the pane runs the *multiplexer's* default shell -- unknown here, and not necessarily the
+--- shell Neovim uses -- so only words that mean the same in every shell are accepted
+--- ("portable"); anything else is refused instead of quoted for the wrong shell.
+---@param root string
+---@param name string
+---@param default Terminal.Backend
+---@return Terminal.ShellKind|"portable"
+local function line_shell_kind(root, name, default)
+  local existing = find_live(root, name)
+  local owner = existing and existing.backend or default.name
+  if shell_command() ~= nil or owner == "native" then
+    return quote.shell_kind(shell_executable())
+  end
+  return "portable"
+end
+
 --- Run a command in a terminal.
 ---
 --- * A **string** is typed as one shell line, exactly as given: that is the caller's own text.
@@ -397,6 +496,7 @@ function M.run(cmd, opts)
     local spec = build_spec(name, opts.cwd or cwd, root, {
       layout = opts.layout,
       start_insert = focus and opts.start_insert ~= false,
+      focus = focus,
       on_exit_cb = opts.on_exit,
     })
     spec.cmd = cmd
@@ -427,7 +527,8 @@ function M.run(cmd, opts)
   local line = cmd
   if type(cmd) == "table" then
     local qerr
-    line, qerr = quote.argv_to_line(cmd, quote.shell_kind(shell_executable()))
+    local name, _, root = resolve(target)
+    line, qerr = quote.argv_to_line(cmd, line_shell_kind(root, name, b))
     if not line then
       fail("run: " .. qerr)
       return false, qerr
@@ -479,12 +580,17 @@ function M.pin(target, opts)
   elseif handle.backend ~= "native" then
     err = ("pin: terminal '%s' already lives in %s"):format(name, handle.backend)
   end
-  local want = opts.backend
-    or (state.backends.tmux and "tmux")
-    or (state.backends.wezterm and "wezterm")
-  local target_backend = want and state.backends[want]
+  local target_backend, why
+  if opts.backend then
+    target_backend, why = multiplexer(opts.backend)
+  else
+    target_backend = multiplexer("tmux") or multiplexer("wezterm")
+  end
   if not err and not target_backend then
     err = "pin: no multiplexer backend is available (not inside tmux or WezTerm)"
+    if why then
+      err = ("pin: backend '%s' is not available (%s)"):format(opts.backend, why)
+    end
   end
   if err then
     fail(err)
@@ -492,16 +598,20 @@ function M.pin(target, opts)
   end
 
   local cmd, cwd = handle.cmd, handle.cwd or root
-  backend_of(handle).close(handle)
   local spec = build_spec(name, cwd, root, { layout = opts.layout or "vsplit" })
   if cmd ~= nil and cmd ~= "" then
     spec.cmd = cmd
   end
+  -- The pane first, the native terminal only once its replacement exists: a pane that cannot be
+  -- started (an `env` the multiplexer cannot pass on, a failing CLI) must not cost the user the
+  -- terminal they have. The new handle takes the registry slot of the old one; closing the old
+  -- one afterwards leaves it alone (the backends only forget a handle they still own).
   local pinned, perr = target_backend.spawn(spec)
   if not pinned then
     fail(("pin: terminal '%s': %s"):format(name, perr or "cannot start"))
     return false, perr
   end
+  backend_of(handle).close(handle)
   return true, nil, pinned
 end
 

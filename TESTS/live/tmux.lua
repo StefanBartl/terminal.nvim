@@ -70,6 +70,9 @@ local ok, err = pcall(function()
     layout = "vsplit",
     split = { size = 0.4 },
     start_insert = true,
+    -- A plain `sh`: the pane must not depend on the login shell of the machine (a bare zsh
+    -- without a config can sit in its first-run setup and never answer).
+    cmd = { "sh" },
   })
   check("spawn creates a pane", h ~= nil and h.pane:find("^%%%d+$") ~= nil, h)
   vim.wait(800)
@@ -81,18 +84,107 @@ local ok, err = pcall(function()
     return cap.stdout:find("terminal%-nvim%-tmux%-check\n.*terminal%-nvim%-tmux%-check") ~= nil
       or select(2, cap.stdout:gsub("terminal%-nvim%-tmux%-check", "")) >= 2
   end, 250)
-  check("the command's output is in the pane", seen)
+  check(
+    "the command's output is in the pane",
+    seen,
+    tmux("capture-pane", "-p", "-t", h.pane).stdout
+  )
 
-  -- Hostile text is typed literally, not interpreted by tmux.
-  backend.send(h, "echo 'C-c Enter; kill-server'\n")
+  -- Hostile text is typed literally, not interpreted by tmux. A pane running `cat` shows every
+  -- typed line twice (the tty's echo and cat's output), so the capture says exactly what arrived:
+  -- a dropped trailing ';' or a lost backslash would show up as a different line.
+  local cat = backend.spawn({
+    name = "cat",
+    root = "/live",
+    cwd = "/tmp",
+    layout = "split",
+    split = { size = 0.3 },
+    cmd = { "cat" },
+    focus = false,
+  })
+  check("a pane running cat started", cat ~= nil, cat)
   vim.wait(500)
+  local samples = {
+    "T1 select 1;",
+    "T2 find . -exec rm {} \\;",
+    "T3 a;",
+    "T4 ;",
+    "T5 x\\\\;",
+    "T6 'C-c Enter; kill-server'",
+    "T7 a;b;",
+  }
+  for _, text in ipairs(samples) do
+    backend.send(cat, text .. "\n")
+  end
+  vim.wait(800)
+  -- Scrollback included: the pane is only a few rows high.
+  local cap = tmux("capture-pane", "-p", "-S", "-100", "-t", cat.pane).stdout
+  local seen_lines = {}
+  for line in cap:gmatch("[^\n]+") do
+    local trimmed = line:gsub("%s+$", "")
+    seen_lines[trimmed] = (seen_lines[trimmed] or 0) + 1
+  end
+  for _, text in ipairs(samples) do
+    -- both the echo and cat's own output: the typed line, byte for byte
+    check("typed literally: " .. text, (seen_lines[text] or 0) == 2, cap)
+  end
   check("the server survived hostile text", tmux("list-sessions").code == 0)
+  backend.close(cat)
+
+  -- Words of a command that end in ';' stay words: tmux must not start another command from them.
+  local pwned = "/tmp/terminal-nvim-live-pwned"
+  run({ "rm", "-f", pwned })
+  local words = backend.spawn({
+    name = "words",
+    root = "/live",
+    cwd = "/tmp",
+    layout = "split",
+    split = { size = 0.3 },
+    cmd = {
+      "sh",
+      "-c",
+      'printf "%s\\n" "$@"; sleep 20',
+      "sh",
+      "word;",
+      "run-shell",
+      "touch " .. pwned,
+    },
+    focus = false,
+  })
+  check("a command with ';' words spawned", words ~= nil, words)
+  vim.wait(800)
+  local wcap = words and tmux("capture-pane", "-p", "-t", words.pane).stdout or ""
+  check("the ';' word arrived whole", wcap:find("word;", 1, true) ~= nil, wcap)
+  check("no tmux command was started from it", run({ "test", "-e", pwned }).code ~= 0)
+  if words then
+    backend.close(words)
+  end
 
   check("the pane is visible and focused", backend.visible(h) and backend.focused(h))
   backend.hide(h)
   check("hide returns focus to Neovim's pane", backend.focused(h) == false)
   check("focus selects the pane again", backend.focus(h) == true and backend.focused(h) == true)
   check("list shows it", #backend.list() == 1)
+
+  -- Navigation hand-off at the edge: `select-pane -R` alone wraps around, the guarded form must not.
+  local handoff = require("terminal.navigate.handoff").all.tmux
+  local function hand_off(dir)
+    local argv = handoff.argv(dir)
+    local full = { "tmux", "-L", SOCKET }
+    vim.list_extend(full, vim.list_slice(argv, 2))
+    return run(full)
+  end
+  local function active_pane()
+    return vim.trim(tmux("display-message", "-p", "-t", "live", "#{pane_id}").stdout)
+  end
+  backend.focus(h) -- the right-hand pane
+  check("the terminal pane is the active one", active_pane() == h.pane, active_pane())
+  hand_off("l")
+  check("hand-off to the right at the right edge stays put", active_pane() == h.pane, active_pane())
+  hand_off("h")
+  check("hand-off to the left moves to the neighbour", active_pane() == own, active_pane())
+  hand_off("h")
+  check("hand-off to the left at the left edge stays put", active_pane() == own, active_pane())
 
   -- Status export as pane options on Neovim's own pane.
   local exporter = require("terminal.status.exporters.tmux")
@@ -108,7 +200,7 @@ local ok, err = pcall(function()
   local published = exporter.publish(vim.json.encode({
     mode = "i",
     file = "main.lua",
-    branch = "dev",
+    branch = "dev;",
     e = 2,
     w = 1,
     rec = "",
@@ -120,7 +212,11 @@ local ok, err = pcall(function()
   local fmt = tmux("display-message", "-p", "-t", own, "#{@terminal_file} #{@terminal_branch}")
   check("@terminal_mode is set", vim.trim(mode.stdout) == "i", mode)
   check("@terminal_diag is E2 W1", vim.trim(diag.stdout) == "E2 W1", diag)
-  check("a tmux format can read the options", vim.trim(fmt.stdout) == "main.lua dev", fmt)
+  check(
+    "a tmux format can read the options (a ';' value included)",
+    vim.trim(fmt.stdout) == "main.lua dev;",
+    fmt
+  )
   exporter.clear()
   local cleared = tmux("show-options", "-p", "-v", "-t", own, "@terminal_mode")
   check("clear removes the options", vim.trim(cleared.stdout) == "", cleared)

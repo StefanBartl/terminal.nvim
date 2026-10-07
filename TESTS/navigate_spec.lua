@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/navigate_spec.lua -- window navigation with hand-off at Neovim's edge.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local core = require("terminal.core.navigate")
 local handoff = require("terminal.navigate.handoff")
 
@@ -32,8 +35,35 @@ describe("terminal.navigate.handoff", function()
       { "wezterm", "cli", "activate-pane-direction", "Down" },
       handoff.all.wezterm.argv("j")
     )
-    assert.same({ "tmux", "select-pane", "-U" }, handoff.all.tmux.argv("k"))
-    assert.same({ "tmux", "select-pane", "-R" }, handoff.all.tmux.argv("l"))
+    assert.same({
+      "tmux",
+      "if-shell",
+      "-F",
+      "#{pane_at_top}",
+      "",
+      "select-pane -U",
+    }, handoff.all.tmux.argv("k"))
+    assert.same({
+      "tmux",
+      "if-shell",
+      "-F",
+      "#{pane_at_right}",
+      "",
+      "select-pane -R",
+    }, handoff.all.tmux.argv("l"))
+  end)
+
+  it("tmux: every direction is guarded by the matching pane_at_* edge test", function()
+    local edge = { h = "left", j = "bottom", k = "top", l = "right" }
+    local flag = { h = "-L", j = "-D", k = "-U", l = "-R" }
+    for dir, side in pairs(edge) do
+      local argv = handoff.all.tmux.argv(dir)
+      -- tmux wraps `select-pane -L` around at the window's edge; the test keeps it a no-op there
+      assert.equals("if-shell", argv[2])
+      assert.equals("#{pane_at_" .. side .. "}", argv[4])
+      assert.equals("", argv[5], "nothing happens at the edge")
+      assert.equals("select-pane " .. flag[dir], argv[6])
+    end
   end)
 
   local function names(list)
@@ -119,9 +149,39 @@ describe("terminal.navigate.go", function()
     vim.cmd("wincmd b") -- the last (rightmost) window
     local start = vim.api.nvim_get_current_win()
     assert.equals("moved", navigate.go("h", 2))
-    assert.equals(vim.api.nvim_list_wins()[1] ~= start, true)
+    assert.not_equals(start, vim.api.nvim_get_current_win())
+    -- two windows to the left of the rightmost one is the leftmost; one step would stop in the middle
+    assert.equals(vim.api.nvim_list_wins()[1], vim.api.nvim_get_current_win())
     assert.same({}, calls)
   end)
+
+  it(
+    "a held key at the edge runs one process at a time; the latest press waits its turn",
+    function()
+      local started, finish = {}, nil
+      local original = vim.system
+      vim.system = function(argv, _opts, on_exit)
+        started[#started + 1] = argv
+        finish = on_exit
+        return {}
+      end
+      navigate.setup(cfg("auto"), { WEZTERM_PANE = "1" }) -- the default (detached) runner
+      for _ = 1, 6 do
+        navigate.go("h")
+      end
+      navigate.go("j")
+      assert.equals(1, #started, "the key repeat does not start a process per press")
+      finish()
+      assert.is_true(vim.wait(500, function()
+        return #started == 2
+      end))
+      assert.equals("Down", started[2][4], "the waiting press is the latest one")
+      finish()
+      vim.wait(50)
+      assert.equals(2, #started)
+      vim.system = original
+    end
+  )
 
   it("a floating window never hands off", function()
     setup("auto", { WEZTERM_PANE = "1" })
@@ -149,7 +209,14 @@ describe("terminal.navigate.go", function()
     setup("auto", { TMUX = "x", WEZTERM_PANE = "1" })
     navigate.go("l")
     assert.equals(1, #calls)
-    assert.same({ "tmux", "select-pane", "-R" }, calls[1])
+    assert.same({
+      "tmux",
+      "if-shell",
+      "-F",
+      "#{pane_at_right}",
+      "",
+      "select-pane -R",
+    }, calls[1])
   end)
 
   it("hands off nothing outside any multiplexer", function()
@@ -174,8 +241,10 @@ describe("terminal navigation keymaps", function()
       pcall(vim.keymap.del, "t", lhs)
       pcall(vim.keymap.del, "n", lhs)
     end
-    pcall(vim.keymap.del, "n", "<A-h>")
-    pcall(vim.keymap.del, "t", "<A-h>")
+    for _, lhs in ipairs({ "<A-h>", "<A-x>", "<A-y>" }) do
+      pcall(vim.keymap.del, "n", lhs)
+      pcall(vim.keymap.del, "t", lhs)
+    end
   end
 
   before_each(function()
@@ -211,6 +280,30 @@ describe("terminal navigation keymaps", function()
     local right = vim.api.nvim_get_current_win()
     m.callback()
     assert.not_equals(right, vim.api.nvim_get_current_win())
+  end)
+
+  it("a second setup unbinds the keys the first one bound", function()
+    local base = { commands = false, status = { enable = false }, navigate = { handoff = false } }
+    terminal.setup(
+      vim.tbl_extend("force", base, { keymaps = { toggle = "<A-x>", nav_left = "<C-h>" } })
+    )
+    assert.is_not_nil(vim.fn.maparg("<A-x>", "n", false, true).callback)
+    assert.is_not_nil(vim.fn.maparg("<C-h>", "n", false, true).callback)
+    terminal.setup(
+      vim.tbl_extend("force", base, { keymaps = { toggle = "<A-y>", nav_left = false } })
+    )
+    assert.same({}, vim.fn.maparg("<A-x>", "n", false, true), "a moved key is gone")
+    assert.same({}, vim.fn.maparg("<A-x>", "t", false, true))
+    assert.same({}, vim.fn.maparg("<C-h>", "n", false, true), "a dropped key is gone")
+    assert.is_not_nil(vim.fn.maparg("<A-y>", "n", false, true).callback)
+  end)
+
+  it("a map the user put on a key afterwards survives a second setup", function()
+    local base = { commands = false, status = { enable = false }, navigate = { handoff = false } }
+    terminal.setup(vim.tbl_extend("force", base, { keymaps = { toggle = "<A-x>" } }))
+    vim.keymap.set("n", "<A-x>", function() end, { desc = "mine" })
+    terminal.setup(vim.tbl_extend("force", base, { keymaps = { toggle = "<A-y>" } }))
+    assert.equals("mine", vim.fn.maparg("<A-x>", "n", false, true).desc)
   end)
 
   it("the terminal-mode window keys call the navigation instead of a raw <C-w>", function()

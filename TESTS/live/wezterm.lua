@@ -80,6 +80,38 @@ local ok, err = pcall(function()
   end
   check("toggle hands focus back to Neovim's pane", active == true, active)
 
+  -- A pane in another TAB: `is_active` in `wezterm cli list` is true for the active pane of every
+  -- tab, so "focused" has to come from the client's focused pane (`list-clients`).
+  local backend = require("terminal.backends.wezterm").new(
+    require("terminal.core.registry").new(),
+    nil,
+    vim.env.WEZTERM_PANE
+  )
+  local tab = backend.spawn({
+    name = "tab",
+    root = "/live",
+    cwd = vim.uv.cwd(),
+    layout = "tab",
+  })
+  check("a pane in a new tab was created", tab ~= nil, tab)
+  if tab then
+    vim.wait(1500)
+    check("the new tab's pane has the focus", backend.focused(tab) == true)
+    backend.hide(tab)
+    vim.wait(800)
+    check(
+      "back in Neovim's tab the tab pane is visible but not focused",
+      backend.visible(tab) == true and backend.focused(tab) == false
+    )
+    backend.focus(tab)
+    vim.wait(800)
+    check("focus brings the tab back", backend.focused(tab) == true)
+    backend.hide(tab)
+    vim.wait(500)
+    check("the tab pane closes", backend.close(tab) == true)
+    vim.wait(500)
+  end
+
   check("close removes the terminal", terminal.close() == true)
   vim.wait(800)
   local after = vim.system({ "wezterm", "cli", "list", "--format", "json" }, { text = true }):wait()

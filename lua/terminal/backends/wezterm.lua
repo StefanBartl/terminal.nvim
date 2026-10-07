@@ -167,7 +167,7 @@ function M.new(registry, runner, own_pane)
     }
     registry:add(handle)
     -- A new pane takes focus; without focus the caller wants to stay where it was.
-    if spec.start_insert == false and own_pane ~= "" then
+    if spec.focus == false and own_pane ~= "" then
       cli({ "activate-pane", "--pane-id", own_pane })
     end
     return handle, nil
@@ -185,19 +185,65 @@ function M.new(registry, runner, own_pane)
     return true, nil
   end
 
+  ---@internal
+  --- The pane the user's WezTerm client has focus in (`wezterm cli list-clients`), as a string.
+  ---@return string|nil
+  local function client_focus()
+    local res = cli({ "list-clients", "--format", "json" })
+    if not res then
+      return nil
+    end
+    local ok, data = pcall(vim.json.decode, res.stdout)
+    if not ok or type(data) ~= "table" then
+      return nil
+    end
+    for _, client in ipairs(data) do
+      if client.focused_pane_id ~= nil then
+        return tostring(client.focused_pane_id)
+      end
+    end
+    return nil
+  end
+
+  --- Whether the pane exists and whether it has the user's focus, from ONE `wezterm cli list`
+  --- (plus a `list-clients` only for a pane in another tab). nil (with the reason) when WezTerm
+  --- cannot be asked: the state is unknown, not "gone".
+  ---
+  --- `is_active` in the pane list only means "active within its own tab", so it says nothing
+  --- about a pane in a tab the user is not looking at; for that case the client's focused pane
+  --- decides.
   ---@param handle Terminal.Handle
-  ---@return boolean
+  ---@return { visible: boolean, focused: boolean }|nil
+  ---@return string|nil err
+  function backend.probe(handle)
+    local all, err = panes()
+    if not all then
+      return nil, err
+    end
+    local mine = all[handle.pane]
+    if not mine then
+      return { visible = false, focused = false }, nil
+    end
+    local focused = mine.is_active == true
+    local own = all[own_pane]
+    if focused and own and own.tab_id ~= nil and mine.tab_id ~= own.tab_id then
+      focused = client_focus() == handle.pane
+    end
+    return { visible = true, focused = focused }, nil
+  end
+
+  ---@param handle Terminal.Handle
+  ---@return boolean|nil visible nil when WezTerm could not be asked
   function backend.visible(handle)
-    local all = panes()
-    return all ~= nil and all[handle.pane] ~= nil
+    local state = backend.probe(handle)
+    return state and state.visible
   end
 
   ---@param handle Terminal.Handle
   ---@return boolean
   function backend.focused(handle)
-    local all = panes()
-    local mine = all and all[handle.pane]
-    return mine ~= nil and mine.is_active == true
+    local state = backend.probe(handle)
+    return state ~= nil and state.focused
   end
 
   ---@param handle Terminal.Handle
@@ -234,29 +280,45 @@ function M.new(registry, runner, own_pane)
 
   ---@return Terminal.Handle[]
   function backend.list()
-    local all = panes()
-    local out = {}
+    ---@type Terminal.Handle[]
+    local mine = {}
     for _, h in ipairs(registry:list()) do
       if h.backend == "wezterm" then
-        if all == nil or all[h.pane] ~= nil then
-          out[#out + 1] = h
-        else
-          registry:remove(h.id)
-        end
+        mine[#mine + 1] = h
+      end
+    end
+    -- Nothing of ours: no reason to start a wezterm process.
+    if #mine == 0 then
+      return mine
+    end
+    local all = panes()
+    local out = {}
+    for _, h in ipairs(mine) do
+      if all == nil or all[h.pane] ~= nil then
+        out[#out + 1] = h
+      else
+        registry:remove(h.id)
       end
     end
     return out
   end
 
+  --- Kill the pane. A pane that is already gone counts as closed; one that cannot be killed (or
+  --- whose state cannot be read) stays registered and the failure is reported.
   ---@param handle Terminal.Handle
   ---@return boolean
   ---@return string|nil
   function backend.close(handle)
+    local res, err = cli({ "kill-pane", "--pane-id", handle.pane })
+    if not res then
+      local all = panes()
+      if not (all and all[handle.pane] == nil) then
+        return false, err
+      end
+    end
     if registry:get(handle.id) == handle then
       registry:remove(handle.id)
     end
-    -- A pane that is already gone makes `kill-pane` fail; the terminal is closed either way.
-    cli({ "kill-pane", "--pane-id", handle.pane })
     return true, nil
   end
 

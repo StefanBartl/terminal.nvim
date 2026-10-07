@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/wezterm_backend_spec.lua -- the wezterm backend against a fake `wezterm cli`.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local registry_mod = require("terminal.core.registry")
 local wezterm = require("terminal.backends.wezterm")
 
@@ -83,9 +86,15 @@ describe("terminal.backends.wezterm", function()
     end)
 
     it("without focus, hands focus back to Neovim's own pane", function()
-      backend.spawn(spec({ start_insert = false }))
+      backend.spawn(spec({ focus = false }))
       assert.same({ "activate-pane", "--pane-id", "7" }, state.calls[2].argv)
       assert.equals("7", state.active)
+    end)
+
+    it("start_insert = false is not 'do not focus': the new pane keeps the focus", function()
+      backend.spawn(spec({ start_insert = false }))
+      assert.equals(1, #state.calls)
+      assert.equals("8", state.active)
     end)
 
     it("refuses environment variables: wezterm cli has no way to set them", function()
@@ -153,6 +162,35 @@ describe("terminal.backends.wezterm", function()
       assert.is_true(backend.focus(h))
       assert.equals("8", state.active)
     end)
+
+    it("a pane in another tab is focused only when the client's focus is in it", function()
+      -- `is_active` is "active within ITS tab": the terminal tab's pane says true even while the
+      -- user looks at Neovim's tab, so the client's focused pane has to decide.
+      local h = backend.spawn(spec({ layout = "tab" }))
+      assert.is_true(backend.focused(h)) -- the new tab is in front
+      backend.hide(h) -- back to Neovim's pane (and tab)
+      assert.equals("7", state.active)
+      assert.is_true(state.tab_active[2] == h.pane) -- the tab's own active pane is still it
+      assert.is_false(backend.focused(h))
+      assert.is_true(backend.visible(h))
+    end)
+
+    it("a failed list is 'unknown', not 'gone': visible is nil", function()
+      local h = backend.spawn(spec())
+      state.list_fails = true
+      assert.is_nil(backend.visible(h))
+      assert.is_nil((backend.probe(h)))
+      assert.is_false(backend.focused(h))
+      state.list_fails = false
+      assert.is_true(backend.visible(h))
+    end)
+
+    it("probe answers visible and focused with ONE list for a pane in Neovim's tab", function()
+      local h = backend.spawn(spec())
+      local before = #state.calls
+      assert.same({ visible = true, focused = true }, backend.probe(h))
+      assert.equals(before + 1, #state.calls)
+    end)
   end)
 
   describe("list and close", function()
@@ -174,6 +212,27 @@ describe("terminal.backends.wezterm", function()
       assert.is_nil(state.panes[h.pane])
       assert.equals(0, registry:count())
       assert.is_true(backend.close(h))
+    end)
+
+    it("close keeps the handle when the pane cannot be killed, and says so", function()
+      local h = backend.spawn(spec())
+      state.kill_fails = true
+      local ok, err = backend.close(h)
+      assert.is_false(ok)
+      assert.truthy(err:find("cannot kill", 1, true))
+      assert.equals(h, registry:get(h.id))
+      state.kill_fails = false
+      assert.is_true((backend.close(h)))
+      assert.equals(0, registry:count())
+    end)
+
+    it("list asks wezterm only when it owns a pane", function()
+      assert.same({}, backend.list())
+      assert.equals(0, #state.calls)
+      backend.spawn(spec())
+      local before = #state.calls
+      backend.list()
+      assert.equals(before + 1, #state.calls)
     end)
   end)
 end)
@@ -243,6 +302,93 @@ describe("terminal facade with the wezterm backend", function()
     terminal.open()
     terminal.toggle()
     assert.equals("7", state.active)
+  end)
+
+  it("toggle focuses a pane that is visible elsewhere, and leaves Neovim in Normal mode", function()
+    terminal.open()
+    terminal.toggle() -- focus back to Neovim's pane
+    assert.equals("7", state.active)
+    vim.cmd("stopinsert")
+    terminal.toggle()
+    assert.equals("8", state.active)
+    assert.is_false(vim.fn.mode():find("^[iR]") ~= nil)
+  end)
+
+  it("toggle costs ONE list, open on a visible pane too", function()
+    terminal.open()
+    local function lists(from)
+      local n = 0
+      for i = from + 1, #state.calls do
+        if state.calls[i].argv[1] == "list" then
+          n = n + 1
+        end
+      end
+      return n
+    end
+    local before = #state.calls
+    terminal.toggle()
+    assert.equals(1, lists(before))
+    before = #state.calls
+    terminal.open()
+    assert.equals(1, lists(before))
+  end)
+
+  it("a failed list does not replace a live pane", function()
+    local first = terminal.open()
+    state.list_fails = true
+    terminal.toggle()
+    terminal.open()
+    state.list_fails = false
+    assert.is_not_nil(state.panes[first.pane])
+    assert.equals(1, #terminal.list())
+    local kills = vim.tbl_filter(function(c)
+      return c.argv[1] == "kill-pane"
+    end, state.calls)
+    assert.equals(0, #kills)
+  end)
+
+  it("start_insert = false still focuses the pane it opens", function()
+    terminal.setup({
+      backend = "wezterm",
+      layout = "vsplit",
+      shell = { "pwsh" },
+      start_insert = false,
+      commands = false,
+      keymaps = { preset = false },
+      status = { enable = false },
+    })
+    local h = terminal.open()
+    assert.equals(h.pane, state.active)
+  end)
+
+  it("run quotes for the configured shell; without one only portable words go through", function()
+    local original_notify = vim.notify
+    vim.notify = function() end
+    local function typed()
+      for i = #state.calls, 1, -1 do
+        if state.calls[i].argv[1] == "send-text" then
+          return (state.calls[i].stdin:gsub("[\r\n]+$", ""))
+        end
+      end
+    end
+    -- shell = pwsh is configured: words are quoted for PowerShell
+    assert.is_true((terminal.run({ "echo", "a b", "$(calc.exe)" })))
+    assert.equals("echo 'a b' '$(calc.exe)'", typed())
+
+    -- no shell configured: the pane runs WezTerm's default shell, which is unknown here
+    terminal.setup({
+      backend = "wezterm",
+      layout = "vsplit",
+      commands = false,
+      keymaps = { preset = false },
+      status = { enable = false },
+    })
+    local ok, err = terminal.run({ "echo", "$(calc.exe)" }, { name = "other" })
+    assert.is_false(ok)
+    assert.truthy(err:find("default shell", 1, true))
+    assert.is_true((terminal.run({ "git", "status", "--short" }, { name = "other" })))
+    assert.equals("git status --short", typed())
+    vim.notify = original_notify
   end)
 
   it("send types into the pane", function()

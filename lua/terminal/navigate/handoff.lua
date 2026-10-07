@@ -25,8 +25,19 @@ M.all = {
       end
       return true, nil
     end,
+    -- `select-pane -L` alone wraps around at the window's edge (focusing the pane on the far
+    -- side). The `pane_at_*` test keeps the key a no-op at the edge: `if-shell -F <cond> <then>
+    -- <else>` with an empty `then`.
     argv = function(dir)
-      return { "tmux", "select-pane", navigate.DIRECTIONS[dir].tmux }
+      local d = navigate.DIRECTIONS[dir]
+      return {
+        "tmux",
+        "if-shell",
+        "-F",
+        "#{pane_at_" .. d.edge .. "}",
+        "",
+        "select-pane " .. d.tmux,
+      }
     end,
   },
   wezterm = {

@@ -47,12 +47,38 @@ local function from_normal(dir)
   end
 end
 
+---@internal
+--- Remove the maps an earlier `setup()` created. `keymap.register` replaces its own record on
+--- every call but never deletes a key that has moved or been dropped since, so a re-setup (a config
+--- reload) would leave the old keys active. Only a map that still carries this plugin's description
+--- is deleted: one the user set on the same key afterwards stays.
+---@param keymap table `lib.nvim.bindings.keymap`
+---@return nil
+local function unbind_previous(keymap)
+  for _, entry in ipairs(keymap.registered("terminal")) do
+    if entry.name and entry.bound and entry.lhs then
+      local modes = type(entry.mode) == "table" and entry.mode or { entry.mode }
+      for _, mode in ipairs(modes) do
+        local current = vim.fn.maparg(entry.lhs, mode, false, true)
+        if
+          type(current) == "table"
+          and type(current.desc) == "string"
+          and vim.startswith(current.desc, "terminal: ")
+        then
+          pcall(vim.keymap.del, mode, entry.lhs)
+        end
+      end
+    end
+  end
+end
+
 --- Register the actions and bind them.
 ---@param cfg Terminal.Config
 ---@return nil
 function M.setup(cfg)
   local keymap = require("lib.nvim.bindings.keymap")
   local terminal = require("terminal")
+  unbind_previous(keymap)
 
   keymap.register("terminal", {
     order = {

@@ -53,6 +53,28 @@ describe("terminal.config", function()
       assert.truthy(p[1]:find("float|split|vsplit|tab", 1, true))
     end)
 
+    it("drops an auto_insert event Neovim does not know and keeps the others", function()
+      local p, clean =
+        config.validate(DEFAULTS, { auto_insert = { events = { "TermOpen", "TermEnterr", 5 } } })
+      assert.equals(2, #p)
+      assert.truthy(p[1]:find("auto_insert.events", 1, true))
+      assert.same({ "TermOpen" }, clean.auto_insert.events)
+    end)
+
+    it("with no valid event left, the key is dropped so the default list applies", function()
+      local p, clean = config.validate(DEFAULTS, { auto_insert = { events = { "Nope" } } })
+      assert.equals(1, #p)
+      assert.is_nil(clean.auto_insert.events)
+      config.setup({ auto_insert = { enable = true, events = { "Nope" } } })
+      assert.same({ "TermOpen" }, config.get("auto_insert.events"))
+    end)
+
+    it("wants a list of event names, not a string", function()
+      local p = config.validate(DEFAULTS, { auto_insert = { events = "TermOpen" } })
+      assert.equals(1, #p)
+      assert.truthy(p[1]:find("list of event names", 1, true))
+    end)
+
     it("accepts the wide types: string or list shell, string or list border", function()
       assert.same({}, config.validate(DEFAULTS, { shell = "pwsh" }))
       assert.same({}, config.validate(DEFAULTS, { shell = { "pwsh", "-NoLogo" } }))

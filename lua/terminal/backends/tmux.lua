@@ -12,10 +12,52 @@
 ---
 --- The runner is injected (`new(registry, runner, own_pane, opts)`); `opts.socket` selects a
 --- tmux server (`-L name`), which is how the specs run against a private server.
+---
+--- Every piece of *data* that becomes a tmux argument (typed text, a directory, the words of a
+--- command, an option value) goes through `M.word`: tmux reads a trailing `;` of an argument as a
+--- command separator, so a bare word like `select 1;` would lose its `;` and a word like
+--- `notes;` followed by `run-shell` would start another tmux command.
 
 local registry_mod = require("terminal.core.registry")
 
 local M = {}
+
+--- One data word as a tmux argument. tmux's command parser ends a command at an argument that
+--- ends in `;` and turns a trailing `\;` into `;`; a backslash in front of the final `;` makes it
+--- a literal again: `a;` -> `a\;` (read as `a;`), `a\;` -> `a\\;` (read as `a\;`).
+---@param s string
+---@return string
+function M.word(s)
+  if s:sub(-1) == ";" then
+    return s:sub(1, -2) .. "\\;"
+  end
+  return s
+end
+
+--- The `[major, minor]` of a `tmux -V` line (`tmux 3.4`, `tmux 3.0a`, `tmux next-3.5`); nil for
+--- builds without a number (`tmux master`).
+---@param text string
+---@return integer|nil major
+---@return integer|nil minor
+function M.parse_version(text)
+  local major, minor = tostring(text):match("tmux%s+[%a%-]*(%d+)%.(%d+)")
+  if not major then
+    return nil, nil
+  end
+  return tonumber(major), tonumber(minor)
+end
+
+--- Whether `split-window -l <n>%` exists (tmux 3.1+); older releases take `-p <n>`. An unknown
+--- version counts as new.
+---@param major integer|nil
+---@param minor integer|nil
+---@return boolean
+function M.has_percent_size(major, minor)
+  if major == nil then
+    return true
+  end
+  return major > 3 or (major == 3 and (minor or 0) >= 1)
+end
 
 ---@class Terminal.TmuxRun
 ---@field code integer
@@ -91,6 +133,26 @@ function M.new(registry, runner, own_pane, opts)
   end
 
   ---@internal
+  --- Whether the running tmux takes `split-window -l <n>%`. Asked once, on the first split (a
+  --- process the setup must not pay for); an unreadable version counts as new.
+  ---@type boolean|nil
+  local percent_size
+
+  ---@internal
+  ---@return boolean
+  local function takes_percent_size()
+    if percent_size == nil then
+      local res = tmux({ "-V" })
+      if res then
+        percent_size = M.has_percent_size(M.parse_version(res.stdout))
+      else
+        percent_size = true
+      end
+    end
+    return percent_size
+  end
+
+  ---@internal
   --- Every pane tmux knows: id -> { active = pane active in its window, window_active }.
   ---@return table<string, { active: boolean, window_active: boolean }>|nil
   ---@return string|nil err
@@ -114,6 +176,16 @@ function M.new(registry, runner, own_pane, opts)
     return by_id, nil
   end
 
+  ---@internal
+  --- Make `pane` the one the user sees: its window first, then the pane (one tmux process).
+  ---@param pane string
+  ---@return boolean ok
+  ---@return string|nil err
+  local function select_pane(pane)
+    local res, err = tmux({ "select-window", "-t", pane, ";", "select-pane", "-t", pane })
+    return res ~= nil, err
+  end
+
   function backend.available(env)
     return M.available(env)
   end
@@ -126,7 +198,6 @@ function M.new(registry, runner, own_pane, opts)
       return nil, "the tmux backend cannot set environment variables for a pane"
     end
     local args
-    local keep_focus = spec.start_insert == false
     if spec.layout == "tab" then
       args = { "new-window", "-P", "-F", "#{pane_id}" }
     else
@@ -134,21 +205,31 @@ function M.new(registry, runner, own_pane, opts)
       args[#args + 1] = spec.layout == "split" and "-v" or "-h"
       local size = (spec.split or {}).size
       if type(size) == "number" and size > 0 and size <= 1 then
-        vim.list_extend(args, { "-l", ("%d%%"):format(math.floor(size * 100)) })
+        local percent = math.floor(size * 100)
+        if takes_percent_size() then
+          vim.list_extend(args, { "-l", ("%d%%"):format(percent) })
+        else
+          vim.list_extend(args, { "-p", tostring(percent) })
+        end
       end
     end
-    if keep_focus then
+    -- `-d`: the new pane is not selected, the user stays where they are.
+    if spec.focus == false then
       args[#args + 1] = "-d"
     end
     if spec.cwd and spec.cwd ~= "" then
-      vim.list_extend(args, { "-c", spec.cwd })
+      vim.list_extend(args, { "-c", M.word(spec.cwd) })
     end
     local cmd = spec.cmd
     if type(cmd) == "string" and cmd ~= "" then
       cmd = { cmd }
     end
     if type(cmd) == "table" and #cmd > 0 then
-      vim.list_extend(args, cmd)
+      -- `--`: a first word that starts with a dash is the program, not an option of tmux.
+      args[#args + 1] = "--"
+      for _, word in ipairs(cmd) do
+        args[#args + 1] = M.word(word)
+      end
     end
 
     local res, err = tmux(args)
@@ -182,38 +263,49 @@ function M.new(registry, runner, own_pane, opts)
     if text:find("%z") then
       return false, "text contains a NUL byte"
     end
-    local res, err = tmux({ "send-keys", "-t", handle.pane, "-l", "--", text })
+    local res, err = tmux({ "send-keys", "-t", handle.pane, "-l", "--", M.word(text) })
     if not res then
       return false, err
     end
     return true, nil
   end
 
+  --- Whether the pane exists and whether it has the user's focus, from ONE `list-panes`.
+  --- nil (with the reason) when tmux cannot be asked: the state is unknown, not "gone".
   ---@param handle Terminal.Handle
-  ---@return boolean
+  ---@return { visible: boolean, focused: boolean }|nil
+  ---@return string|nil err
+  function backend.probe(handle)
+    local all, err = panes()
+    if not all then
+      return nil, err
+    end
+    local mine = all[handle.pane]
+    if not mine then
+      return { visible = false, focused = false }, nil
+    end
+    return { visible = true, focused = mine.active and mine.window_active }, nil
+  end
+
+  ---@param handle Terminal.Handle
+  ---@return boolean|nil visible nil when tmux could not be asked
   function backend.visible(handle)
-    local all = panes()
-    return all ~= nil and all[handle.pane] ~= nil
+    local state = backend.probe(handle)
+    return state and state.visible
   end
 
   ---@param handle Terminal.Handle
   ---@return boolean
   function backend.focused(handle)
-    local all = panes()
-    local mine = all and all[handle.pane]
-    return mine ~= nil and mine.active and mine.window_active
+    local state = backend.probe(handle)
+    return state ~= nil and state.focused
   end
 
   ---@param handle Terminal.Handle
   ---@return boolean
   ---@return string|nil
   function backend.focus(handle)
-    local ok, err = tmux({ "select-window", "-t", handle.pane })
-    if not ok then
-      return false, err
-    end
-    local res, perr = tmux({ "select-pane", "-t", handle.pane })
-    return res ~= nil, perr
+    return select_pane(handle.pane)
   end
 
   --- The pane's visible text (`capture-pane -p`, plain text without escape sequences).
@@ -236,38 +328,50 @@ function M.new(registry, runner, own_pane, opts)
     if own_pane == "" then
       return false, "Neovim's own pane is unknown"
     end
-    local ok, err = tmux({ "select-window", "-t", own_pane })
-    if not ok then
-      return false, err
-    end
-    local res, perr = tmux({ "select-pane", "-t", own_pane })
-    return res ~= nil, perr
+    return select_pane(own_pane)
   end
 
   ---@return Terminal.Handle[]
   function backend.list()
-    local all = panes()
-    local out = {}
+    ---@type Terminal.Handle[]
+    local mine = {}
     for _, h in ipairs(registry:list()) do
       if h.backend == "tmux" then
-        if all == nil or all[h.pane] ~= nil then
-          out[#out + 1] = h
-        else
-          registry:remove(h.id)
-        end
+        mine[#mine + 1] = h
+      end
+    end
+    -- Nothing of ours: no reason to start a tmux process.
+    if #mine == 0 then
+      return mine
+    end
+    local all = panes()
+    local out = {}
+    for _, h in ipairs(mine) do
+      if all == nil or all[h.pane] ~= nil then
+        out[#out + 1] = h
+      else
+        registry:remove(h.id)
       end
     end
     return out
   end
 
+  --- Kill the pane. A pane that is already gone counts as closed; one that cannot be killed (or
+  --- whose state cannot be read) stays registered and the failure is reported.
   ---@param handle Terminal.Handle
   ---@return boolean
   ---@return string|nil
   function backend.close(handle)
+    local res, err = tmux({ "kill-pane", "-t", handle.pane })
+    if not res then
+      local all = panes()
+      if not (all and all[handle.pane] == nil) then
+        return false, err
+      end
+    end
     if registry:get(handle.id) == handle then
       registry:remove(handle.id)
     end
-    tmux({ "kill-pane", "-t", handle.pane })
     return true, nil
   end
 

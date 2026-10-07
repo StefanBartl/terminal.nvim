@@ -3,7 +3,7 @@
 --- or `window-status-format` can show them with `#{@terminal_mode}` and friends.
 ---
 --- One `set-option -p` per field, sent as a single tmux command line (commands joined with `;`):
----   `@terminal_mode`   Neovim mode code (`n`, `i`, `v`, `V`, `t`, ...)
+---   `@terminal_mode`   Neovim mode code (`n`, `i`, `v`, `V`, `^V`, `t`, ...)
 ---   `@terminal_file`   file name
 ---   `@terminal_branch` git branch ("" when none)
 ---   `@terminal_diag`   `E2 W1` (errors / warnings; "" when none)
@@ -11,11 +11,22 @@
 ---   `@terminal_mod`    `+` when the buffer is modified, else ""
 --- Values are sanitised by the dataset (no control characters). tmux expands `#{...}` inside a
 --- format *value* only where the user's format asks for it; the values themselves are set with
---- `set-option`, never interpolated into a command string.
+--- `set-option`, never interpolated into a command string. A value that ends in `;` is escaped
+--- (`backends.tmux.word`): tmux would otherwise read it as the end of the command.
+---
+--- Whose pane it is: the options belong to `$TMUX_PANE`, so only the Neovim that *owns* the pane
+--- may write them. `available()` refuses a Neovim inside another Neovim's terminal (`$NVIM`), `ready()`
+--- refuses one without an attached UI (a headless child), and `clear()` removes the options only
+--- when this instance wrote them.
+
+local tmux_backend = require("terminal.backends.tmux")
 
 local M = {}
 
 M.name = "tmux"
+
+--- Whether this instance wrote the pane options (and so has to remove them).
+local owned = false
 
 ---@type fun(argv: string[]): { code: integer, stderr: string }
 M.run = function(argv)
@@ -38,7 +49,18 @@ function M.available(env)
   if env.TMUX_PANE == nil or env.TMUX_PANE == "" then
     return false, "$TMUX_PANE is not set"
   end
+  if env.NVIM ~= nil and env.NVIM ~= "" then
+    return false,
+      "this Neovim runs inside another Neovim's terminal ($NVIM is set); the outer one owns the pane"
+  end
   return true, nil
+end
+
+--- Only a Neovim with an attached UI shows anything to the pane's user; a headless one (a
+--- script, `--headless "+Lazy! sync"`) leaves the pane's options alone.
+---@return boolean
+function M.ready()
+  return #vim.api.nvim_list_uis() > 0
 end
 
 ---@internal
@@ -60,7 +82,7 @@ local function command(pane, fields, unset)
     end
     vim.list_extend(argv, { "-t", pane, name })
     if not unset then
-      argv[#argv + 1] = fields[name]
+      argv[#argv + 1] = tmux_backend.word(fields[name])
     end
   end
   return argv
@@ -87,15 +109,37 @@ function M.fields(data)
   }
 end
 
+--- What this exporter publishes, as one string: the delta gate compares this, so a change the pane
+--- options do not carry (cwd, filetype, info and hint counts) costs no tmux process.
+---@param data table
+---@return string
+function M.key(data)
+  local fields = M.fields(data)
+  local names = vim.tbl_keys(fields)
+  table.sort(names)
+  local parts = {}
+  for _, name in ipairs(names) do
+    parts[#parts + 1] = fields[name]
+  end
+  -- NUL cannot occur in a value (the dataset is sanitised), so the parts cannot run together.
+  return table.concat(parts, "\0")
+end
+
 ---@param json string The encoded dataset
+---@param data? table The same dataset, already decoded
 ---@return boolean ok
 ---@return string|nil err
-function M.publish(json)
+function M.publish(json, data)
   local pane = vim.env.TMUX_PANE
-  local ok, data = pcall(vim.json.decode, json)
-  if not ok or type(data) ~= "table" then
-    return false, "dataset is not JSON"
+  if data == nil then
+    local ok, decoded = pcall(vim.json.decode, json)
+    if not ok or type(decoded) ~= "table" then
+      return false, "dataset is not JSON"
+    end
+    data = decoded
   end
+  -- Set before the call: a chain that fails half-way has still written some of the options.
+  owned = true
   local res = M.run(command(pane, M.fields(data), false))
   if res.code ~= 0 then
     return false, vim.trim(res.stderr)
@@ -103,10 +147,15 @@ function M.publish(json)
   return true, nil
 end
 
---- Remove the options (this Neovim leaves the pane).
+--- Remove the options (this Neovim leaves the pane). Nothing to do when this instance never
+--- wrote them.
 ---@return boolean ok
 ---@return string|nil err
 function M.clear()
+  if not owned then
+    return true, nil
+  end
+  owned = false
   local pane = vim.env.TMUX_PANE
   local res = M.run(command(pane, M.fields({}), true))
   if res.code ~= 0 then

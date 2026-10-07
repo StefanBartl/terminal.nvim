@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/pin_adopt_spec.lua -- pin (restart in a multiplexer pane) and adopt (view a pane).
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
 local jobs = dofile(here .. "/support/jobs.lua")
 local fakes = dofile(here .. "/support/fakes.lua")
@@ -13,7 +16,8 @@ describe("terminal pin / adopt", function()
   local notices
 
   ---@param with_wezterm boolean
-  local function boot(with_wezterm)
+  ---@param extra? table Further setup options
+  local function boot(with_wezterm, extra)
     for _, mod in ipairs({
       "terminal",
       "terminal.config",
@@ -38,14 +42,14 @@ describe("terminal pin / adopt", function()
     end
     wezterm.default_runner = runner
     terminal = require("terminal")
-    terminal.setup({
+    terminal.setup(vim.tbl_extend("force", {
       shell = jobs.sleeper(),
       start_insert = false,
       commands = false,
       keymaps = { preset = false },
       status = { enable = false },
       navigate = { handoff = false },
-    })
+    }, extra or {}))
   end
 
   before_each(function()
@@ -99,12 +103,41 @@ describe("terminal pin / adopt", function()
       terminal.open({ name = "work" })
       jobs.settle()
       terminal.pin({ name = "work" })
-      terminal.toggle({ name = "work" }) -- spawned without focus: toggle focuses the pane
-      assert.equals("8", state.active)
+      assert.equals("8", state.active, "the pinned pane opens with focus")
       terminal.toggle({ name = "work" }) -- focused: toggle hands focus back to Neovim
       assert.equals("7", state.active)
+      terminal.toggle({ name = "work" }) -- visible elsewhere: toggle focuses the pane
+      assert.equals("8", state.active)
       assert.is_true(terminal.close({ name = "work" }))
       assert.equals(0, #terminal.list())
+    end)
+
+    it("keeps the native terminal when the pane cannot be started", function()
+      -- `env` is something a multiplexer pane cannot take: the pane fails, the old terminal stays.
+      boot(true, { env = { FOO = "1" } })
+      local native = terminal.open({ name = "work" })
+      jobs.settle()
+      local ok, err = terminal.pin({ name = "work" })
+      assert.is_false(ok)
+      assert.truthy(err:find("environment", 1, true))
+      assert.is_true(vim.api.nvim_buf_is_valid(native.bufnr), "the native terminal is still there")
+      assert.equals(1, #terminal.list())
+      assert.equals("native", terminal.list()[1].backend)
+    end)
+
+    it("keeps the native terminal when wezterm cli fails", function()
+      boot(true)
+      local native = terminal.open({ name = "work" })
+      jobs.settle()
+      local original = wezterm.default_runner
+      wezterm.default_runner = function()
+        return { code = 1, stdout = "", stderr = "mux is gone" }
+      end
+      local ok = terminal.pin({ name = "work" })
+      wezterm.default_runner = original
+      assert.is_false(ok)
+      assert.is_true(vim.api.nvim_buf_is_valid(native.bufnr))
+      assert.equals("native", terminal.list()[1].backend)
     end)
 
     it("says why when there is no multiplexer", function()

@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/status_spec.lua -- the status dataset, its escape-sequence writer and the exporter.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local osc = require("terminal.core.osc")
 local status = require("terminal.core.status")
 
@@ -120,6 +123,18 @@ describe("terminal.core.status", function()
     }))
     for _, field in ipairs({ "file", "branch", "cwd", "mode", "rec", "ft" }) do
       assert.is_nil(s[field]:find("[%z\1-\31\127]"), field)
+    end
+  end)
+
+  it("blockwise Visual and Select-block survive as ^V / ^S instead of '?'", function()
+    assert.equals("^V", status.build(snap({ mode = "\22" })).mode)
+    assert.equals("^S", status.build(snap({ mode = "\19" })).mode)
+    assert.equals("no^V", status.build(snap({ mode = "no\22" })).mode)
+    assert.equals("^Vs", status.build(snap({ mode = "\22s" })).mode)
+    -- every other control character still becomes '?'
+    assert.equals("n?", status.build(snap({ mode = "n\27" })).mode)
+    for _, mode in ipairs({ "n", "no", "nov", "V", "v", "i", "R", "c", "t", "ntT" }) do
+      assert.equals(mode, status.build(snap({ mode = mode })).mode)
     end
   end)
 
@@ -281,13 +296,160 @@ describe("terminal.status (publishing)", function()
     assert.equals("\27Ptmux;", writes[1]:sub(1, 7))
   end)
 
-  it("switches an exporter off after one failure instead of retrying", function()
+  it("without a UI nothing is published, silently, and the exporter stays on", function()
+    local notices = {}
+    local original_notify = vim.notify
+    vim.notify = function(msg)
+      notices[#notices + 1] = msg
+    end
     vim.api.nvim_list_uis = function()
       return {}
     end
     publisher.setup(cfg(), { WEZTERM_PANE = "3" })
     publisher.publish_now()
-    assert.same({}, publisher.active())
+    publisher.publish_now()
+    vim.wait(50)
+    vim.notify = original_notify
+    assert.same({ "wezterm" }, publisher.active())
     assert.same({}, writes)
+    assert.same({}, notices)
+  end)
+
+  it("what could not be sent without a UI goes out once one attaches", function()
+    local attached = false
+    vim.api.nvim_list_uis = function()
+      return attached and { {} } or {}
+    end
+    publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+    publisher.publish_now()
+    assert.same({}, writes)
+    attached = true
+    publisher.publish_now()
+    assert.equals(1, #writes)
+  end)
+
+  it("UIEnter is one of the events that trigger a publish", function()
+    publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+    writes = {}
+    vim.api.nvim_exec_autocmds("UIEnter", { group = "terminal.status", modeline = false })
+    assert.is_true(vim.wait(1000, function()
+      return #writes >= 1
+    end))
+  end)
+
+  describe("an exporter that fails", function()
+    ---@type Terminal.StatusExporter
+    local failing
+
+    before_each(function()
+      failing = {
+        name = "wezterm",
+        available = function()
+          return true
+        end,
+        publish = function()
+          failing.publishes = (failing.publishes or 0) + 1
+          return false, "boom"
+        end,
+        clear = function()
+          failing.cleared = (failing.cleared or 0) + 1
+          return true
+        end,
+      }
+      package.loaded["terminal.status.exporters.wezterm"] = failing
+    end)
+
+    after_each(function()
+      package.loaded["terminal.status.exporters.wezterm"] = nil
+    end)
+
+    it("is switched off after one failure instead of retrying", function()
+      publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+      publisher.publish_now()
+      publisher.publish_now()
+      vim.cmd("enew")
+      publisher.publish_now()
+      assert.equals(1, failing.publishes)
+      assert.same({}, publisher.active())
+    end)
+
+    it("is still told to clean up when Neovim leaves", function()
+      publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+      publisher.publish_now()
+      publisher.clear()
+      assert.equals(1, failing.cleared)
+    end)
+  end)
+
+  describe("the delta gate looks at what an exporter publishes", function()
+    ---@type Terminal.StatusExporter
+    local probe
+
+    before_each(function()
+      probe = {
+        name = "wezterm",
+        available = function()
+          return true
+        end,
+        key = function(data)
+          return data.mode .. "|" .. data.file
+        end,
+        publish = function()
+          probe.publishes = (probe.publishes or 0) + 1
+          return true
+        end,
+        clear = function()
+          return true
+        end,
+      }
+      package.loaded["terminal.status.exporters.wezterm"] = probe
+    end)
+
+    after_each(function()
+      package.loaded["terminal.status.exporters.wezterm"] = nil
+    end)
+
+    it("a change outside the key (the info count, the directory) is not published", function()
+      publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+      publisher.publish_now()
+      assert.equals(1, probe.publishes)
+      local ns = vim.api.nvim_create_namespace("terminal-spec-info")
+      vim.diagnostic.set(ns, 0, {
+        { lnum = 0, col = 0, message = "i", severity = vim.diagnostic.severity.INFO },
+      })
+      publisher.publish_now()
+      assert.equals(1, probe.publishes, "an info diagnostic is not in the key")
+      vim.cmd("enew")
+      vim.api.nvim_buf_set_name(0, vim.fn.tempname() .. "-key.txt")
+      publisher.publish_now()
+      assert.equals(2, probe.publishes, "the file name is")
+    end)
+  end)
+
+  it("a dataset over max_bytes is reported once, not on every event", function()
+    local notices = {}
+    local original_notify = vim.notify
+    vim.notify = function(msg)
+      notices[#notices + 1] = msg
+    end
+    publisher.setup(cfg({ status = { max_bytes = 20 } }), { WEZTERM_PANE = "3" })
+    publisher.publish_now()
+    publisher.publish_now()
+    publisher.publish_now()
+    vim.wait(100)
+    vim.notify = original_notify
+    local over = vim.tbl_filter(function(m)
+      return m:find("over the limit", 1, true) ~= nil
+    end, notices)
+    assert.equals(1, #over)
+    assert.same({}, writes)
+  end)
+
+  it("choose: a nested Neovim ($NVIM) is skipped by auto, but a name asks for it anyway", function()
+    local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1", NVIM = "/tmp/nvim.sock" }
+    assert.same({}, (publisher.choose("auto", env)))
+    local chosen = publisher.choose("tmux", env)
+    assert.equals(1, #chosen)
+    assert.equals("tmux", chosen[1].name)
   end)
 end)

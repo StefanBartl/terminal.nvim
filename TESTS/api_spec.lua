@@ -1,6 +1,9 @@
 ---@diagnostic disable: need-check-nil, undefined-field
 -- TESTS/api_spec.lua -- the public facade (`require("terminal")`) on the native backend.
 
+-- Hermetic: no multiplexer variables from the terminal the specs are run in.
+dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
+
 local here = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
 local jobs = dofile(here .. "/support/jobs.lua")
 
@@ -60,6 +63,62 @@ describe("terminal (facade)", function()
       end
     end
     assert.is_true(found)
+  end)
+
+  it("setup does not look for wezterm or tmux on $PATH unless the config names them", function()
+    local looked = {}
+    local original = vim.fn.executable
+    vim.fn.executable = function(name)
+      looked[#looked + 1] = name
+      return original(name)
+    end
+    local saved_wez, saved_tmux, saved_pane = vim.env.WEZTERM_PANE, vim.env.TMUX, vim.env.TMUX_PANE
+    vim.env.WEZTERM_PANE, vim.env.TMUX, vim.env.TMUX_PANE = "7", "/tmp/tmux-1/default,1,0", "%1"
+    terminal.setup({ commands = false, keymaps = { preset = false } })
+    vim.env.WEZTERM_PANE, vim.env.TMUX, vim.env.TMUX_PANE = saved_wez, saved_tmux, saved_pane
+    vim.fn.executable = original
+    assert.is_false(vim.tbl_contains(looked, "wezterm"))
+    assert.is_false(vim.tbl_contains(looked, "tmux"))
+  end)
+
+  it("a failing part of setup does not leave status and navigation unconfigured", function()
+    local saved_pane = vim.env.WEZTERM_PANE
+    vim.env.WEZTERM_PANE = "7"
+    package.loaded["terminal.bindings"] = {
+      setup = function()
+        error("boom")
+      end,
+    }
+    package.loaded["terminal.navigate"] = nil
+    terminal.setup({ commands = false, keymaps = { preset = false } })
+    vim.env.WEZTERM_PANE = saved_pane
+    vim.wait(100)
+    assert.same({ "wezterm" }, require("terminal.navigate").active())
+    local told = false
+    for _, n in ipairs(notices) do
+      if n.msg:find("bindings failed", 1, true) then
+        told = true
+      end
+    end
+    assert.is_true(told)
+    package.loaded["terminal.bindings"] = nil
+  end)
+
+  it("a bad auto_insert event is reported and does not break setup", function()
+    terminal.setup({
+      commands = false,
+      keymaps = { preset = false },
+      auto_insert = { enable = true, events = { "TermEnterr" } },
+    })
+    vim.wait(100)
+    assert.is_true(terminal.status().ready)
+    local told = false
+    for _, n in ipairs(notices) do
+      if n.msg:find("TermEnterr", 1, true) then
+        told = true
+      end
+    end
+    assert.is_true(told)
   end)
 
   describe("open / toggle / hide / close", function()
@@ -290,11 +349,18 @@ describe("terminal (facade)", function()
         cwd = dir,
         float = { width = 0.5, height = 0.5 },
       })
-      local win = vim.fn.win_findbuf(h.bufnr)[1]
-      local cfg = vim.api.nvim_win_get_config(win)
-      assert.truthy(vim.inspect(cfg.title):find("lazygit", 1, true))
-      assert.is_true(cfg.width < vim.o.columns * 0.6)
+      -- Assert first, clean up always: a failed assertion must not leave the directory behind.
+      local ok, err = pcall(function()
+        local win = vim.fn.win_findbuf(h.bufnr)[1]
+        local cfg = vim.api.nvim_win_get_config(win)
+        assert.truthy(vim.inspect(cfg.title):find("lazygit", 1, true))
+        assert.is_true(cfg.width < vim.o.columns * 0.6)
+        assert.equals(dir, h.cwd, "the job starts in the directory that was asked for")
+      end)
       vim.fn.delete(dir, "d")
+      if not ok then
+        error(err, 0)
+      end
     end)
 
     it("direct: needs an argv list", function()

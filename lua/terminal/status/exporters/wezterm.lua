@@ -26,10 +26,19 @@ function M.available(env)
   if env.WEZTERM_PANE == nil or env.WEZTERM_PANE == "" then
     return false, "not running inside WezTerm ($WEZTERM_PANE is not set)"
   end
+  -- `nvim_ui_send` exists since Neovim 0.12; before that there is no way to write to the host
+  -- terminal from the (embedded) Neovim server.
   if type(vim.api.nvim_ui_send) ~= "function" then
-    return false, "nvim_ui_send is missing (Neovim 0.11+ needed)"
+    return false, "nvim_ui_send is missing (the WezTerm status export needs Neovim 0.12+)"
   end
   return true, nil
+end
+
+--- Without an attached UI there is no terminal to write to (a headless run); that is the normal
+--- state of a script, not a failure. The status goes out when a UI attaches (`UIEnter`).
+---@return boolean
+function M.ready()
+  return #vim.api.nvim_list_uis() > 0
 end
 
 ---@internal

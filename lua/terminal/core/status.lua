@@ -16,7 +16,7 @@ local M = {}
 M.VERSION = 1
 
 ---@class Terminal.StatusSnapshot
----@field mode string `nvim_get_mode().mode`, e.g. "n", "i", "V", "\22", "t"
+---@field mode string `nvim_get_mode().mode`, e.g. "n", "i", "V", "\22", "t" (published as "^V" for "\22")
 ---@field file string Buffer name (may be a full path or "")
 ---@field buftype? string
 ---@field cwd string
@@ -41,6 +41,21 @@ M.VERSION = 1
 ---@field h integer Hint count
 ---@field rec string
 ---@field mod boolean
+
+---@internal
+--- Blockwise Visual (CTRL-V, byte 22) and Select-block (CTRL-S, byte 19) are control characters in
+--- `nvim_get_mode().mode`, so the sanitiser would turn them into `?`. They are spelled out as
+--- `^V` / `^S` instead (`no^V` is operator-pending blockwise); every other mode code is plain
+--- ASCII already.
+---@type table<string, string>
+local MODE_CODES = { ["\22"] = "^V", ["\19"] = "^S" }
+
+---@internal
+---@param mode string
+---@return string
+local function mode_code(mode)
+  return (mode:gsub("[\19\22]", MODE_CODES))
+end
 
 ---@internal
 ---@param n any
@@ -78,7 +93,7 @@ function M.build(snap)
   return {
     v = M.VERSION,
     pid = snap.pid,
-    mode = osc.sanitize(snap.mode or "n", 4),
+    mode = osc.sanitize(mode_code(tostring(snap.mode or "n")), 4),
     file = osc.sanitize(name, 120),
     ft = osc.sanitize(snap.filetype or "", 40),
     cwd = osc.sanitize(snap.cwd or "", 200),
