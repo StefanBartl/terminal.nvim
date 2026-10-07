@@ -19,8 +19,27 @@ local LAYOUTS = { "float", "split", "vsplit", "tab" }
 local NAME_ARG = { { name = "name", type = "STRING", optional = true } }
 
 ---@internal
+--- What each layout looks like, for the option float (the native backend's windows; a
+--- multiplexer maps split/vsplit/tab to a pane below, a pane to the right and a new tab).
+---@type table<string, string>
+local LAYOUT_ENUM_DESC = {
+  float = "floating window over the editor",
+  split = "horizontal split below",
+  vsplit = "vertical split on the right",
+  tab = "separate tab page",
+}
+
+---@internal
 ---@type Lib.UserCmd.Composer.FlagSpec[]
-local LAYOUT_FLAG = { { name = "layout", type = "STRING", enum = LAYOUTS } }
+local LAYOUT_FLAG = {
+  {
+    name = "layout",
+    type = "STRING",
+    enum = LAYOUTS,
+    desc = "Window layout of the terminal (default: config layout)",
+    enum_desc = LAYOUT_ENUM_DESC,
+  },
+}
 
 ---@internal
 ---@param ctx Lib.UserCmd.Composer.Ctx
@@ -56,7 +75,14 @@ local function send_route(what)
     path = { "send", what },
     range = what == "selection",
     args = NAME_ARG,
-    flags = { { name = "exec", bool = true } },
+    flags = {
+      {
+        name = "exec",
+        bool = true,
+        desc = what == "line" and "Press Enter after the line so the shell runs it"
+          or "Press Enter after the text (required for several lines)",
+      },
+    },
     desc = ("Send the %s to a terminal (typed only; --exec presses Enter)"):format(what),
     run = function(ctx)
       local lines = lines_for(what, ctx)
@@ -166,8 +192,24 @@ function M.setup()
         path = { "pin" },
         args = NAME_ARG,
         flags = {
-          { name = "backend", type = "STRING", enum = { "tmux", "wezterm" } },
-          { name = "layout", type = "STRING", enum = LAYOUTS },
+          {
+            name = "backend",
+            type = "STRING",
+            enum = { "tmux", "wezterm" },
+            desc = "Multiplexer for the new pane (default: tmux, else wezterm)",
+          },
+          {
+            name = "layout",
+            type = "STRING",
+            enum = LAYOUTS,
+            desc = "Pane layout in the multiplexer (default: vsplit)",
+            enum_desc = {
+              float = "pane to the right (a pane cannot float)",
+              split = "pane below",
+              vsplit = "pane to the right",
+              tab = "new tab or window",
+            },
+          },
         },
         desc = "Restart a native terminal as a pane of tmux/WezTerm so it outlives Neovim",
         run = function(ctx)
@@ -212,9 +254,17 @@ function M.setup()
       {
         path = { "run" },
         flags = {
-          { name = "name", type = "STRING" },
-          { name = "direct", bool = true },
-          { name = "layout", type = "STRING", enum = LAYOUTS },
+          {
+            name = "name",
+            type = "STRING",
+            desc = "Name of the terminal to use (default: config run.name)",
+          },
+          {
+            name = "direct",
+            bool = true,
+            desc = "Start the command as the terminal's job, no shell",
+          },
+          LAYOUT_FLAG[1],
         },
         desc = "Run a command (typed as a line; --direct starts it as the job itself); put -- before a command with dashed words",
         run = function(ctx)
