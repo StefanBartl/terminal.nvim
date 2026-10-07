@@ -14,13 +14,6 @@ local fn = vim.fn
 local M = {}
 
 ---@internal
---- Neovim 0.11 replaced `termopen()` with `jobstart({ term = true })`.
----@return boolean
-local function has_term_jobstart()
-  return fn.has("nvim-0.11") == 1
-end
-
----@internal
 --- Close one window without ever closing the last window of the editor.
 ---@param win integer
 ---@return nil
@@ -196,15 +189,9 @@ function M.new(registry)
       end,
     }
 
-    local job
-    if has_term_jobstart() then
-      job_opts.term = true
-      local ok, res = pcall(fn.jobstart, cmd, job_opts)
-      job = ok and res or -1
-    else
-      local ok, res = pcall(fn.termopen, cmd, job_opts)
-      job = ok and res or -1
-    end
+    job_opts.term = true
+    local ok, res = pcall(fn.jobstart, cmd, job_opts)
+    local job = ok and res or -1
     if job <= 0 then
       close_window(win)
       pcall(api.nvim_buf_delete, bufnr, { force = true })

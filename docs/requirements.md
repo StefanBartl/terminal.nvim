@@ -1,7 +1,8 @@
 # Requirements
 
-- **Neovim 0.10+.** Terminals start with `jobstart({ term = true })` on 0.11+ and with
-  `termopen()` on 0.10. The split layouts use `nvim_open_win({ split = ... })` (0.10).
+- **Neovim 0.11+.** Terminals start with `jobstart({ term = true })` (`termopen()` is deprecated),
+  the split layouts use `nvim_open_win({ split = ... })`, the WezTerm status export uses
+  `nvim_ui_send`.
 - **[lib.nvim](https://github.com/StefanBartl/lib.nvim)** — required. It provides the
   keymap registry, the autocommand helpers, the `:Terminal` command composer, notifications
   and the config helpers.

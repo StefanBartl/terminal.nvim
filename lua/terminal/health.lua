@@ -16,10 +16,10 @@ function M.check()
   local health = vim.health
   health.start("terminal.nvim")
 
-  if vim.fn.has("nvim-0.10") == 1 then
+  if vim.fn.has("nvim-0.11") == 1 then
     health.ok("Neovim " .. tostring(vim.version()))
   else
-    health.error("terminal.nvim needs Neovim 0.10+", { "Upgrade Neovim to 0.10 or newer" })
+    health.error("terminal.nvim needs Neovim 0.11+", { "Upgrade Neovim to 0.11 or newer" })
   end
 
   local required = {
