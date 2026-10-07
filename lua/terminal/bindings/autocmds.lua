@@ -47,6 +47,10 @@ function M.setup(cfg)
     Autocmd.create("VimEnter", function()
       vim.cmd(enter_cmd)
     end, { group = g_kitty_enter, desc = "terminal.nvim: snug Kitty padding while editing" })
+    -- A plugin manager that loads this at VeryLazy is late: VimEnter has already fired.
+    if vim.v.vim_did_enter == 1 then
+      vim.cmd(enter_cmd)
+    end
     Autocmd.create("VimLeavePre", function()
       vim.cmd(leave_cmd)
     end, { group = g_kitty_leave, desc = "terminal.nvim: restore Kitty padding on exit" })
