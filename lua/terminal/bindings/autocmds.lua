@@ -39,20 +39,35 @@ function M.setup(cfg)
   local g_kitty_enter = augroup("kitty_enter")
   local g_kitty_leave = augroup("kitty_leave")
   if cfg.kitty.enable and require("lib.nvim.terminal").is_kitty() then
-    local function kitty_cmd(padding, margin)
-      return ("silent !kitty @ set-spacing padding=%d margin=%d"):format(padding, margin)
+    -- An argv list through `vim.system`, never a `:!` shell string.
+    local function kitty_argv(padding, margin)
+      return {
+        "kitty",
+        "@",
+        "set-spacing",
+        ("padding=%d"):format(padding),
+        ("margin=%d"):format(margin),
+      }
     end
-    local enter_cmd = kitty_cmd(cfg.kitty.enter_padding, cfg.kitty.enter_margin)
-    local leave_cmd = kitty_cmd(cfg.kitty.leave_padding, cfg.kitty.leave_margin)
+    local enter_argv = kitty_argv(cfg.kitty.enter_padding, cfg.kitty.enter_margin)
+    local leave_argv = kitty_argv(cfg.kitty.leave_padding, cfg.kitty.leave_margin)
+    local function run(argv, wait)
+      local ok, proc = pcall(vim.system, argv, { text = true })
+      if ok and wait then
+        pcall(function()
+          proc:wait(1000)
+        end)
+      end
+    end
     Autocmd.create("VimEnter", function()
-      vim.cmd(enter_cmd)
+      run(enter_argv)
     end, { group = g_kitty_enter, desc = "terminal.nvim: snug Kitty padding while editing" })
     -- A plugin manager that loads this at VeryLazy is late: VimEnter has already fired.
     if vim.v.vim_did_enter == 1 then
-      vim.cmd(enter_cmd)
+      run(enter_argv)
     end
     Autocmd.create("VimLeavePre", function()
-      vim.cmd(leave_cmd)
+      run(leave_argv, true) -- Neovim is about to exit: wait for it
     end, { group = g_kitty_leave, desc = "terminal.nvim: restore Kitty padding on exit" })
   end
 
