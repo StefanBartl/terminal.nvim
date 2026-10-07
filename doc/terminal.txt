@@ -1,0 +1,75 @@
+*terminal.txt*  Named, per-project terminals                          *terminal.nvim*
+
+==============================================================================
+CONTENTS                                                    *terminal-contents*
+
+  1. Introduction ........................... |terminal-intro|
+  2. Commands ............................... |terminal-commands|
+  3. Lua API ................................ |terminal-api|
+  4. Keymaps ................................ |terminal-keymaps|
+  5. Configuration .......................... |terminal-config|
+
+==============================================================================
+1. INTRODUCTION                                                *terminal-intro*
+
+terminal.nvim gives you named terminals per project root: a float, split,
+vsplit or tab that you toggle with one key, that keeps running while hidden,
+and that you can type into from buffers. It needs lib.nvim.
+
+Only the "native" backend (Neovim's own |:terminal|) is implemented.
+
+==============================================================================
+2. COMMANDS                                                 *terminal-commands*
+
+                                                                   *:Terminal*
+:Terminal                       Toggle the default terminal.
+:Terminal toggle [name]         Focus / hide / show / create.
+:Terminal open [name]           Show and focus; create when needed.
+:Terminal hide [name]           Close the window, keep the job.
+:Terminal close [name]          Stop the job and remove the terminal.
+:Terminal list                  Pick one of this project's terminals.
+:Terminal send {line|file} [name] [--exec]
+:{range}Terminal send selection [name] [--exec]
+                                Type text into a terminal; --exec adds Enter.
+:Terminal run [--name=] [--layout=] [--direct] {command...}
+                                Run a command in the "run" terminal.
+                                --direct starts it as the job itself.
+
+`--layout=` is float, split, vsplit or tab.
+
+==============================================================================
+3. LUA API                                                      *terminal-api*
+
+>lua
+  local terminal = require("terminal")
+  terminal.setup(opts)
+  terminal.toggle({ name = "build", layout = "vsplit" })
+  terminal.open({ count = 3, focus = false })
+  terminal.hide(target)    terminal.close(target)
+  terminal.list(all)
+  terminal.send(text, { newline = true, name = "repl" })
+  terminal.run({ "git", "status" })
+  terminal.run({ "make" }, { direct = true, on_exit = function(code) end })
+  terminal.status()
+<
+
+An argv list given to run() is quoted for the terminal's shell; a string is
+typed as given.
+
+==============================================================================
+4. KEYMAPS                                                   *terminal-keymaps*
+
+  <A-h>            normal, terminal   toggle (a count picks terminal N)
+  <Esc>, <C-c>     terminal           leave terminal mode
+  <A-l>            terminal           clear the screen
+  <C-h/j/k/l>      terminal           window navigation
+
+Move one with `keymaps = { toggle = "<A-x>" }`, drop one with `false`, bind
+nothing with `preset = false`.
+
+==============================================================================
+5. CONFIGURATION                                              *terminal-config*
+
+See docs/configuration.md for every option and its default.
+
+vim:tw=78:ts=8:ft=help:norl:

@@ -1,0 +1,96 @@
+# Three independent jobs so each keeps its own red/green mark. What each gate
+# actually checks lives in stylua.toml / .luacheckrc / scripts/test.sh -- this
+# workflow only wires those up, it does not re-specify them. Run the same
+# three locally with `stylua --check .`, `luacheck .` and `scripts/test.sh`.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  stylua:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: JohnnyMorganz/stylua-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: v2.5.2
+          args: --check .
+
+  luacheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      # PUC Lua 5.4, not LuaJIT: `std = "luajit"` in .luacheckrc pins which
+      # globals/stdlib luacheck checks *against* -- independent of which
+      # interpreter runs the luacheck binary itself.
+      - uses: leafo/gh-actions-lua@v13
+        with:
+          luaVersion: "5.4"
+      - uses: leafo/gh-actions-luarocks@v6
+      - run: luarocks install luacheck 1.2.0
+      - run: luacheck .
+
+  tests:
+    # Both OSes the plugin is actually used on: Windows isn't just "also
+    # supported" here, it's the primary author's own daily driver -- a
+    # bash-isms regression (path separators, scripts/test.sh's own shell
+    # syntax) would otherwise only ever surface after the fact, on someone's
+    # real machine, never in CI.
+    strategy:
+      # One platform failing must not cancel the others: which of the three
+      # broke is the whole information content of this job.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      # lib.nvim is a runtime dependency (notify, bindings.keymap, bindings.autocmd,
+      # usercmd.composer, config) -- a headless run has no plugin manager, so it is
+      # checked out the way TESTS/minimal_init.lua's `.deps/` candidate expects.
+      # testing.nvim is the runner.
+      - uses: actions/checkout@v5
+        with:
+          repository: StefanBartl/lib.nvim
+          path: .deps/lib.nvim
+          ref: ci-verified
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      # Checked out from the branch that only moves once the dependency's own CI is green.
+      - uses: actions/checkout@v5
+        with:
+          repository: "StefanBartl/testing.nvim"
+          path: .deps/testing.nvim
+          ref: ci-verified
+      # windows-latest's default shell is pwsh, not bash -- scripts/test.sh
+      # is a bash script (Git for Windows ships one on every windows-latest
+      # runner, actions/checkout already needs it).
+      - run: |
+          exec > >(tee -a "$RUNNER_TEMP/test-output.log") 2>&1
+          scripts/test.sh --json "$RUNNER_TEMP/testing-ir.json"
+        shell: bash
+      # The IR is what a reporter or a person reads to find out WHICH case failed on WHICH platform.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: testing-ir-${{ matrix.os }}
+          path: ${{ runner.temp }}/testing-ir.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-output-tests-${{ matrix.os }}
+          path: ${{ runner.temp }}/test-output.log
+          if-no-files-found: ignore
+          retention-days: 14

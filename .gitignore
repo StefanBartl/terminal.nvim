@@ -1,0 +1,5 @@
+/doc/tags
+
+# Generated module map (documentation.nvim), derived output: `:DocMap`
+# rebuilds it from the current tree in seconds. Deliberately not committed.
+docs/map/
