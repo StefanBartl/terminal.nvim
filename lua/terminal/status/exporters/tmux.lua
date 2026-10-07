@@ -108,20 +108,52 @@ function M.is_ancestor(pid)
   return false
 end
 
+--- The process id of the Neovim server at `address`, asked of the server itself: nothing is
+--- guessed from the address (a default servername is `<appname>.<pid>.<n>`, but a custom `--listen`
+--- name or a TCP address can look like it or look like anything). Done by a child `nvim --server
+--- <address> --remote-expr getpid()` with a timeout, never by an RPC call in this process: a
+--- server that is busy (the outer Neovim sits in a blocking `:!`) must not freeze this one's start.
+--- nil when it does not answer.
+---@type fun(address: string): integer|nil
+M.server_pid = function(address)
+  local ok, res = pcall(function()
+    return vim
+      .system({
+        vim.v.progpath,
+        -- `--headless`: without it a `--remote-expr` client prints nothing on Windows (and waits
+        -- 1 s); `-u NONE -i NONE` keeps the client from loading a config and shada.
+        "--headless",
+        "-u",
+        "NONE",
+        "-i",
+        "NONE",
+        "--server",
+        address,
+        "--remote-expr",
+        "getpid()",
+      }, { text = true, timeout = 1500 })
+      :wait()
+  end)
+  if not ok or res.code ~= 0 then
+    return nil
+  end
+  return tonumber(vim.trim(res.stdout or ""))
+end
+
 --- Whether this Neovim runs inside the terminal of the (running) Neovim at `address`: the one
 --- `$NVIM` names. A Neovim in a pane of a tmux server that merely *was started* from that
---- terminal has the same `$NVIM` but is not a descendant of it -- it owns its pane. The default
---- address (`<appname>.<pid>.<n>`, the app name being `nvim` or `$NVIM_APPNAME`) names the server
---- process, so the process tree decides; a custom `--listen` address names no process, and a
---- running Neovim there is taken as the outer one.
+--- terminal has the same `$NVIM` but is not a descendant of it -- it owns its pane. So a running
+--- outer Neovim counts when it is an ancestor of this process (its pid asked of the server, the
+--- process tree read from /proc or `ps`). When either cannot be found out -- the server does not
+--- answer in time, no readable process tree (Windows) -- the outer Neovim is taken to own the pane
+--- and this one stays out.
 ---@param address string
 ---@return boolean
 function M.nested(address)
   if not M.alive(address) then
     return false
   end
-  -- Last path component "<appname>.<pid>.<n>" (a Windows pipe is "\\.\pipe\<appname>.<pid>.<n>").
-  local pid = tonumber(address:match("[^/\\]+%.(%d+)%.%d+$"))
+  local pid = M.server_pid(address)
   if pid == nil then
     return true
   end

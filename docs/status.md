@@ -53,13 +53,14 @@ may: `auto` skips a Neovim that runs inside the terminal of another **running** 
 server that answers *and* is an ancestor of this process — `git commit` opening a nested editor must not
 overwrite the outer one's status). A tmux server that was merely *started* from a Neovim terminal hands
 `$NVIM` to every pane for good, but a Neovim in one of its panes is not a descendant of that terminal: it
-owns its pane and exports. The process tree is read from `/proc` (or `ps`), the outer Neovim's process id from
-its default server name `<appname>.<pid>.<n>` (`nvim`, or `$NVIM_APPNAME`). Where the tree cannot be read, or
-the address names no process (a custom `--listen`), a running outer Neovim is taken to own the pane and this
-one stays out. A name
-(`export = "tmux"`) forces the exporter, and the options are removed on exit only by the instance that wrote
-them. `set-environment -gu NVIM` in `tmux.conf` (the Configs repo has it) keeps the variable out of the panes
-altogether.
+owns its pane and exports. The outer Neovim's process id is **asked of the server** (a short-lived
+`nvim --headless --server <address> --remote-expr getpid()` with a 1.5 s timeout, only when `$NVIM` is set and
+answers; nothing is read from the address, so `NVIM_APPNAME`, a custom `--listen` name or a TCP address all work),
+the process tree comes from `/proc` (or `ps`). Where either cannot be found out — the outer Neovim is busy
+and does not answer in time, no readable process tree (Windows) — it is taken to own the pane and this one
+stays out. A name (`export = "tmux"`) forces the exporter, and the options are removed on exit only by the
+instance that wrote them. `set-environment -gu NVIM` in `tmux.conf` (the Configs repo has it) keeps the variable
+out of the panes altogether.
 
 ## The WezTerm side
 

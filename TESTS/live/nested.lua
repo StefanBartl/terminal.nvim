@@ -79,7 +79,11 @@ end
 local function run_in_terminal(cmd, env)
   vim.cmd("enew!")
   local job = vim.fn.jobstart(cmd, { term = true, env = env })
-  vim.fn.jobwait({ job }, 20000)
+  -- vim.wait keeps the event loop running, so THIS Neovim still answers the inner one's question
+  -- ("what is your pid?"); a blocking jobwait would not.
+  vim.wait(20000, function()
+    return vim.fn.jobwait({ job }, 0)[1] ~= -1
+  end, 50)
 end
 
 local nested_file = dir .. "/nested.txt"
@@ -116,6 +120,22 @@ check(
   "it shares $NVIM (this Neovim is alive) but is NOT nested: the exporter is available",
   pane ~= nil and pane:find("^true|true|nil$") ~= nil,
   pane
+)
+
+-- A custom --listen name that merely LOOKS like "<appname>.<pid>.<n>" must not fool the pid lookup:
+-- the pid is asked of the server, not read from its name.
+local custom = dir .. "/custom.5.1"
+vim.fn.serverstart(custom)
+local custom_file = dir .. "/custom.txt"
+run_in_terminal(
+  { vim.v.progpath, "--headless", "-u", "NONE", "-i", "NONE", "-l", inner },
+  { RESULT_FILE = custom_file, NVIM = custom }
+)
+local custom_result = result(custom_file)
+check(
+  "a custom listen name that looks like <appname>.<pid>.<n> does not fool it (still nested)",
+  custom_result ~= nil and custom_result:find("^true|false|") ~= nil,
+  custom_result
 )
 
 vim.fn.delete(dir, "rf")

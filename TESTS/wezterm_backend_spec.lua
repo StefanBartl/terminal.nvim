@@ -233,6 +233,36 @@ describe("terminal.backends.wezterm", function()
       assert.same({ "pwsh", "-NoLogo", "-NoProfile" }, vim.list_slice(argv, dash + 2))
     end)
 
+    it(
+      "white space plus a path separator: split unless the string is an executable as it stands",
+      function()
+        local original = vim.fn.executable
+        local executables = {}
+        vim.fn.executable = function(name)
+          if executables[name] then
+            return 1
+          end
+          return original(name)
+        end
+        local function argv_of(cmd, executable)
+          executables = executable and { [cmd] = true } or {}
+          backend.spawn(spec({ name = cmd, cmd = cmd }))
+          local argv = state.calls[#state.calls].argv
+          return vim.list_slice(argv, vim.fn.index(argv, "--") + 2)
+        end
+        -- not an executable: the separator alone does not keep it in one piece
+        assert.same({ "pwsh", "-File", "C:/x/y.ps1" }, argv_of("pwsh -File C:/x/y.ps1", false))
+        assert.same({ "git", "-C", "/tmp/a", "status" }, argv_of("git -C /tmp/a status", false))
+        -- an executable with a space in its path: one word, with either kind of separator
+        assert.same({ "/opt/my tools/x" }, argv_of("/opt/my tools/x", true))
+        assert.same(
+          { "C:/Program Files/PowerShell/7/pwsh.exe" },
+          argv_of("C:/Program Files/PowerShell/7/pwsh.exe", true)
+        )
+        vim.fn.executable = original
+      end
+    )
+
     it("the PATH scan is not paid for a string without a path separator", function()
       local looked = {}
       local original = vim.fn.executable

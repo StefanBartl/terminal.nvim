@@ -479,65 +479,169 @@ describe("terminal.status.exporters.tmux", function()
     end
   )
 
+  --- Run `body` with the exporter's process lookups replaced; always restore them.
+  ---@param stubs { alive?: fun(): boolean, server_pid?: fun(address: string): integer|nil, parent_of?: fun(pid: integer): integer|nil }
+  ---@param body fun()
+  local function with_stubs(stubs, body)
+    local saved = {
+      alive = exporter.alive,
+      server_pid = exporter.server_pid,
+      parent_of = exporter.parent_of,
+    }
+    for name, fn in pairs(stubs) do
+      exporter[name] = fn
+    end
+    local ok, err = pcall(body)
+    exporter.alive, exporter.server_pid, exporter.parent_of =
+      saved.alive, saved.server_pid, saved.parent_of
+    assert(ok, err)
+  end
+
   it("nested: a running outer Neovim counts only when it is an ancestor of this process", function()
-    local saved_alive, saved_parent = exporter.alive, exporter.parent_of
-    exporter.alive = function()
-      return true
-    end
     local me = vim.uv.os_getpid()
+    -- chain: this process -> 500 -> 400 (the outer Neovim) -> 1
     local parents = { [me] = 500, [500] = 400, [400] = 1 }
-    exporter.parent_of = function(pid)
-      return parents[pid]
-    end
-    local ok, err = pcall(function()
-      assert.is_true(
-        exporter.nested("/run/user/1/nvim.400.0"),
-        "an ancestor: this Neovim is nested"
-      )
+    local pids = { outer = 400, elsewhere = 999 }
+    with_stubs({
+      alive = function()
+        return true
+      end,
+      parent_of = function(pid)
+        return parents[pid]
+      end,
+      server_pid = function(address)
+        return pids[address]
+      end,
+    }, function()
+      assert.is_true(exporter.nested("outer"), "an ancestor: this Neovim is nested")
       assert.is_false(
-        exporter.nested("/run/user/1/nvim.999.0"),
+        exporter.nested("elsewhere"),
         "running but not an ancestor (a tmux server that was started from its terminal): owns its pane"
       )
-      assert.is_true(exporter.nested("127.0.0.1:6666"), "an address without a pid: assume nested")
-      -- the default servername is "<appname>.<pid>.<n>": $NVIM_APPNAME changes the first part
-      assert.is_true(exporter.nested("/run/user/1/myapp.400.0"), "NVIM_APPNAME: an ancestor")
-      assert.is_false(exporter.nested("/run/user/1/myapp.999.0"), "NVIM_APPNAME: not an ancestor")
-      assert.is_true(exporter.nested("/run/user/1/my-app.v2.400.0"), "an app name with dots")
-      assert.is_false(exporter.nested("/run/user/1/my-app.v2.999.0"))
-      assert.is_true(exporter.nested("\\\\.\\pipe\\nvim.400.0"), "a Windows pipe name")
-      assert.is_false(exporter.nested("\\\\.\\pipe\\nvim.999.0"))
-      exporter.parent_of = function()
+      assert.is_true(
+        exporter.nested("silent"),
+        "the server does not tell its pid in time: assume nested"
+      )
+    end)
+  end)
+
+  it(
+    "nested: the address is never read for a pid (a --listen name can look like anything)",
+    function()
+      local me = vim.uv.os_getpid()
+      with_stubs({
+        alive = function()
+          return true
+        end,
+        parent_of = function(pid)
+          return pid == me and 400 or 1
+        end,
+        server_pid = function()
+          return 400
+        end,
+      }, function()
+        -- names that look like "<appname>.<pid>.<n>" with a different pid, or like nothing at all
+        for _, address in ipairs({
+          "/tmp/session.5.1",
+          "/tmp/nvim-2026.10.08",
+          "/run/user/1/my-app.v2.999.0",
+          "127.0.0.1:6666",
+          "\\\\.\\pipe\\nvim.999.0",
+          "/tmp/plain-socket",
+        }) do
+          assert.is_true(exporter.nested(address), address)
+        end
+      end)
+    end
+  )
+
+  it("nested: an unreadable process tree, or a dead outer Neovim", function()
+    with_stubs({
+      alive = function()
+        return true
+      end,
+      server_pid = function()
+        return 400
+      end,
+      parent_of = function()
         return nil
-      end
-      assert.is_true(exporter.nested("/run/user/1/nvim.400.0"), "chain unreadable: assume nested")
+      end,
+    }, function()
+      assert.is_true(exporter.nested("outer"), "chain unreadable: assume nested")
       exporter.alive = function()
         return false
       end
-      assert.is_false(exporter.nested("/run/user/1/nvim.400.0"), "outer Neovim gone")
+      assert.is_false(exporter.nested("outer"), "outer Neovim gone")
     end)
-    exporter.alive, exporter.parent_of = saved_alive, saved_parent
-    assert(ok, err)
   end)
 
   it(
     "nested: available refuses an ancestor and accepts a Neovim that merely shares $NVIM",
     function()
-      local saved_alive, saved_parent = exporter.alive, exporter.parent_of
-      exporter.alive = function()
-        return true
-      end
       local me = vim.uv.os_getpid()
-      exporter.parent_of = function(pid)
-        return pid == me and 400 or 1
+      local result = {}
+      with_stubs({
+        alive = function()
+          return true
+        end,
+        parent_of = function(pid)
+          return pid == me and 400 or 1
+        end,
+        server_pid = function(address)
+          return address == "ancestor" and 400 or 777
+        end,
+      }, function()
+        local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1" }
+        result.nested = exporter.available(vim.tbl_extend("force", env, { NVIM = "ancestor" }))
+        result.owner = exporter.available(vim.tbl_extend("force", env, { NVIM = "stranger" }))
+      end)
+      assert.is_false(result.nested)
+      assert.is_true(result.owner)
+    end
+  )
+
+  it(
+    "server_pid: a Neovim in another process names itself, whatever its address looks like",
+    function()
+      local function listen(address)
+        local job = vim.fn.jobstart({
+          vim.v.progpath,
+          "--headless",
+          "-u",
+          "NONE",
+          "-i",
+          "NONE",
+          "--listen",
+          address,
+        })
+        vim.wait(8000, function()
+          return exporter.alive(address)
+        end, 50)
+        return job
       end
-      local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1" }
-      local nested =
-        exporter.available(vim.tbl_extend("force", env, { NVIM = "/run/user/1/nvim.400.0" }))
-      local owner =
-        exporter.available(vim.tbl_extend("force", env, { NVIM = "/run/user/1/nvim.777.0" }))
-      exporter.alive, exporter.parent_of = saved_alive, saved_parent
-      assert.is_false(nested)
-      assert.is_true(owner)
+      local port = (function()
+        local server = vim.uv.new_tcp()
+        server:bind("127.0.0.1", 0)
+        local n = server:getsockname().port
+        server:close()
+        return n
+      end)()
+      -- a name that LOOKS like "<appname>.<pid>.<n>" with a wrong pid, and a TCP address
+      local named = vim.fn.has("win32") == 1
+          and ("\\\\.\\pipe\\terminal-nvim-spec-pid." .. vim.uv.os_getpid() .. ".7")
+        or (vim.fn.tempname() .. "-spec-5.1")
+      local found = {}
+      for _, address in ipairs({ named, "127.0.0.1:" .. port }) do
+        local job = listen(address)
+        found[address] = { pid = exporter.server_pid(address), job = vim.fn.jobpid(job) }
+        vim.fn.jobstop(job)
+        vim.fn.jobwait({ job }, 3000)
+      end
+      for address, f in pairs(found) do
+        assert.is_not_nil(f.pid, address)
+        assert.equals(f.job, f.pid, address)
+      end
+      assert.is_nil(exporter.server_pid(named), "stopped: nothing answers")
     end
   )
 
