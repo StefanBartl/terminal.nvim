@@ -8,8 +8,8 @@
 local DEFAULTS = {
   -- Where terminals live. "auto" and "native" are Neovim's own :terminal windows; a multiplexer
   -- backend ("wezterm", "tmux") opens terminals as panes of that multiplexer instead and is
-  -- always chosen explicitly. "wezterm" works (docs/backends.md); "tmux" does not exist yet. An unavailable backend falls back
-  -- to native with a notice.
+  -- always chosen explicitly. See docs/backends.md. An unavailable backend falls back to native with a
+  -- notice that says why.
   backend = "auto",
   layout = "float",
 

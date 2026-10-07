@@ -9,8 +9,8 @@ default.
 require("terminal").setup({
   -- Where terminals live: "auto" | "native" | "wezterm" | "tmux". "auto" and "native" are
   -- Neovim's own :terminal windows (also inside WezTerm/tmux); a multiplexer backend is chosen
-  -- explicitly. "wezterm" opens terminals as WezTerm panes (docs/backends.md); tmux is not implemented yet and
-  -- like an unavailable backend -- falls back to native with a notice.
+  -- explicitly. "wezterm" / "tmux" open terminals as panes (docs/backends.md); an unavailable backend
+  -- falls back to native with a notice that says why.
   backend = "auto",
   -- "float" | "split" | "vsplit" | "tab"
   layout = "float",
