@@ -85,6 +85,20 @@ local DEFAULTS = {
     -- Off by default so <C-l> stays the shell's own clear-screen. Set "<C-l>" (or another key)
     -- for a window move to the right from terminal mode.
     window_right = false,
+    -- Window navigation from NORMAL mode through terminal.nvim, so it can hand off at the edge.
+    -- All off by default (the editor config usually owns <C-h/j/k/l> in normal mode); bind
+    -- them here to get `3<C-h>`-style counts plus the hand-off.
+    nav_left = false,
+    nav_down = false,
+    nav_up = false,
+    nav_right = false,
+  },
+
+  -- Moving between windows past Neovim's edge: when nothing is further in that direction, the
+  -- multiplexer around Neovim focuses the neighbouring pane. "auto" asks tmux inside tmux and
+  -- WezTerm inside WezTerm; a name, a list of names, or false (never hand off) also work.
+  navigate = {
+    handoff = "auto",
   },
 
   commands = true,

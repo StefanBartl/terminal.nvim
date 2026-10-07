@@ -67,6 +67,10 @@ answers.
 - [All options](docs/configuration.md) — every `setup()` option and its default.
 - [Commands](docs/commands.md) / [Bindings cheatsheet](docs/BINDINGS.md)
 
+**Navigation**
+
+- [Navigation](docs/navigation.md) — one key from Neovim windows into the neighbouring pane.
+
 **Backends**
 
 - [Backends](docs/backends.md) — native windows or WezTerm panes.

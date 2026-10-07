@@ -83,6 +83,15 @@ require("terminal").setup({
     window_down = "<C-j>",
     window_up = "<C-k>",
     window_right = false,                  -- off: <C-l> stays the shell's own clear-screen
+    nav_left = false,                      -- normal mode, with count; off: bind to the keys you use
+    nav_down = false,
+    nav_up = false,
+    nav_right = false,
+  },
+
+  -- Moving between windows past Neovim's edge (see navigation.md).
+  navigate = {
+    handoff = "auto",       -- "auto" | "tmux" | "wezterm" | { "wezterm" } | false
   },
 
   commands = true,          -- register :Terminal

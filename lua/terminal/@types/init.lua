@@ -46,12 +46,19 @@
 ---@field window_down string|string[]|false
 ---@field window_up string|string[]|false
 ---@field window_right string|string[]|false
+---@field nav_left string|string[]|false
+---@field nav_down string|string[]|false
+---@field nav_up string|string[]|false
+---@field nav_right string|string[]|false
 
 ---@class Terminal.StatusConfig
 ---@field enable boolean
 ---@field export string|string[]|boolean "auto", an exporter name, a list of names, or false
 ---@field debounce_ms integer
 ---@field max_bytes integer
+
+---@class Terminal.NavigateConfig
+---@field handoff string|string[]|boolean "auto", a name ("tmux", "wezterm"), a list, or false
 
 ---@class Terminal.RunConfig
 ---@field name string Name of the terminal `run`/`send` use when none is given.
@@ -72,6 +79,7 @@
 ---@field auto_insert Terminal.AutoInsertConfig
 ---@field run Terminal.RunConfig
 ---@field status Terminal.StatusConfig
+---@field navigate Terminal.NavigateConfig
 ---@field keymaps Terminal.KeymapsConfig
 ---@field commands boolean
 

@@ -136,6 +136,7 @@ function M.setup(opts)
   state.ready = true
   require("terminal.bindings").setup()
   require("terminal.status").setup(config.get_all())
+  require("terminal.navigate").setup(config.get_all(), env)
 end
 
 ---@internal
@@ -416,6 +417,19 @@ function M.run(cmd, opts)
   end
   target.newline = true
   return M.send(line, target)
+end
+
+--- Move to the window in direction `dir` (h, j, k, l); at Neovim's edge the multiplexer around
+--- it is asked to focus the neighbouring pane (`navigate.handoff`). A floating window never
+--- hands off.
+---@param dir Terminal.Direction
+---@param count? integer Windows to move (default 1)
+---@return "moved"|"float"|"edge"
+function M.navigate(dir, count)
+  if not state.ready then
+    M.setup()
+  end
+  return require("terminal.navigate").go(dir, count)
 end
 
 --- Read-only snapshot of what is going on, for health checks and bug reports.

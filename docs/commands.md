@@ -51,6 +51,7 @@ terminal.list()          -- this project's terminals; list(true) for all
 terminal.send("ls", { newline = true, name = "repl" })
 terminal.run({ "git", "status" })
 terminal.status()        -- { ready, backend, terminals }
+terminal.navigate("h", 2)  -- window left x2; at the edge the multiplexer takes over
 ```
 
 Every function returns `nil, err` (or `false, err`) instead of raising, and reports the
