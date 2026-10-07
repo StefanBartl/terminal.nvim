@@ -141,10 +141,12 @@ describe("terminal.backends", function()
     assert.same({ "native" }, backends.detect({ TMUX = "", WEZTERM_PANE = "" }))
   end)
 
-  it("resolve auto: the first detected backend that is registered", function()
-    local env = { WEZTERM_PANE = "0" }
-    assert.equals("native", (backends.resolve("auto", env, { native = true })))
-    assert.equals("wezterm", (backends.resolve("auto", env, { native = true, wezterm = true })))
+  it("resolve auto and native: terminals stay native, even inside a multiplexer", function()
+    local env = { WEZTERM_PANE = "0", TMUX = "x" }
+    local reg = { native = true, wezterm = true, tmux = true }
+    assert.equals("native", (backends.resolve("auto", env, reg)))
+    assert.equals("native", (backends.resolve("native", env, reg)))
+    assert.equals("wezterm", (backends.resolve("wezterm", env, reg)))
   end)
 
   it("resolve: a named backend that is not registered falls back to native with a note", function()

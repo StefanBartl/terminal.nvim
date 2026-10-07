@@ -6,8 +6,9 @@
 
 ---@type Terminal.Config
 local DEFAULTS = {
-  -- "auto" picks a backend from the environment: $TMUX -> "tmux", $WEZTERM_PANE ->
-  -- "wezterm", else "native". Only "native" exists yet; the others fall back to it.
+  -- Where terminals live. "auto" and "native" are Neovim's own :terminal windows; a multiplexer
+  -- backend ("wezterm", "tmux") opens terminals as panes of that multiplexer instead and is
+  -- always chosen explicitly. Only "native" exists yet; the others fall back to it.
   backend = "auto",
   layout = "float",
 
@@ -56,6 +57,18 @@ local DEFAULTS = {
 
   run = {
     name = "run",
+  },
+
+  -- Publish what this Neovim is doing (mode, file, branch, diagnostics, ...) to the terminal
+  -- around it: WezTerm reads it from per-pane user variables.
+  status = {
+    enable = true,
+    -- "auto" (every exporter whose environment signal is present), a name ("wezterm"), a list
+    -- of names, or false (none).
+    export = "auto",
+    debounce_ms = 80,
+    -- The dataset is shortened, then refused, above this size.
+    max_bytes = 1024,
   },
 
   keymaps = {

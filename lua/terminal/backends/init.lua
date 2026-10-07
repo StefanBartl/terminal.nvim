@@ -33,21 +33,17 @@ end
 
 --- Pick the backend to use.
 ---
---- `wanted` is the configured name. "auto" takes the first detected backend that is registered;
---- a named backend that is not registered (not implemented yet, or not available here) falls
---- back to `native` and says why.
+--- `wanted` is the configured name. "auto" is `native`: terminals stay Neovim windows even inside
+--- WezTerm or tmux (status export to those is a separate, additive feature). A multiplexer
+--- backend is used only when it is named; one that is not registered (not implemented yet, or
+--- not available here) falls back to `native` and says why.
 ---@param wanted Terminal.BackendName
----@param env table<string, string|nil>
+---@param _env table<string, string|nil> Unused: kept so a future "auto" can read it
 ---@param registered table<string, any> Set of registered backend names
 ---@return string name
 ---@return string|nil note Why the choice differs from what was asked, nil when it does not
-function M.resolve(wanted, env, registered)
-  if wanted == "auto" then
-    for _, name in ipairs(M.detect(env)) do
-      if registered[name] then
-        return name, nil
-      end
-    end
+function M.resolve(wanted, _env, registered)
+  if wanted == "auto" or wanted == "native" then
     return "native", nil
   end
   if registered[wanted] then

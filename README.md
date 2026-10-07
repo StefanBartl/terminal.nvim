@@ -66,6 +66,10 @@ answers.
 - [All options](docs/configuration.md) — every `setup()` option and its default.
 - [Commands](docs/commands.md) / [Bindings cheatsheet](docs/BINDINGS.md)
 
+**Status export**
+
+- [Status export](docs/status.md) — mode, file, branch, diagnostics to WezTerm.
+
 **Internals**
 
 - [Architecture](docs/architecture.md) — core, backends, how a call travels.

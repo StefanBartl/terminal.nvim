@@ -7,8 +7,9 @@ default.
 
 ```lua
 require("terminal").setup({
-  -- "auto" | "native" | "wezterm" | "tmux". "auto": $TMUX -> tmux, $WEZTERM_PANE -> wezterm,
-  -- else native. Only native is implemented; the others fall back to it with a notice.
+  -- Where terminals live: "auto" | "native" | "wezterm" | "tmux". "auto" and "native" are
+  -- Neovim's own :terminal windows (also inside WezTerm/tmux); a multiplexer backend is chosen
+  -- explicitly. Only native is implemented; the others fall back to it with a notice.
   backend = "auto",
   -- "float" | "split" | "vsplit" | "tab"
   layout = "float",
@@ -61,6 +62,14 @@ require("terminal").setup({
   },
 
   run = { name = "run" },   -- terminal used by `run` and `send` when no name is given
+
+  -- Tell the terminal around Neovim what it is doing (see status.md).
+  status = {
+    enable = true,
+    export = "auto",        -- "auto" | "wezterm" | { "wezterm" } | false
+    debounce_ms = 80,
+    max_bytes = 1024,       -- the dataset is shortened, then refused, above this
+  },
 
   -- Keymaps are named actions. A string moves one, a list binds several keys, false drops
   -- it, preset = false binds nothing at all.

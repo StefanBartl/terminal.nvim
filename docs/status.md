@@ -1,0 +1,57 @@
+# Status export
+
+terminal.nvim tells the terminal around it what this Neovim is doing, so a WezTerm tab can
+show the file name and the right status can show mode, branch and diagnostics — without
+asking Neovim anything.
+
+## What is published
+
+A small, versioned dataset of **raw values** (no icons, no colours — those belong to the
+receiving side):
+
+| Field | Meaning |
+|---|---|
+| `v` | schema version (now `1`); a receiver ignores unknown fields and refuses a higher version |
+| `pid` | the Neovim process |
+| `mode` | `nvim_get_mode().mode` (`n`, `i`, `v`, `V`, `t`, ...) |
+| `file`, `ft` | file name (last path component; `terminal` for terminal buffers) and filetype |
+| `cwd`, `branch` | working directory and git branch (from gitsigns, else `.git/HEAD`) |
+| `e`, `w`, `i`, `h` | diagnostic counts: error, warning, info, hint |
+| `rec` | register being recorded into, `""` when none |
+| `mod` | the buffer is modified |
+
+Every string is sanitised (control characters become `?`) and shortened; a dataset above
+`status.max_bytes` (1024) is cut down field by field and finally refused rather than sent
+half. The values are file and branch names: attacker-controlled text that ends up in a tab
+title.
+
+## When it is sent
+
+Only on events that can change a field — mode, buffer, directory, diagnostics, macro
+recording, the modified flag, focus — debounced (`status.debounce_ms`, 80), and **only when
+the dataset differs from the one sent last**. An exporter that fails is switched off once,
+with one notice.
+
+## Exporters
+
+| Exporter | Where | How |
+|---|---|---|
+| `wezterm` | inside WezTerm (`$WEZTERM_PANE`) | per-pane user variables via OSC 1337 `SetUserVar` (`MUX_NVIM`, `MUX_PIPE`, `MUX_STATUS`) |
+
+`status.export = "auto"` uses every exporter whose environment signal is present; a name or
+a list picks explicitly; `false` sends nothing. The sequence is written with
+`nvim_ui_send` in **one** call; under tmux it is wrapped in the passthrough envelope (and
+tmux needs `set -g allow-passthrough on`).
+
+## The WezTerm side
+
+`Configs/terminals/wezterm/config/nvim_status.lua` reads the variables, validates them again
+and returns the tab title text and the right-status items. See that repo's
+`docs/nvim-status.md`.
+
+## Measured
+
+On WezTerm 20240203, Windows, Neovim 0.12: every update arrives, in order, without loss
+(200 updates at ~15 ms); payloads up to 64 KiB arrive intact; an empty value means "not
+set". `update-status` only sees the focused pane of a window, so the right status shows the
+focused pane's Neovim; the tab title is computed per tab.

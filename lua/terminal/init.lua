@@ -126,6 +126,7 @@ function M.setup(opts)
 
   state.ready = true
   require("terminal.bindings").setup()
+  require("terminal.status").setup(config.get_all())
 end
 
 ---@internal

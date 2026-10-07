@@ -34,6 +34,7 @@ local ENUMS = {
 local WIDE_TYPES = {
   shell = { "string", "table" },
   ["float.border"] = { "string", "table" },
+  ["status.export"] = { "string", "table", "boolean" },
 }
 
 ---@internal

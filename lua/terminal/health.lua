@@ -58,6 +58,21 @@ function M.check()
   health.info("Detected: " .. table.concat(detected, ", "))
   health.info("Only the 'native' backend is implemented; the others fall back to it.")
 
+  local ok_status, status = pcall(require, "terminal.status")
+  if ok_status then
+    local active = status.active()
+    if #active > 0 then
+      health.ok("Status export active: " .. table.concat(active, ", "))
+    else
+      health.info("Status export: no exporter active (not inside WezTerm, or disabled)")
+    end
+    if vim.env.TMUX and vim.env.TMUX ~= "" then
+      health.warn("Inside tmux: the status reaches the outer terminal only with passthrough", {
+        "Add `set -g allow-passthrough on` to tmux.conf",
+      })
+    end
+  end
+
   local shell = vim.o.shell
   if shell ~= "" and exe(shell) then
     health.ok(("'shell' is executable: %s"):format(shell))
