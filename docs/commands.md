@@ -9,6 +9,8 @@ One compound command, `:Terminal <action> [args] [flags]`, with `<Tab>` completi
 | `:Terminal open [name] [--layout=]` | Show and focus; create when needed. |
 | `:Terminal hide [name]` | Close the window; the job keeps running. |
 | `:Terminal close [name]` | Stop the job and remove the terminal. |
+| `:Terminal pin [name] [--backend=tmux\|wezterm] [--layout=]` | Restart a native terminal as a pane of tmux/WezTerm so it outlives Neovim (see below). |
+| `:Terminal adopt [name]` | Show a tmux/WezTerm terminal's screen in a read-only buffer. |
 | `:Terminal list` | Pick one of this project's terminals (`vim.ui.select`). |
 | `:Terminal send line [name] [--exec]` | Type the current line. |
 | `:'<,'>Terminal send selection [name] [--exec]` | Type the selected lines. |
@@ -17,6 +19,17 @@ One compound command, `:Terminal <action> [args] [flags]`, with `<Tab>` completi
 
 `name` defaults to the configured `default_name` (`main`); `3` is the terminal "3" that
 `3<A-h>` uses. `--layout=` is `float`, `split`, `vsplit` or `tab`.
+
+## Pin and adopt
+
+`pin` is **not** a transfer: a process cannot move between a Neovim `:terminal` and a pane. The
+native terminal is closed and the same command (and directory) is started again in a pane of
+tmux or WezTerm, under the same name; output and shell history of the old one are gone. From
+then on `toggle`, `send`, `close` act on the pane. The backend is tmux inside tmux, else WezTerm.
+
+`adopt` shows a pane's screen (`wezterm cli get-text` / `tmux capture-pane -p`) in a read-only
+buffer named `terminal://<backend>/<pane>/<name>`. It is a *view*: it refreshes once a second
+while visible and says so when the pane is gone. Control characters in the text are replaced.
 
 ## Typing versus executing
 

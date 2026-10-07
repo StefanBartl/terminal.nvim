@@ -208,6 +208,18 @@ function M.new(registry, runner, own_pane)
     return res ~= nil, err
   end
 
+  --- The pane's visible text (`wezterm cli get-text`).
+  ---@param handle Terminal.Handle
+  ---@return string|nil
+  ---@return string|nil
+  function backend.capture(handle)
+    local res, err = cli({ "get-text", "--pane-id", handle.pane })
+    if not res then
+      return nil, err
+    end
+    return res.stdout, nil
+  end
+
   --- A pane cannot be hidden; "hide" gives focus back to Neovim's own pane.
   ---@param _handle Terminal.Handle
   ---@return boolean

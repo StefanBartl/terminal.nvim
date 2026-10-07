@@ -111,6 +111,8 @@
 ---@field exited boolean|nil
 ---@field exit_code integer|nil
 ---@field disposed boolean|nil Set once the terminal was removed on purpose.
+---@field cmd string|string[]|nil The command it was started with (nil: the shell). Used by `pin`.
+---@field cwd string|nil The directory it was started in. Used by `pin`.
 
 ---@class Terminal.Backend
 ---@field name string
@@ -122,6 +124,7 @@
 ---@field list fun(): Terminal.Handle[]
 ---@field close fun(handle: Terminal.Handle): boolean, string|nil
 ---@field set_status? fun(status: table): boolean, string|nil
+---@field capture? fun(handle: Terminal.Handle): string|nil, string|nil Screen text (multiplexer panes only)
 ---@field visible? fun(handle: Terminal.Handle): boolean
 ---@field focused? fun(handle: Terminal.Handle): boolean
 ---@field show? fun(handle: Terminal.Handle, spec: Terminal.SpawnSpec): boolean, string|nil

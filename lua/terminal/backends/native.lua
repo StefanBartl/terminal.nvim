@@ -167,6 +167,8 @@ function M.new(registry)
       backend = "native",
       bufnr = bufnr,
       layout = spec.layout,
+      cmd = spec.cmd,
+      cwd = spec.cwd,
     }
 
     local cmd = spec.cmd

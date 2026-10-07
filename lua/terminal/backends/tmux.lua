@@ -216,6 +216,18 @@ function M.new(registry, runner, own_pane, opts)
     return res ~= nil, perr
   end
 
+  --- The pane's visible text (`capture-pane -p`, plain text without escape sequences).
+  ---@param handle Terminal.Handle
+  ---@return string|nil
+  ---@return string|nil
+  function backend.capture(handle)
+    local res, err = tmux({ "capture-pane", "-p", "-t", handle.pane })
+    if not res then
+      return nil, err
+    end
+    return res.stdout, nil
+  end
+
   --- A pane cannot be hidden; "hide" gives focus back to Neovim's own pane.
   ---@param _handle Terminal.Handle
   ---@return boolean

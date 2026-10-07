@@ -158,6 +158,14 @@ local function backend()
 end
 
 ---@internal
+--- The backend that owns `handle` (a pinned terminal lives in another backend than the default).
+---@param handle Terminal.Handle
+---@return Terminal.Backend
+local function backend_of(handle)
+  return state.backends[handle.backend] or backend()
+end
+
+---@internal
 --- Resolve target name, working directory and project root for one call.
 ---@param target Terminal.Target|nil
 ---@return string name
@@ -190,7 +198,7 @@ end
 ---@return Terminal.Handle|nil handle
 ---@return string|nil err
 function M.open(target)
-  local b = backend()
+  local default = backend()
   local name, cwd, root = resolve(target)
   local focus = not (target and target.focus == false)
   local layout = target and target.layout or nil
@@ -202,6 +210,7 @@ function M.open(target)
   end
 
   local handle = find_live(root, name)
+  local b = handle and backend_of(handle) or default
   if handle and not b.show and b.visible and not b.visible(handle) then
     -- A backend that cannot show a hidden terminal again (a pane the user closed): start a new one.
     b.close(handle)
@@ -223,11 +232,11 @@ function M.open(target)
   else
     local stale = state.registry:find(root, name)
     if stale then
-      b.close(stale)
+      backend_of(stale).close(stale)
     end
     local spec = build_spec(name, cwd, root, { layout = layout, start_insert = start_insert })
     local err
-    handle, err = b.spawn(spec)
+    handle, err = default.spawn(spec)
     if not handle then
       fail(("terminal '%s': %s"):format(name, err or "cannot start"))
       return nil, err
@@ -244,9 +253,10 @@ end
 ---@param target Terminal.Target|nil
 ---@return boolean hidden
 function M.hide(target)
-  local b = backend()
+  backend()
   local name, _, root = resolve(target)
   local handle = find_live(root, name)
+  local b = handle and backend_of(handle)
   if not handle or not b.hide then
     return false
   end
@@ -262,9 +272,10 @@ end
 ---@param target Terminal.Target|nil
 ---@return nil
 function M.toggle(target)
-  local b = backend()
+  backend()
   local name, _, root = resolve(target)
   local handle = find_live(root, name)
+  local b = handle and backend_of(handle)
   if handle and b.visible and b.visible(handle) then
     if b.focused and b.focused(handle) then
       M.hide(target)
@@ -283,13 +294,13 @@ end
 ---@param target Terminal.Target|nil
 ---@return boolean closed
 function M.close(target)
-  local b = backend()
+  backend()
   local name, _, root = resolve(target)
   local handle = state.registry:find(root, name)
   if not handle then
     return false
   end
-  local ok, err = b.close(handle)
+  local ok, err = backend_of(handle).close(handle)
   if not ok then
     fail(("terminal '%s': %s"):format(name, err or "cannot close"))
   end
@@ -300,8 +311,10 @@ end
 ---@param all? boolean
 ---@return Terminal.Handle[]
 function M.list(all)
-  local b = backend()
-  b.list() -- prunes handles whose buffer is gone
+  backend()
+  for _, b in pairs(state.backends) do
+    b.list() -- prunes handles whose buffer or pane is gone
+  end
   if all then
     return state.registry:list()
   end
@@ -320,7 +333,7 @@ function M.send(text, opts)
   if type(text) ~= "string" then
     return false, "text must be a string"
   end
-  local b = backend()
+  backend()
   local target = vim.tbl_extend("keep", { name = opts.name or config.get("run.name") }, opts)
   if opts.focus == nil then
     target.focus = false
@@ -333,7 +346,7 @@ function M.send(text, opts)
   if opts.newline then
     payload = payload .. (vim.fn.has("win32") == 1 and "\r" or "\n")
   end
-  local ok, serr = b.send(handle, payload)
+  local ok, serr = backend_of(handle).send(handle, payload)
   if not ok then
     fail(("terminal '%s': %s"):format(handle.name, serr or "cannot send"))
     return false, serr
@@ -378,7 +391,7 @@ function M.run(cmd, opts)
     local name, cwd, root = resolve(target)
     local old = state.registry:find(root, name)
     if old then
-      b.close(old)
+      backend_of(old).close(old)
     end
     local focus = opts.focus ~= false
     local spec = build_spec(name, opts.cwd or cwd, root, {
@@ -439,6 +452,146 @@ function M.navigate(dir, count)
     M.setup()
   end
   return require("terminal.navigate").go(dir, count)
+end
+
+---@class Terminal.PinOpts
+---@field backend? "tmux"|"wezterm" Where to start it (default: tmux inside tmux, else wezterm)
+---@field layout? Terminal.Layout Default "vsplit"
+
+--- Move a native terminal into the multiplexer so it outlives Neovim.
+---
+--- It is **not** transferred: the process cannot move between a Neovim `:terminal` and a pane. The
+--- native terminal is closed and the same command is started again in a pane of the multiplexer,
+--- under the same name and directory. Output and shell history of the old one are gone.
+---@param target? Terminal.Target
+---@param opts? Terminal.PinOpts
+---@return boolean pinned
+---@return string|nil err
+---@return Terminal.Handle|nil handle
+function M.pin(target, opts)
+  opts = opts or {}
+  backend()
+  local name, _, root = resolve(target)
+  local handle = find_live(root, name)
+  local err
+  if not handle then
+    err = ("pin: no terminal '%s' in this project"):format(name)
+  elseif handle.backend ~= "native" then
+    err = ("pin: terminal '%s' already lives in %s"):format(name, handle.backend)
+  end
+  local want = opts.backend
+    or (state.backends.tmux and "tmux")
+    or (state.backends.wezterm and "wezterm")
+  local target_backend = want and state.backends[want]
+  if not err and not target_backend then
+    err = "pin: no multiplexer backend is available (not inside tmux or WezTerm)"
+  end
+  if err then
+    fail(err)
+    return false, err
+  end
+
+  local cmd, cwd = handle.cmd, handle.cwd or root
+  backend_of(handle).close(handle)
+  local spec = build_spec(name, cwd, root, { layout = opts.layout or "vsplit" })
+  if cmd ~= nil and cmd ~= "" then
+    spec.cmd = cmd
+  end
+  local pinned, perr = target_backend.spawn(spec)
+  if not pinned then
+    fail(("pin: terminal '%s': %s"):format(name, perr or "cannot start"))
+    return false, perr
+  end
+  return true, nil, pinned
+end
+
+---@internal
+--- Text from a multiplexer pane made safe for a buffer: no control characters.
+---@param text string
+---@return string[]
+local function pane_lines(text)
+  local lines = {}
+  for _, line in ipairs(vim.split(text, string.char(10), { plain = true })) do
+    -- Carriage returns vanish, every other control character becomes `?`.
+    lines[#lines + 1] = (
+      line:gsub("%c", function(c)
+        return c:byte() == 13 and "" or "?"
+      end)
+    )
+  end
+  while #lines > 0 and lines[#lines] == "" do
+    lines[#lines] = nil
+  end
+  return lines
+end
+
+--- Show a multiplexer terminal's screen in a read-only buffer (a *view*, not a transfer).
+---
+--- The buffer refreshes once a second while it is visible and stops when the pane is gone. The
+--- text is whatever the multiplexer reports for the pane, with control characters replaced.
+---@param target? Terminal.Target
+---@return integer|nil bufnr
+---@return string|nil err
+function M.adopt(target)
+  backend()
+  local name, _, root = resolve(target)
+  local handle = state.registry:find(root, name)
+  local b = handle and backend_of(handle)
+  local err
+  if not handle then
+    err = ("adopt: no terminal '%s' in this project"):format(name)
+  elseif not b.capture then
+    err = ("adopt: terminal '%s' lives in %s, which has no pane to show"):format(
+      name,
+      handle.backend
+    )
+  end
+  if err then
+    fail(err)
+    return nil, err
+  end
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  pcall(
+    vim.api.nvim_buf_set_name,
+    buf,
+    ("terminal://%s/%s/%s"):format(handle.backend, handle.pane, name)
+  )
+
+  local function refresh()
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return false
+    end
+    local text, cerr = b.capture(handle)
+    local lines = text and pane_lines(text) or { "-- " .. (cerr or "pane is gone") .. " --" }
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    return text ~= nil
+  end
+  refresh()
+
+  local timer = vim.uv.new_timer()
+  timer:start(
+    1000,
+    1000,
+    vim.schedule_wrap(function()
+      if not vim.api.nvim_buf_is_valid(buf) then
+        timer:stop()
+        timer:close()
+        return
+      end
+      if #vim.fn.win_findbuf(buf) > 0 and not refresh() then
+        timer:stop()
+        timer:close()
+      end
+    end)
+  )
+  vim.cmd("botright split")
+  vim.api.nvim_win_set_buf(0, buf)
+  return buf, nil
 end
 
 --- Read-only snapshot of what is going on, for health checks and bug reports.

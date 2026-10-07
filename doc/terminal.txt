@@ -27,6 +27,8 @@ Only the "native" backend (Neovim's own |:terminal|) is implemented.
 :Terminal open [name]           Show and focus; create when needed.
 :Terminal hide [name]           Close the window, keep the job.
 :Terminal close [name]          Stop the job and remove the terminal.
+:Terminal pin [name] [--backend=] Restart a native terminal as a tmux/WezTerm pane.
+:Terminal adopt [name]          View a pane's screen in a read-only buffer.
 :Terminal list                  Pick one of this project's terminals.
 :Terminal send {line|file} [name] [--exec]
 :{range}Terminal send selection [name] [--exec]

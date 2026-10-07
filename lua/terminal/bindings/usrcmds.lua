@@ -5,6 +5,7 @@
 ---   :Terminal                          toggle the default terminal
 ---   :Terminal toggle|open [name]       show / focus (create when missing); `3` is the terminal "3"
 ---   :Terminal hide|close [name]
+---   :Terminal pin|adopt [name]         restart in a multiplexer pane / view a pane's screen
 ---   :Terminal list                     pick one of this project's terminals
 ---   :Terminal send line|selection|file [name] [--exec]
 ---   :Terminal run [--name=] [--direct] <command...>
@@ -159,6 +160,29 @@ function M.setup()
         desc = "Stop a terminal's job and remove it",
         run = function(ctx)
           terminal.close(target_of(ctx))
+        end,
+      },
+      {
+        path = { "pin" },
+        args = NAME_ARG,
+        flags = {
+          { name = "backend", type = "STRING", enum = { "tmux", "wezterm" } },
+          { name = "layout", type = "STRING", enum = LAYOUTS },
+        },
+        desc = "Restart a native terminal as a pane of tmux/WezTerm so it outlives Neovim",
+        run = function(ctx)
+          terminal.pin(
+            { name = ctx.args.name },
+            { backend = ctx.flags.backend, layout = ctx.flags.layout }
+          )
+        end,
+      },
+      {
+        path = { "adopt" },
+        args = NAME_ARG,
+        desc = "Show a tmux/WezTerm terminal's screen in a read-only buffer",
+        run = function(ctx)
+          terminal.adopt({ name = ctx.args.name })
         end,
       },
       {

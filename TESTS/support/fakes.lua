@@ -24,6 +24,12 @@ local function wezterm()
         out[#out + 1] = vim.tbl_extend("force", p, { is_active = state.active == id })
       end
       return { code = 0, stdout = vim.json.encode(out), stderr = "" }
+    elseif sub == "get-text" then
+      local id = argv[5]
+      if not state.panes[id] then
+        return { code = 1, stdout = "", stderr = "pane " .. id .. " not found" }
+      end
+      return { code = 0, stdout = state.text or "", stderr = "" }
     elseif sub == "send-text" then
       return { code = 0, stdout = "", stderr = "" }
     elseif sub == "activate-pane" then
@@ -91,6 +97,12 @@ local function tmux()
       end
       state.panes[target] = nil
       return { code = 0, stdout = "", stderr = "" }
+    elseif sub == "capture-pane" then
+      local target = argv[#argv]
+      if not state.panes[target] then
+        return { code = 1, stdout = "", stderr = "can't find pane: " .. target }
+      end
+      return { code = 0, stdout = state.text or "", stderr = "" }
     elseif sub == "send-keys" then
       return { code = 0, stdout = "", stderr = "" }
     end
