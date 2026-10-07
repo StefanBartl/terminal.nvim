@@ -61,8 +61,8 @@ typed as given.
 
   <A-h>            normal, terminal   toggle (a count picks terminal N)
   <Esc>, <C-c>     terminal           leave terminal mode
-  <A-l>            terminal           clear the screen
-  <C-h/j/k/l>      terminal           window navigation
+  (off) clear      terminal           type cls/clear; (off) window_right <C-l>
+  <C-h/j/k>        terminal           window navigation (<C-l> clears in the shell)
 
 Move one with `keymaps = { toggle = "<A-x>" }`, drop one with `false`, bind
 nothing with `preset = false`.

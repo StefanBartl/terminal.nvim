@@ -58,7 +58,7 @@ function M.setup(cfg)
         desc = "Leave terminal mode",
       },
       clear = {
-        default = DEFAULTS.clear,
+        default = DEFAULTS.clear or nil,
         mode = "t",
         rhs = clear_screen,
         desc = "Clear the terminal screen",
@@ -82,7 +82,7 @@ function M.setup(cfg)
         desc = "Window up",
       },
       window_right = {
-        default = DEFAULTS.window_right,
+        default = DEFAULTS.window_right or nil,
         mode = "t",
         rhs = "<C-\\><C-w>l",
         desc = "Window right",

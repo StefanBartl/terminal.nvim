@@ -9,11 +9,11 @@ Bound at `setup()` unless `keymaps = { preset = false }`. Move one with
 |---|---|---|---|
 | `toggle` | `<A-h>` | normal, terminal | Toggle the terminal. A count picks terminal N (`3<A-h>`). |
 | `normal_mode` | `<Esc>`, `<C-c>` | terminal | Leave terminal mode (`<C-\><C-n>`). |
-| `clear` | `<A-l>` | terminal | `cls` on Windows, `clear` elsewhere. |
+| `clear` | off | terminal | `cls` on Windows, `clear` elsewhere. Off by default: `<C-l>` clears in the shell itself. |
 | `window_left` | `<C-h>` | terminal | Window left (`<C-\><C-w>h`). |
 | `window_down` | `<C-j>` | terminal | Window down. |
 | `window_up` | `<C-k>` | terminal | Window up. |
-| `window_right` | `<C-l>` | terminal | Window right. |
+| `window_right` | off | terminal | Window right. Off by default so `<C-l>` stays the shell's clear-screen. |
 
 ## Commands
 

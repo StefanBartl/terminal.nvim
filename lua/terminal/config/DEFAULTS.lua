@@ -62,11 +62,15 @@ local DEFAULTS = {
     preset = true,
     toggle = "<A-h>",
     normal_mode = { "<Esc>", "<C-c>" },
-    clear = "<A-l>",
+    -- Off by default: <C-l> reaches the shell and clears the screen there, like in any terminal.
+    -- Set a key to have the plugin type `cls` / `clear` for you instead.
+    clear = false,
     window_left = "<C-h>",
     window_down = "<C-j>",
     window_up = "<C-k>",
-    window_right = "<C-l>",
+    -- Off by default so <C-l> stays the shell's own clear-screen. Set "<C-l>" (or another key)
+    -- for a window move to the right from terminal mode.
+    window_right = false,
   },
 
   commands = true,

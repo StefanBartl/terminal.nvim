@@ -85,10 +85,24 @@ describe("terminal bindings", function()
       assert.equals(norm("<A-h>"), bound("t", "<A-h>"))
       assert.equals(norm("<Esc>"), bound("t", "<Esc>"))
       assert.equals(norm("<C-c>"), bound("t", "<C-c>"))
-      assert.equals(norm("<A-l>"), bound("t", "<A-l>"))
-      for _, lhs in ipairs({ "<C-h>", "<C-j>", "<C-k>", "<C-l>" }) do
+      for _, lhs in ipairs({ "<C-h>", "<C-j>", "<C-k>" }) do
         assert.equals(norm(lhs), bound("t", lhs))
       end
+    end)
+
+    it("leaves <C-l> and <A-l> alone by default: the shell clears the screen itself", function()
+      terminal.setup({ shell = jobs.sleeper() })
+      assert.same({}, map("t", "<C-l>"))
+      assert.same({}, map("t", "<A-l>"))
+    end)
+
+    it("binds clear and window_right when asked to", function()
+      terminal.setup({
+        shell = jobs.sleeper(),
+        keymaps = { clear = "<A-l>", window_right = "<C-l>" },
+      })
+      assert.equals(norm("<A-l>"), bound("t", "<A-l>"))
+      assert.equals(norm("<C-l>"), bound("t", "<C-l>"))
     end)
 
     it("the leave-terminal-mode keys send <C-\\><C-n>", function()
@@ -100,11 +114,11 @@ describe("terminal bindings", function()
     it("moves an action with a string and drops one with false", function()
       terminal.setup({
         shell = jobs.sleeper(),
-        keymaps = { toggle = "<A-x>", clear = false },
+        keymaps = { toggle = "<A-x>", window_left = false },
       })
       assert.equals(norm("<A-x>"), bound("n", "<A-x>"))
       assert.same({}, map("n", "<A-h>"))
-      assert.same({}, map("t", "<A-l>"))
+      assert.same({}, map("t", "<C-h>"))
     end)
 
     it("binds nothing with preset = false", function()

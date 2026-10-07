@@ -55,3 +55,27 @@ terminal.status()        -- { ready, backend, terminals }
 
 Every function returns `nil, err` (or `false, err`) instead of raising, and reports the
 problem to the user.
+
+## Running a TUI from another plugin
+
+`run` with `direct = true` is the entry for a plugin that wants a full-screen program
+(lazygit, a REPL, a test watcher) in a terminal window without owning the window code:
+
+```lua
+local ok, err, handle = require("terminal").run({ "lazygit", "-p", repo_root }, {
+  direct = true,
+  name = "lazygit",              -- identity (with the project root); a second call replaces it
+  title = "lazygit",             -- float title
+  cwd = repo_root,
+  float = { width = 0.9, height = 0.9 },
+  close = "always",              -- remove window and buffer when the program ends
+  env = { NVIM = vim.v.servername },
+  on_open = function(h)          -- buffer keymaps etc.; h.bufnr, h.job
+    vim.keymap.set("n", "q", "<Cmd>close<CR>", { buffer = h.bufnr })
+  end,
+  on_exit = function(code) end,
+})
+```
+
+`close` is `"always"`, `"success"` (only exit code 0, failures stay readable) or `"never"`
+(default). Nothing here is lazygit-specific; the argv is the program.

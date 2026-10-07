@@ -68,11 +68,11 @@ require("terminal").setup({
     preset = true,
     toggle = "<A-h>",                      -- normal and terminal mode; a count picks terminal N
     normal_mode = { "<Esc>", "<C-c>" },    -- terminal mode: leave to Terminal-Normal
-    clear = "<A-l>",                       -- terminal mode: cls / clear
+    clear = false,                         -- terminal mode: type cls / clear (off: <C-l> clears in the shell)
     window_left = "<C-h>",                 -- terminal mode: window navigation
     window_down = "<C-j>",
     window_up = "<C-k>",
-    window_right = "<C-l>",
+    window_right = false,                  -- off: <C-l> stays the shell's own clear-screen
   },
 
   commands = true,          -- register :Terminal

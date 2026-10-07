@@ -81,6 +81,7 @@
 ---@field start_insert boolean|nil
 ---@field on_exit Terminal.ExitMode|nil
 ---@field on_exit_cb fun(code: integer)|nil Called once with the job's exit code.
+---@field title string|nil Window title of a float (default: `name`).
 
 --- One terminal as the registry and the backends see it.
 ---@class Terminal.Handle

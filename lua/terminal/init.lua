@@ -319,6 +319,13 @@ end
 ---@class Terminal.RunOpts: Terminal.Target
 ---@field direct? boolean Start the command as the terminal's job itself (needs an argv list)
 ---@field on_exit? fun(code: integer) With `direct`: called once with the exit code
+---@field cwd? string With `direct`: working directory of the job (default: the project's)
+---@field title? string With `direct`: window title of a float (default: the terminal's name)
+---@field float? table With `direct`: overrides of the `float` config for this window
+---@field close? "always"|"success"|"never" With `direct`: remove the terminal when the job ends (default "never")
+---@field start_insert? boolean With `direct`: enter terminal mode when it has focus (default true)
+---@field env? table<string, string> With `direct`: extra environment for the job
+---@field on_open? fun(handle: Terminal.Handle) With `direct`: called once the window and job exist (set buffer keymaps here)
 
 --- Run a command in a terminal.
 ---
@@ -331,6 +338,7 @@ end
 ---@param opts? Terminal.RunOpts
 ---@return boolean started
 ---@return string|nil err
+---@return Terminal.Handle|nil handle Only with `direct`
 function M.run(cmd, opts)
   opts = opts or {}
   local b = backend()
@@ -347,13 +355,22 @@ function M.run(cmd, opts)
     if old then
       b.close(old)
     end
-    local spec = build_spec(name, cwd, root, {
+    local focus = opts.focus ~= false
+    local spec = build_spec(name, opts.cwd or cwd, root, {
       layout = opts.layout,
-      start_insert = false,
+      start_insert = focus and opts.start_insert ~= false,
       on_exit_cb = opts.on_exit,
     })
     spec.cmd = cmd
-    spec.on_exit = "keep"
+    spec.title = opts.title
+    if opts.float then
+      spec.float = vim.tbl_extend("force", spec.float or {}, opts.float)
+    end
+    if opts.env then
+      spec.env = vim.tbl_extend("force", spec.env or {}, opts.env)
+    end
+    local close_modes = { always = "close", success = "close_on_success", never = "keep" }
+    spec.on_exit = close_modes[opts.close or "never"] or "keep"
     local previous = vim.api.nvim_get_current_win()
     local handle, err = b.spawn(spec)
     if not handle then
@@ -363,7 +380,10 @@ function M.run(cmd, opts)
     if opts.focus == false and vim.api.nvim_win_is_valid(previous) then
       vim.api.nvim_set_current_win(previous)
     end
-    return true, nil
+    if opts.on_open then
+      pcall(opts.on_open, handle)
+    end
+    return true, nil, handle
   end
 
   local line = cmd

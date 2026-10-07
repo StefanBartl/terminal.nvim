@@ -64,7 +64,7 @@ local function open_window(bufnr, spec)
       zindex = float.zindex,
     }
     if float.title and float.border and float.border ~= "none" and float.border ~= "" then
-      config.title = (" %s "):format(spec.name)
+      config.title = (" %s "):format(spec.title or spec.name)
       config.title_pos = float.title_pos
     end
     local ok, win = pcall(api.nvim_open_win, bufnr, true, config)

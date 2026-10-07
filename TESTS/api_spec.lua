@@ -238,6 +238,65 @@ describe("terminal (facade)", function()
       assert.not_equals(first.bufnr, terminal.list()[1].bufnr)
     end)
 
+    it(
+      "direct: close = always removes the terminal when the job ends, on_open sees the handle",
+      function()
+        local opened, code
+        terminal.run(jobs.exit_with(0), {
+          direct = true,
+          name = "tui",
+          close = "always",
+          on_open = function(h)
+            opened = h
+          end,
+          on_exit = function(c)
+            code = c
+          end,
+        })
+        assert.is_not_nil(opened)
+        assert.equals("tui", opened.name)
+        assert.is_true(jobs.wait(function()
+          return code ~= nil and #terminal.list() == 0
+        end))
+        assert.equals(0, code)
+      end
+    )
+
+    it("direct: close = success keeps a failed job readable", function()
+      local code
+      terminal.run(jobs.exit_with(4), {
+        direct = true,
+        name = "tui",
+        close = "success",
+        on_exit = function(c)
+          code = c
+        end,
+      })
+      assert.is_true(jobs.wait(function()
+        return code ~= nil
+      end))
+      vim.wait(100)
+      assert.equals(1, #terminal.list())
+      assert.equals(4, terminal.list()[1].exit_code)
+    end)
+
+    it("direct: title, cwd and float overrides reach the window and the job", function()
+      local dir = vim.fn.tempname()
+      vim.fn.mkdir(dir, "p")
+      local _, _, h = terminal.run(jobs.sleeper(), {
+        direct = true,
+        name = "git",
+        title = "lazygit",
+        cwd = dir,
+        float = { width = 0.5, height = 0.5 },
+      })
+      local win = vim.fn.win_findbuf(h.bufnr)[1]
+      local cfg = vim.api.nvim_win_get_config(win)
+      assert.truthy(vim.inspect(cfg.title):find("lazygit", 1, true))
+      assert.is_true(cfg.width < vim.o.columns * 0.6)
+      vim.fn.delete(dir, "d")
+    end)
+
     it("direct: needs an argv list", function()
       local ok, err = terminal.run("make test", { direct = true })
       assert.is_false(ok)
