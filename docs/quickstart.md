@@ -10,7 +10,7 @@
    and keeps the window after it ends.
 4. **Send text from a buffer.** `:Terminal send line` types the current line;
    `:'<,'>Terminal send selection` the selection; `:Terminal send file` the buffer. Nothing
-   is executed until you add `--exec`.
+   is executed until you add `--exec` (several lines need it, since each would run).
 5. **Look around.** `:Terminal list` picks one of the project's terminals;
    `:checkhealth terminal` says what is detected.
 

@@ -32,7 +32,14 @@ end
 ---@param p string
 ---@return string
 local function normalize(p)
-  return (vim.fs.normalize(p):gsub("/+$", ""))
+  local out = vim.fs.normalize(p):gsub("/+$", "")
+  -- A filesystem root loses its only slash above: "/" -> "", "C:/" -> "C:" (a drive-relative path).
+  if out == "" then
+    return "/"
+  elseif out:find("^%a:$") then
+    return out .. "/"
+  end
+  return out
 end
 
 --- Directory a new terminal starts in, and the root that identifies its project.

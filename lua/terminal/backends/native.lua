@@ -113,10 +113,22 @@ function M.new(registry)
   }
 
   ---@internal
+  --- Remove `handle` from the registry -- but only if the registry still holds *this* handle. A
+  --- terminal that was replaced under the same id (close + spawn in one tick) must not take its
+  --- successor with it when its deferred exit handler or BufWipeout fires late.
+  ---@param handle Terminal.Handle
+  local function forget(handle)
+    if registry:get(handle.id) == handle then
+      registry:remove(handle.id)
+    end
+  end
+
+  ---@internal
   --- Forget a terminal and remove its window(s) and buffer.
   ---@param handle Terminal.Handle
   local function dispose(handle)
-    registry:remove(handle.id)
+    handle.disposed = true
+    forget(handle)
     local bufnr = handle.bufnr
     if bufnr and api.nvim_buf_is_valid(bufnr) then
       for _, win in ipairs(fn.win_findbuf(bufnr)) do
@@ -171,6 +183,9 @@ function M.new(registry)
           if spec.on_exit_cb then
             pcall(spec.on_exit_cb, code)
           end
+          if handle.disposed then
+            return
+          end
           local mode = spec.on_exit or "close"
           if mode == "close" or (mode == "close_on_success" and code == 0) then
             dispose(handle)
@@ -200,7 +215,7 @@ function M.new(registry)
       buffer = bufnr,
       once = true,
       callback = function()
-        registry:remove(handle.id)
+        forget(handle)
       end,
       desc = "terminal.nvim: forget a wiped terminal buffer",
     })

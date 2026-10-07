@@ -13,7 +13,7 @@
 -- (interactive shells exit at once, writing to the job hangs the editor), so TESTS/*_spec.lua
 -- records what `send` would write instead of writing it. This script writes for real.
 
-local here = debug.getinfo(1, "S").source:sub(2):gsub("\\", "/")
+local here = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p"):gsub("\\", "/")
 local root = here:match("^(.*)/TESTS/live/smoke%.lua$")
 local lib = vim.env.LIB_NVIM_DIR or (root .. "/../lib.nvim")
 vim.opt.rtp:prepend(root)
@@ -50,7 +50,8 @@ local ok, err = pcall(function()
   check("send reports success", sent == true)
   local seen = vim.wait(5000, function()
     for _, l in ipairs(vim.api.nvim_buf_get_lines(h.bufnr, 0, -1, false)) do
-      if l:find("terminal%-nvim%-live%-check") then
+      -- The typed command line also contains the word; only the OUTPUT line is exactly the word.
+      if l:find("^terminal%-nvim%-live%-check%s*$") then
         return true
       end
     end

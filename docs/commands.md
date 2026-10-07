@@ -35,6 +35,10 @@ This is deliberate — a selection that contains a line break would otherwise ru
   after it ends, an earlier terminal of the same name is replaced, and from Lua
   `on_exit(code)` reports the exit code: `run({ "make" }, { direct = true, on_exit = fn })`.
   The words after `--direct` are the argv.
+- Put `--` before a command that has dashed words of its own: `:Terminal run -- git log --oneline`.
+  Everything after the flags (or after the `--`) is passed on verbatim.
+- `send` with several lines needs `--exec` (typing a line break presses Enter, so each line would run);
+  a single line is just typed.
 
 ## Lua API
 

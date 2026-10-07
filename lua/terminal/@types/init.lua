@@ -94,6 +94,7 @@
 ---@field layout Terminal.Layout
 ---@field exited boolean|nil
 ---@field exit_code integer|nil
+---@field disposed boolean|nil Set once the terminal was removed on purpose.
 
 ---@class Terminal.Backend
 ---@field name string

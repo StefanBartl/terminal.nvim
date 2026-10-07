@@ -58,13 +58,58 @@ local function send_route(what)
     flags = { { name = "exec", bool = true } },
     desc = ("Send the %s to a terminal (typed only; --exec presses Enter)"):format(what),
     run = function(ctx)
-      local text = table.concat(lines_for(what, ctx), "\n")
+      local lines = lines_for(what, ctx)
+      if #lines > 1 and ctx.flags.exec ~= true then
+        -- Typing a line break into a shell presses Enter: every line but the last would run.
+        vim.notify(
+          ("[terminal] %d lines would be executed one by one: add --exec to run them, or send a single line"):format(
+            #lines
+          ),
+          vim.log.levels.WARN
+        )
+        return
+      end
+      local text = table.concat(lines, "\n")
       require("terminal").send(text, {
         name = ctx.args.name,
         newline = ctx.flags.exec == true,
       })
     end,
   }
+end
+
+--- Split the raw words of `:Terminal run ...` into the leading flags and the command.
+---
+--- The words come from the unparsed command line (`ctx.raw.fargs`), so what follows the flags is
+--- passed on **verbatim**: a `--` ends the flags and is itself dropped, any later `--word` or a
+--- second `--` stays part of the command.
+---@param fargs string[] Words of the command line, starting with the subcommand `run`
+---@return table opts name / layout / direct
+---@return string[] command
+function M.parse_run(fargs)
+  local opts = {}
+  local i = 2 -- fargs[1] is "run"
+  while i <= #fargs do
+    local w = fargs[i]
+    if w == "--" then
+      i = i + 1
+      break
+    elseif w == "--direct" then
+      opts.direct = true
+    elseif w:find("^%-%-name=") then
+      opts.name = w:sub(8)
+    elseif w:find("^%-%-layout=") then
+      opts.layout = w:sub(10)
+    else
+      break
+    end
+    i = i + 1
+  end
+  local command = {}
+  for j = i, #fargs do
+    command[#command + 1] = fargs[j]
+  end
+  return opts, command
 end
 
 --- Register the `:Terminal` command.
@@ -75,6 +120,9 @@ function M.setup()
 
   composer.verb("Terminal", {
     desc = "Named terminals: toggle, open, hide, close, list, send, run",
+    -- The command-level range comes from the verb, not from the first route that sets one:
+    -- without this `:'<,'>Terminal send selection` fails with E481 (`send line` has none).
+    range = true,
     default = function()
       terminal.toggle()
     end,
@@ -144,18 +192,17 @@ function M.setup()
           { name = "direct", bool = true },
           { name = "layout", type = "STRING", enum = LAYOUTS },
         },
-        desc = "Run a command (typed as a line; --direct starts it as the job itself)",
+        desc = "Run a command (typed as a line; --direct starts it as the job itself); put -- before a command with dashed words",
         run = function(ctx)
-          if #ctx.rest == 0 then
+          local opts, command = M.parse_run(ctx.raw.fargs or {})
+          if #command == 0 then
             vim.notify("[terminal] run: no command given", vim.log.levels.WARN)
             return
           end
-          local opts =
-            { name = ctx.flags.name, layout = ctx.flags.layout, direct = ctx.flags.direct }
-          if ctx.flags.direct then
-            terminal.run(ctx.rest, opts)
+          if opts.direct then
+            terminal.run(command, opts)
           else
-            terminal.run(table.concat(ctx.rest, " "), opts)
+            terminal.run(table.concat(command, " "), opts)
           end
         end,
       },

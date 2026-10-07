@@ -76,6 +76,26 @@ describe("terminal.config", function()
     assert.equals("keep", config.get("on_exit"))
   end)
 
+  it("a table key given a scalar is reported and keeps its defaults (no error)", function()
+    for _, bad in ipairs({ "x", false, 3 }) do
+      local ok, problems = pcall(config.setup, { float = bad, split = bad, kitty = bad })
+      assert.is_true(ok, tostring(problems))
+      assert.equals(3, #problems)
+      assert.equals(0.8, config.get("float.width"))
+      assert.equals("center", config.get("float.title_pos"))
+      assert.equals(0.3, config.get("split.size"))
+    end
+  end)
+
+  it("a wrongly typed leaf is dropped, the default stays, valid siblings apply", function()
+    local problems =
+      config.setup({ float = { width = "wide", height = 0.5 }, start_insert = "yes" })
+    assert.equals(2, #problems)
+    assert.equals(0.8, config.get("float.width"))
+    assert.equals(0.5, config.get("float.height"))
+    assert.is_true(config.get("start_insert"))
+  end)
+
   it("treats a non-table argument as a problem, not an error", function()
     local problems = config.setup("nope")
     assert.equals(1, #problems)

@@ -173,7 +173,66 @@ describe("terminal bindings", function()
       vim.cmd("Terminal run --direct --name=job " .. table.concat(argv, " "))
       local h = terminal.list()[1]
       assert.equals("job", h.name)
-      assert.same(argv[1], vim.fn.fnamemodify(argv[1], ":t"))
+      -- the exit code proves the arguments were run as the job's argv
+      assert.is_true(jobs.wait(function()
+        return h.exited == true
+      end))
+      assert.equals(0, h.exit_code)
+    end)
+
+    it("run keeps dashed words of the command after --", function()
+      local opts, command = require("terminal.bindings.usrcmds").parse_run({
+        "run",
+        "--direct",
+        "--name=job",
+        "--",
+        "git",
+        "log",
+        "--oneline",
+        "--",
+        "x",
+      })
+      assert.same({ direct = true, name = "job" }, opts)
+      assert.same({ "git", "log", "--oneline", "--", "x" }, command)
+      local _, plain = require("terminal.bindings.usrcmds").parse_run({ "run", "npm", "test" })
+      assert.same({ "npm", "test" }, plain)
+    end)
+
+    it("send selection types the selected lines; several lines need --exec", function()
+      terminal.setup({ shell = jobs.sleeper(), start_insert = false })
+      vim.cmd("enew")
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
+      local notified
+      local original = vim.notify
+      vim.notify = function(msg)
+        notified = msg
+      end
+      local refused = jobs.record_sends(function()
+        vim.cmd("2,3Terminal send selection")
+      end)
+      vim.notify = original
+      assert.same({}, refused, "two lines without --exec must not be sent")
+      assert.truthy(notified and notified:find("--exec", 1, true))
+
+      local sent = jobs.record_sends(function()
+        vim.cmd("2,3Terminal send selection --exec")
+      end)
+      assert.equals("two\nthree" .. (vim.fn.has("win32") == 1 and "\r" or "\n"), sent[1].text)
+
+      local single = jobs.record_sends(function()
+        vim.cmd("2Terminal send selection")
+      end)
+      assert.equals("two", single[1].text)
+    end)
+
+    it("send file types the whole buffer with --exec", function()
+      terminal.setup({ shell = jobs.sleeper(), start_insert = false })
+      vim.cmd("enew")
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, { "a", "b" })
+      local sent = jobs.record_sends(function()
+        vim.cmd("Terminal send file --exec")
+      end)
+      assert.equals("a\nb" .. (vim.fn.has("win32") == 1 and "\r" or "\n"), sent[1].text)
     end)
 
     it("send line types the current line without executing it", function()

@@ -56,21 +56,26 @@ local function contains(list, value)
 end
 
 --- Find every key in `opts` that `schema` does not know, whose type is wrong, or whose value is
---- outside its closed set. Pure.
+--- outside its closed set. Pure. The second result is `opts` without every offending key, ready
+--- to merge over the defaults.
 ---@param schema table DEFAULTS or one of its nested tables
 ---@param opts table The corresponding level of the user's options
 ---@param prefix? string Dot-path so far
 ---@return string[] problems
+---@return table clean
 function M.validate(schema, opts, prefix)
   prefix = prefix or ""
   local problems = {}
+  local clean = {}
   for k, v in pairs(opts) do
     local path = prefix == "" and tostring(k) or (prefix .. "." .. tostring(k))
     local default_v = schema[k]
     if default_v == nil then
       problems[#problems + 1] = ("unknown config key '%s' -- ignored"):format(path)
     elseif ENUMS[path] then
-      if not contains(ENUMS[path], v) then
+      if contains(ENUMS[path], v) then
+        clean[k] = v
+      else
         problems[#problems + 1] = ("config key '%s' must be one of %s, got %s"):format(
           path,
           table.concat(ENUMS[path], "|"),
@@ -78,14 +83,18 @@ function M.validate(schema, opts, prefix)
         )
       end
     elseif OPEN_TABLES[path] then
-      if type(v) ~= "table" and not (path == "keymaps" and v == false) then
+      if type(v) == "table" or (path == "keymaps" and v == false) then
+        clean[k] = v
+      else
         problems[#problems + 1] = ("config key '%s' should be a table, got %s"):format(
           path,
           type(v)
         )
       end
     elseif WIDE_TYPES[path] then
-      if not contains(WIDE_TYPES[path], type(v)) then
+      if contains(WIDE_TYPES[path], type(v)) then
+        clean[k] = v
+      else
         problems[#problems + 1] = ("config key '%s' should be %s, got %s"):format(
           path,
           table.concat(WIDE_TYPES[path], " or "),
@@ -94,14 +103,18 @@ function M.validate(schema, opts, prefix)
       end
     elseif type(default_v) == "table" and not vim.islist(default_v) then
       if type(v) == "table" then
-        vim.list_extend(problems, M.validate(default_v, v, path))
+        local sub_problems, sub_clean = M.validate(default_v, v, path)
+        vim.list_extend(problems, sub_problems)
+        clean[k] = sub_clean
       else
         problems[#problems + 1] = ("config key '%s' should be a table, got %s"):format(
           path,
           type(v)
         )
       end
-    elseif type(v) ~= type(default_v) then
+    elseif type(v) == type(default_v) then
+      clean[k] = v
+    else
       problems[#problems + 1] = ("config key '%s' should be %s, got %s"):format(
         path,
         type(default_v),
@@ -110,7 +123,7 @@ function M.validate(schema, opts, prefix)
     end
   end
   table.sort(problems)
-  return problems
+  return problems, clean
 end
 
 --- Apply user options. A value that fails validation is reported and the default stays.
@@ -123,26 +136,13 @@ function M.setup(opts)
   local problems = {}
   local merged_opts = {}
   if type(opts) == "table" then
-    problems = M.validate(DEFAULTS, opts)
-    merged_opts = opts
+    problems, merged_opts = M.validate(DEFAULTS, opts)
   elseif opts ~= nil then
     problems = { ("setup() expects a table, got %s"):format(type(opts)) }
   end
 
+  -- Offending keys were dropped by `validate`, so a typo keeps that key's default.
   M.options = vim.deepcopy(lib_config.deep_merge(DEFAULTS, merged_opts))
-  -- Fall back per offending key, so one typo never leaves a half-valid setting behind.
-  for _, enum_path in ipairs(vim.tbl_keys(ENUMS)) do
-    if not contains(ENUMS[enum_path], lib_config.get(M.options, enum_path)) then
-      local parts = vim.split(enum_path, ".", { plain = true })
-      local target = M.options
-      for i = 1, #parts - 1 do
-        target = target[parts[i]]
-      end
-      local default = lib_config.get(DEFAULTS, enum_path)
-      target[parts[#parts]] = default
-    end
-  end
-
   if #problems > 0 then
     -- Deferred: `setup()` can run during plugin load, before notifying is safe.
     vim.schedule(function()

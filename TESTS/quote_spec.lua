@@ -24,6 +24,22 @@ local HOSTILE = {
 }
 
 describe("terminal.core.quote", function()
+  describe("shell_kind with arguments", function()
+    it("finds the family in a command string", function()
+      assert.equals("powershell", quote.shell_kind("pwsh -NoLogo"))
+      assert.equals(
+        "powershell",
+        quote.shell_kind('"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoLogo')
+      )
+      assert.equals("cmd", quote.shell_kind("cmd.exe /k"))
+      assert.equals("posix", quote.shell_kind("bash -l"))
+    end)
+
+    it("does not mistake a path component that merely contains the name", function()
+      assert.equals("posix", quote.shell_kind("/opt/mycmdtools/zsh"))
+    end)
+  end)
+
   describe("shell_kind", function()
     it("recognises the families from a name or a path", function()
       assert.equals("powershell", quote.shell_kind("pwsh"))
@@ -75,6 +91,20 @@ describe("terminal.core.quote", function()
       assert.equals("'`id`'", quote.word("`id`", "powershell"))
     end)
 
+    it("doubles the typographic single quotes PowerShell also treats as quotes", function()
+      for _, q in ipairs({ "\226\128\152", "\226\128\153", "\226\128\154", "\226\128\155" }) do
+        local w = quote.word("x" .. q .. ";Write-Output INJECTED;" .. q, "powershell")
+        assert.equals("'x" .. q .. q .. ";Write-Output INJECTED;" .. q .. q .. "'", w)
+      end
+    end)
+
+    it("quotes words that would splat, build an array or read as an alias", function()
+      assert.equals("'@args'", quote.word("@args", "powershell"))
+      assert.equals("'a,b'", quote.word("a,b", "powershell"))
+      assert.equals("'%'", quote.word("%", "powershell"))
+      assert.equals("'a+b'", quote.word("a+b", "powershell"))
+    end)
+
     it("adds the call operator when the program word itself is quoted", function()
       local line = quote.argv_to_line({ "C:\\Program Files\\x.exe", "a b" }, "powershell")
       assert.equals("& 'C:\\Program Files\\x.exe' 'a b'", line)
@@ -89,8 +119,15 @@ describe("terminal.core.quote", function()
       assert.equals('""', quote.word("", "cmd"))
     end)
 
-    it("neutralises percent signs", function()
-      assert.equals('"^%PATH^%"', quote.word("%PATH%", "cmd"))
+    it("refuses a word with a percent sign: cmd.exe cannot quote it", function()
+      local w, err = quote.word("%PATH%", "cmd")
+      assert.is_nil(w)
+      assert.truthy(err:find("%", 1, true))
+      assert.is_nil((quote.argv_to_line({ "echo", "100%" }, "cmd")))
+    end)
+
+    it("doubles backslashes before the closing quote", function()
+      assert.equals('"C:\\my dir\\\\"', quote.word("C:\\my dir\\", "cmd"))
     end)
   end)
 
@@ -113,13 +150,16 @@ describe("terminal.core.quote", function()
       assert.truthy(err:find("argument 2", 1, true))
     end)
 
-    it("refuses a word with a line break or NUL: that would end the command line", function()
-      for _, bad in ipairs({ "a\nb", "a\rb", "a\0b" }) do
-        for _, kind in ipairs({ "posix", "powershell", "cmd" }) do
-          local line = quote.argv_to_line({ "echo", bad }, kind)
-          assert.is_nil(line, ("%s / %q"):format(kind, bad))
+    it(
+      "refuses control characters: a line break ends the command line, ESC is interpreted",
+      function()
+        for _, bad in ipairs({ "a\nb", "a\rb", "a\0b", "a\27[31mb", "a\127b" }) do
+          for _, kind in ipairs({ "posix", "powershell", "cmd" }) do
+            local line = quote.argv_to_line({ "echo", bad }, kind)
+            assert.is_nil(line, ("%s / %q"):format(kind, bad))
+          end
         end
       end
-    end)
+    )
   end)
 end)
