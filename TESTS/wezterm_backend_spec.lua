@@ -4,48 +4,9 @@
 local registry_mod = require("terminal.core.registry")
 local wezterm = require("terminal.backends.wezterm")
 
---- A fake `wezterm cli`: keeps a list of panes, records every call.
----@return Terminal.WezTermRunner runner
----@return table state { calls, panes, active, stdin }
-local function fake()
-  local state =
-    { calls = {}, panes = { ["7"] = { pane_id = 7, tab_id = 1 } }, active = "7", next_id = 8 }
-  local function run(argv, opts)
-    state.calls[#state.calls + 1] = { argv = vim.list_slice(argv, 3), stdin = opts and opts.stdin }
-    local sub = argv[3]
-    if sub == "split-pane" or sub == "spawn" then
-      local id = tostring(state.next_id)
-      state.next_id = state.next_id + 1
-      state.panes[id] = { pane_id = tonumber(id), tab_id = sub == "spawn" and 2 or 1 }
-      state.active = id
-      return { code = 0, stdout = id .. "\n", stderr = "" }
-    elseif sub == "list" then
-      local out = {}
-      for id, p in pairs(state.panes) do
-        out[#out + 1] = vim.tbl_extend("force", p, { is_active = state.active == id })
-      end
-      return { code = 0, stdout = vim.json.encode(out), stderr = "" }
-    elseif sub == "send-text" then
-      return { code = 0, stdout = "", stderr = "" }
-    elseif sub == "activate-pane" then
-      local id = argv[5]
-      if not state.panes[id] then
-        return { code = 1, stdout = "", stderr = "pane " .. id .. " not found" }
-      end
-      state.active = id
-      return { code = 0, stdout = "", stderr = "" }
-    elseif sub == "kill-pane" then
-      local id = argv[5]
-      if not state.panes[id] then
-        return { code = 1, stdout = "", stderr = "pane " .. id .. " not found" }
-      end
-      state.panes[id] = nil
-      return { code = 0, stdout = "", stderr = "" }
-    end
-    return { code = 2, stdout = "", stderr = "unknown subcommand " .. tostring(sub) }
-  end
-  return run, state
-end
+local fake = dofile(
+  (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/fakes.lua"
+).wezterm
 
 describe("terminal.backends.wezterm", function()
   local registry, backend, state

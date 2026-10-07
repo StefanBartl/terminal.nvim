@@ -5,57 +5,9 @@ local registry_mod = require("terminal.core.registry")
 local tmux = require("terminal.backends.tmux")
 local exporter = require("terminal.status.exporters.tmux")
 
---- A fake tmux: panes with ids `%N`, one active pane, every call recorded.
-local function fake()
-  local state = {
-    calls = {},
-    panes = { ["%0"] = true },
-    active = "%0",
-    next_id = 1,
-  }
-  local function run(argv)
-    state.calls[#state.calls + 1] = vim.list_slice(argv, 2)
-    local sub = argv[2]
-    if sub == "-L" then
-      sub = argv[4]
-    end
-    if sub == "split-window" or sub == "new-window" then
-      local id = "%" .. state.next_id
-      state.next_id = state.next_id + 1
-      state.panes[id] = true
-      if not vim.tbl_contains(argv, "-d") then
-        state.active = id
-      end
-      return { code = 0, stdout = id .. "\n", stderr = "" }
-    elseif sub == "list-panes" then
-      local lines = {}
-      for id in pairs(state.panes) do
-        lines[#lines + 1] = ("%s %d 1"):format(id, state.active == id and 1 or 0)
-      end
-      return { code = 0, stdout = table.concat(lines, "\n") .. "\n", stderr = "" }
-    elseif sub == "select-pane" or sub == "select-window" then
-      local target = argv[#argv]
-      if not state.panes[target] then
-        return { code = 1, stdout = "", stderr = "can't find pane: " .. target }
-      end
-      if sub == "select-pane" then
-        state.active = target
-      end
-      return { code = 0, stdout = "", stderr = "" }
-    elseif sub == "kill-pane" then
-      local target = argv[#argv]
-      if not state.panes[target] then
-        return { code = 1, stdout = "", stderr = "can't find pane: " .. target }
-      end
-      state.panes[target] = nil
-      return { code = 0, stdout = "", stderr = "" }
-    elseif sub == "send-keys" then
-      return { code = 0, stdout = "", stderr = "" }
-    end
-    return { code = 1, stdout = "", stderr = "unknown command " .. tostring(sub) }
-  end
-  return run, state
-end
+local fake = dofile(
+  (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/fakes.lua"
+).tmux
 
 describe("terminal.backends.tmux", function()
   local registry, backend, state

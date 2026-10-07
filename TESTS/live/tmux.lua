@@ -105,17 +105,15 @@ local ok, err = pcall(function()
     local r = run(full)
     return { code = r.code, stderr = r.stderr }
   end
-  local published = exporter.publish(
-    vim.json.encode({
-      mode = "i",
-      file = "main.lua",
-      branch = "dev",
-      e = 2,
-      w = 1,
-      rec = "",
-      mod = true,
-    })
-  )
+  local published = exporter.publish(vim.json.encode({
+    mode = "i",
+    file = "main.lua",
+    branch = "dev",
+    e = 2,
+    w = 1,
+    rec = "",
+    mod = true,
+  }))
   check("status publish succeeded", published == true)
   local mode = tmux("show-options", "-p", "-v", "-t", own, "@terminal_mode")
   local diag = tmux("show-options", "-p", "-v", "-t", own, "@terminal_diag")
