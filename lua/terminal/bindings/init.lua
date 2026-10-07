@@ -8,10 +8,24 @@ local M = {}
 ---@return nil
 function M.setup()
   local cfg = require("terminal.config").get_all()
-  require("terminal.bindings.keymaps").setup(cfg)
-  require("terminal.bindings.autocmds").setup(cfg)
+  -- Each part on its own: a keymap or autocommand that cannot be created must not take the
+  -- `:Terminal` command with it.
+  local parts = {
+    { "keymaps", require("terminal.bindings.keymaps").setup },
+    { "autocommands", require("terminal.bindings.autocmds").setup },
+  }
   if cfg.commands then
-    require("terminal.bindings.usrcmds").setup()
+    parts[#parts + 1] = { ":Terminal", require("terminal.bindings.usrcmds").setup }
+  end
+  for _, part in ipairs(parts) do
+    local ok, err = pcall(part[2], cfg)
+    if not ok then
+      vim.schedule(function()
+        require("lib.nvim.notify")
+          .create("[terminal]")
+          .error(("%s could not be set up: %s"):format(part[1], tostring(err)))
+      end)
+    end
   end
 end
 

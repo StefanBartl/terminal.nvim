@@ -6,7 +6,7 @@ Inside tmux three things work together:
 |---|---|
 | `backend = "tmux"` | terminals are tmux panes (`split-window`, `send-keys -l --`, `select-pane`, `kill-pane`); see [backends.md](backends.md) |
 | status export | the status dataset becomes pane options `@terminal_mode`, `@terminal_file`, `@terminal_branch`, `@terminal_diag`, `@terminal_rec`, `@terminal_mod` for `status-right` / `pane-border-format` ([status.md](status.md)) |
-| navigation | at Neovim's edge `tmux select-pane -L/-D/-U/-R` ([navigation.md](navigation.md)) |
+| navigation | at Neovim's edge `tmux if-shell -F '#{pane_at_left}' '' 'select-pane -L'` (and the other three directions): a no-op at the edge of the tmux window instead of `select-pane`'s wrap-around ([navigation.md](navigation.md)) |
 
 ## tmux.conf
 

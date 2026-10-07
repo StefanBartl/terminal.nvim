@@ -121,6 +121,30 @@ describe("terminal (facade)", function()
     assert.is_true(told)
   end)
 
+  it("toggle on a native terminal that is visible elsewhere still enters Insert mode", function()
+    terminal.setup({
+      shell = jobs.sleeper(),
+      start_insert = true,
+      commands = false,
+      keymaps = { preset = false },
+    })
+    terminal.open({ layout = "vsplit" })
+    jobs.settle()
+    vim.cmd("wincmd p") -- focus leaves the terminal, it stays visible
+    local starts = 0
+    local original = vim.cmd
+    vim.cmd = function(command, ...)
+      if command == "startinsert" then
+        starts = starts + 1
+      end
+      return original(command, ...)
+    end
+    local ok, err = pcall(terminal.toggle)
+    vim.cmd = original
+    assert(ok, err)
+    assert.equals(1, starts)
+  end)
+
   describe("open / toggle / hide / close", function()
     it("open creates the default terminal once and returns the same handle again", function()
       local a = terminal.open()

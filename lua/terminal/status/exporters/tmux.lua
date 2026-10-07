@@ -39,6 +39,21 @@ M.run = function(argv)
   return { code = res.code, stderr = res.stderr or "" }
 end
 
+--- Whether the Neovim at `address` (the value of `$NVIM`) is still running. A tmux server that was
+--- started from a Neovim terminal hands that variable to every pane for good, long after that
+--- Neovim exited: a dead address is no outer Neovim. A live one is taken as the owner of the pane
+--- (the rare server started from a still-running Neovim: `export = "tmux"` or `set-environment -gu
+--- NVIM` in tmux.conf).
+---@type fun(address: string): boolean
+M.alive = function(address)
+  local ok, channel = pcall(vim.fn.sockconnect, "pipe", address, { rpc = true })
+  if not ok or type(channel) ~= "number" or channel <= 0 then
+    return false
+  end
+  pcall(vim.fn.chanclose, channel)
+  return true
+end
+
 ---@param env table<string, string|nil>
 ---@return boolean ok
 ---@return string|nil reason
@@ -49,7 +64,7 @@ function M.available(env)
   if env.TMUX_PANE == nil or env.TMUX_PANE == "" then
     return false, "$TMUX_PANE is not set"
   end
-  if env.NVIM ~= nil and env.NVIM ~= "" then
+  if env.NVIM ~= nil and env.NVIM ~= "" and M.alive(env.NVIM) then
     return false,
       "this Neovim runs inside another Neovim's terminal ($NVIM is set); the outer one owns the pane"
   end

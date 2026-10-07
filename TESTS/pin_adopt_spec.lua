@@ -112,20 +112,22 @@ describe("terminal pin / adopt", function()
       assert.equals(0, #terminal.list())
     end)
 
-    it("keeps the native terminal when the pane cannot be started", function()
-      -- `env` is something a multiplexer pane cannot take: the pane fails, the old terminal stays.
+    it("leaves the native terminal untouched when the multiplexer would refuse the pane", function()
+      -- `env` is something a pane cannot take: known up front, so nothing is closed.
       boot(true, { env = { FOO = "1" } })
       local native = terminal.open({ name = "work" })
       jobs.settle()
       local ok, err = terminal.pin({ name = "work" })
       assert.is_false(ok)
       assert.truthy(err:find("environment", 1, true))
-      assert.is_true(vim.api.nvim_buf_is_valid(native.bufnr), "the native terminal is still there")
-      assert.equals(1, #terminal.list())
-      assert.equals("native", terminal.list()[1].backend)
+      assert.is_true(vim.api.nvim_buf_is_valid(native.bufnr), "the same terminal is still there")
+      assert.equals(native, terminal.list()[1])
+      for _, c in ipairs(state.calls) do
+        assert.not_equals("split-pane", c.argv[1])
+      end
     end)
 
-    it("keeps the native terminal when wezterm cli fails", function()
+    it("starts a native terminal again when wezterm cli fails at run time", function()
       boot(true)
       local native = terminal.open({ name = "work" })
       jobs.settle()
@@ -133,11 +135,52 @@ describe("terminal pin / adopt", function()
       wezterm.default_runner = function()
         return { code = 1, stdout = "", stderr = "mux is gone" }
       end
-      local ok = terminal.pin({ name = "work" })
+      local ok, err = terminal.pin({ name = "work" })
       wezterm.default_runner = original
       assert.is_false(ok)
-      assert.is_true(vim.api.nvim_buf_is_valid(native.bufnr))
-      assert.equals("native", terminal.list()[1].backend)
+      assert.truthy(err:find("mux is gone", 1, true))
+      -- the old terminal ended (its output and history are gone), the user still has a terminal
+      assert.is_false(vim.api.nvim_buf_is_valid(native.bufnr))
+      assert.equals(1, #terminal.list())
+      local again = terminal.list()[1]
+      assert.equals("native", again.backend)
+      assert.equals("work", again.name)
+      assert.same(native.cmd, again.cmd)
+      assert.is_true(vim.api.nvim_buf_is_valid(again.bufnr))
+    end)
+
+    it(
+      "the old job has ended before the pane starts (no two copies of a server at once)",
+      function()
+        boot(true)
+        local native = terminal.open({ name = "work" })
+        jobs.settle()
+        local old_job = native.job
+        local running_at_spawn
+        local runner = wezterm.default_runner
+        wezterm.default_runner = function(argv, opts)
+          if argv[3] == "split-pane" then
+            running_at_spawn = vim.fn.jobwait({ old_job }, 0)[1] == -1
+          end
+          return runner(argv, opts)
+        end
+        -- the facade creates the wezterm backend lazily, so it picks this runner up now
+        local ok = terminal.pin({ name = "work" })
+        wezterm.default_runner = runner
+        assert.is_true(ok)
+        assert.is_false(running_at_spawn, "the native job was still running when the pane started")
+      end
+    )
+
+    it("an unknown backend is a failure, not an error", function()
+      boot(true)
+      terminal.open({ name = "work" })
+      jobs.settle()
+      local called, ok, err = pcall(terminal.pin, { name = "work" }, { backend = "screen" })
+      assert.is_true(called)
+      assert.is_false(ok)
+      assert.truthy(err:find("screen", 1, true))
+      assert.equals(1, #terminal.list(), "the native terminal is untouched")
     end)
 
     it("says why when there is no multiplexer", function()

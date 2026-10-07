@@ -304,14 +304,47 @@ describe("terminal facade with the wezterm backend", function()
     assert.equals("7", state.active)
   end)
 
-  it("toggle focuses a pane that is visible elsewhere, and leaves Neovim in Normal mode", function()
-    terminal.open()
-    terminal.toggle() -- focus back to Neovim's pane
-    assert.equals("7", state.active)
-    vim.cmd("stopinsert")
+  it(
+    "toggle focuses a pane that is visible elsewhere, and does not start Insert mode in Neovim",
+    function()
+      -- `:startinsert` only takes effect when control returns to the main loop, so mode() right after
+      -- the call cannot tell: count the calls instead.
+      local starts = 0
+      local original = vim.cmd
+      vim.cmd = function(command, ...)
+        if command == "startinsert" then
+          starts = starts + 1
+        end
+        return original(command, ...)
+      end
+      local ok, err = pcall(function()
+        terminal.open()
+        terminal.toggle() -- focus back to Neovim's pane
+        assert.equals("7", state.active)
+        starts = 0
+        terminal.toggle()
+        assert.equals("8", state.active)
+      end)
+      vim.cmd = original
+      assert(ok, err)
+      assert.equals(
+        0,
+        starts,
+        "a multiplexer pane takes its own input; Neovim stays in Normal mode"
+      )
+    end
+  )
+
+  it("toggle on a pane the user closed costs ONE list and starts a new pane", function()
+    local first = terminal.open()
+    state.panes[first.pane] = nil
+    local before = #state.calls
     terminal.toggle()
-    assert.equals("8", state.active)
-    assert.is_false(vim.fn.mode():find("^[iR]") ~= nil)
+    local subs = {}
+    for i = before + 1, #state.calls do
+      subs[#subs + 1] = state.calls[i].argv[1]
+    end
+    assert.same({ "list", "split-pane" }, subs)
   end)
 
   it("toggle costs ONE list, open on a visible pane too", function()

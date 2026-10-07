@@ -123,7 +123,8 @@
 ---@field send fun(handle: Terminal.Handle, text: string): boolean, string|nil
 ---@field focus fun(handle: Terminal.Handle): boolean, string|nil
 ---@field list fun(): Terminal.Handle[]
----@field close fun(handle: Terminal.Handle): boolean, string|nil
+---@field close fun(handle: Terminal.Handle, opts?: { gone?: boolean }): boolean, string|nil `gone`: the caller has just seen that the pane does not exist (multiplexer backends then skip the CLI)
+---@field preflight? fun(spec: Terminal.SpawnSpec): boolean, string|nil What the backend refuses to start, without side effects (multiplexer backends: `env`)
 ---@field set_status? fun(status: table): boolean, string|nil
 ---@field capture? fun(handle: Terminal.Handle): string|nil, string|nil Screen text (multiplexer panes only)
 ---@field visible? fun(handle: Terminal.Handle): boolean|nil nil = could not be asked (a multiplexer that did not answer); never "gone"

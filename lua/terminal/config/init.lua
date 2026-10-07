@@ -99,7 +99,9 @@ function M.validate(schema, opts, prefix)
       else
         local events = {}
         for _, ev in ipairs(v) do
-          if type(ev) == "string" and vim.fn.exists("##" .. ev) == 1 then
+          -- `exists("##<name>")` also says yes to "TermOpen,TermClose" or "TermOpen " (a valid
+          -- name followed by a separator), which `nvim_create_autocmd` rejects: names are letters.
+          if type(ev) == "string" and ev:find("^%a+$") and vim.fn.exists("##" .. ev) == 1 then
             events[#events + 1] = ev
           else
             problems[#problems + 1] = ("config key '%s': %s is not an autocommand event -- ignored"):format(

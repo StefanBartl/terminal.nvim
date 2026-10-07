@@ -48,9 +48,12 @@ a list picks explicitly; `false` sends nothing. The sequence is written with
 envelope (and tmux needs `set -g allow-passthrough on`).
 
 The tmux exporter writes options of the pane in `$TMUX_PANE`, so only the Neovim that **owns** the pane
-may: `auto` skips a Neovim that runs inside another Neovim's terminal (`$NVIM` is set — `git commit`
-opening a nested editor must not overwrite the outer one's status), a name (`export = "tmux"`) forces
-it, and the options are removed on exit only by the instance that wrote them.
+may: `auto` skips a Neovim that runs inside another **running** Neovim's terminal (`$NVIM` is set and
+that server answers — `git commit` opening a nested editor must not overwrite the outer one's status),
+a name (`export = "tmux"`) forces it, and the options are removed on exit only by the instance that
+wrote them. A tmux server that was *started* from a Neovim terminal hands `$NVIM` to every pane for
+good; once that Neovim is gone the address is dead and ignored, and `set-environment -gu NVIM` in
+`tmux.conf` (the Configs repo has it) keeps the variable out of the panes altogether.
 
 ## The WezTerm side
 

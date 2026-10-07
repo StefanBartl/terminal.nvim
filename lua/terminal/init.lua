@@ -120,6 +120,9 @@ end
 ---@return Terminal.Backend|nil
 ---@return string|nil reason Why it is not usable
 local function multiplexer(name)
+  if name ~= "wezterm" and name ~= "tmux" then
+    return nil, "not a multiplexer backend (use tmux or wezterm)"
+  end
   local existing = state.backends[name]
   if existing then
     return existing, nil
@@ -252,13 +255,14 @@ local function find_live(root, name)
   return h
 end
 
---- Show the terminal (creating it when needed) and focus it.
----
---- With `focus = false` the terminal appears but the window that was current stays current.
+---@internal
+--- `open`, optionally with what the caller already learned about the terminal (`toggle` has
+--- probed it): `known = { handle, where }`, so the multiplexer is not asked a second time.
 ---@param target Terminal.Target|nil
+---@param known? { handle: Terminal.Handle, where: { visible: boolean, focused: boolean }|nil }
 ---@return Terminal.Handle|nil handle
 ---@return string|nil err
-function M.open(target)
+local function open_impl(target, known)
   local default = backend()
   local name, cwd, root = resolve(target)
   local focus = not (target and target.focus == false)
@@ -270,12 +274,18 @@ function M.open(target)
     start_insert = false
   end
 
-  local handle = find_live(root, name)
+  local handle, where
+  if known then
+    handle, where = known.handle, known.where
+  else
+    handle = find_live(root, name)
+    where = handle and probe(backend_of(handle), handle)
+  end
   local b = handle and backend_of(handle) or default
-  local where = handle and probe(b, handle)
   if handle and where and not where.visible and not b.show then
-    -- A backend that cannot show a hidden terminal again (a pane the user closed): start a new one.
-    b.close(handle)
+    -- A backend that cannot show a hidden terminal again (a pane the user closed): start a new
+    -- one. The pane is known to be gone; `close` only has to forget it.
+    b.close(handle, { gone = true })
     handle = nil
   end
   if handle then
@@ -314,6 +324,16 @@ function M.open(target)
     vim.api.nvim_set_current_win(previous)
   end
   return handle, nil
+end
+
+--- Show the terminal (creating it when needed) and focus it.
+---
+--- With `focus = false` the terminal appears but the window that was current stays current.
+---@param target Terminal.Target|nil
+---@return Terminal.Handle|nil handle
+---@return string|nil err
+function M.open(target)
+  return open_impl(target, nil)
 end
 
 --- Hide the terminal's window; the job keeps running.
@@ -360,7 +380,7 @@ function M.toggle(target)
     end
     return
   end
-  M.open(target)
+  open_impl(target, handle and { handle = handle, where = where } or nil)
 end
 
 --- Stop the terminal's job and remove it.
@@ -589,7 +609,7 @@ function M.pin(target, opts)
   if not err and not target_backend then
     err = "pin: no multiplexer backend is available (not inside tmux or WezTerm)"
     if why then
-      err = ("pin: backend '%s' is not available (%s)"):format(opts.backend, why)
+      err = ("pin: backend '%s' is not available (%s)"):format(tostring(opts.backend), why)
     end
   end
   if err then
@@ -602,16 +622,36 @@ function M.pin(target, opts)
   if cmd ~= nil and cmd ~= "" then
     spec.cmd = cmd
   end
-  -- The pane first, the native terminal only once its replacement exists: a pane that cannot be
-  -- started (an `env` the multiplexer cannot pass on, a failing CLI) must not cost the user the
-  -- terminal they have. The new handle takes the registry slot of the old one; closing the old
-  -- one afterwards leaves it alone (the backends only forget a handle they still own).
+  -- What the multiplexer is known to refuse (an `env` it cannot pass on) is found out BEFORE the
+  -- native terminal is touched: such a pin changes nothing.
+  if target_backend.preflight then
+    local ok, refused = target_backend.preflight(spec)
+    if not ok then
+      local msg = ("pin: terminal '%s': %s"):format(name, refused or "cannot start")
+      fail(msg)
+      return false, refused
+    end
+  end
+
+  -- The native terminal ends BEFORE the pane starts: a long-running command (a server, a watcher,
+  -- anything holding a port or a lock) must not run twice at the same time, and the old job needs
+  -- a moment to release what it holds.
+  local restore = build_spec(name, cwd, root, { layout = handle.layout, start_insert = false })
+  restore.cmd = spec.cmd
+  backend_of(handle).close(handle)
   local pinned, perr = target_backend.spawn(spec)
   if not pinned then
-    fail(("pin: terminal '%s': %s"):format(name, perr or "cannot start"))
+    -- The multiplexer failed at run time (its CLI is gone, a timeout): the user keeps a terminal.
+    -- It is a new one -- the output and history of the old one are lost either way.
+    state.backends.native.spawn(restore)
+    fail(
+      ("pin: terminal '%s': %s (the native terminal was started again)"):format(
+        name,
+        perr or "cannot start"
+      )
+    )
     return false, perr
   end
-  backend_of(handle).close(handle)
   return true, nil, pinned
 end
 

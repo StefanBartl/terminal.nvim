@@ -23,10 +23,12 @@ One compound command, `:Terminal <action> [args] [flags]`, with `<Tab>` completi
 ## Pin and adopt
 
 `pin` is **not** a transfer: a process cannot move between a Neovim `:terminal` and a pane. The
-native terminal is closed — only after the pane has started, so a pane that cannot be started
-(for example because `env` is set, which a pane cannot take) leaves the terminal you have — and the same
-command (and directory) is started again in a pane of tmux or WezTerm, under the same name; output and
-shell history of the old one are gone. From
+native terminal is closed and the same command (and directory) is started again in a pane of tmux
+or WezTerm, under the same name; output and shell history of the old one are gone. The old job ends
+**before** the pane starts (a server or watcher must not run twice at once). What the multiplexer is
+known to refuse — `env` is set, which a pane cannot take — is checked first, so such a pin changes
+nothing; if the multiplexer fails at run time anyway, a native terminal is started again so you keep
+one (a new one: the old output is gone either way). From
 then on `toggle`, `send`, `close` act on the pane. The backend is tmux inside tmux, else WezTerm.
 
 `adopt` shows a pane's screen (`wezterm cli get-text` / `tmux capture-pane -p`) in a read-only

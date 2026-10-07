@@ -190,12 +190,25 @@ function M.new(registry, runner, own_pane, opts)
     return M.available(env)
   end
 
+  --- What this backend refuses to start, found out without side effects (`pin` asks before it
+  --- touches the terminal it is about to replace).
+  ---@param spec Terminal.SpawnSpec
+  ---@return boolean ok
+  ---@return string|nil refused
+  function backend.preflight(spec)
+    if spec.env and next(spec.env) ~= nil then
+      return false, "the tmux backend cannot set environment variables for a pane"
+    end
+    return true, nil
+  end
+
   ---@param spec Terminal.SpawnSpec
   ---@return Terminal.Handle|nil
   ---@return string|nil
   function backend.spawn(spec)
-    if spec.env and next(spec.env) ~= nil then
-      return nil, "the tmux backend cannot set environment variables for a pane"
+    local ok, refused = backend.preflight(spec)
+    if not ok then
+      return nil, refused
     end
     local args
     if spec.layout == "tab" then
@@ -357,11 +370,19 @@ function M.new(registry, runner, own_pane, opts)
   end
 
   --- Kill the pane. A pane that is already gone counts as closed; one that cannot be killed (or
-  --- whose state cannot be read) stays registered and the failure is reported.
+  --- whose state cannot be read) stays registered and the failure is reported. `gone`: the caller
+  --- has just seen that the pane does not exist, so there is nothing to ask tmux.
   ---@param handle Terminal.Handle
+  ---@param how? { gone?: boolean }
   ---@return boolean
   ---@return string|nil
-  function backend.close(handle)
+  function backend.close(handle, how)
+    if how and how.gone then
+      if registry:get(handle.id) == handle then
+        registry:remove(handle.id)
+      end
+      return true, nil
+    end
     local res, err = tmux({ "kill-pane", "-t", handle.pane })
     if not res then
       local all = panes()

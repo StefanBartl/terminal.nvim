@@ -143,6 +143,21 @@ describe("terminal bindings", function()
   end)
 
   describe(":Terminal", function()
+    it("is still created when another part of the bindings fails", function()
+      local original_notify = vim.notify
+      vim.notify = function() end
+      package.loaded["terminal.bindings.autocmds"] = {
+        setup = function()
+          error("boom")
+        end,
+      }
+      terminal.setup({ shell = jobs.sleeper() })
+      vim.wait(100)
+      vim.notify = original_notify
+      package.loaded["terminal.bindings.autocmds"] = nil
+      assert.equals(2, vim.fn.exists(":Terminal"))
+    end)
+
     it("exists after setup and not with commands = false", function()
       terminal.setup({ shell = jobs.sleeper(), commands = false })
       assert.equals(0, vim.fn.exists(":Terminal"))

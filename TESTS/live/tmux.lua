@@ -114,7 +114,10 @@ local ok, err = pcall(function()
     "T7 a;b;",
   }
   for _, text in ipairs(samples) do
-    backend.send(cat, text .. "\n")
+    -- The text on its own, the Enter in a second call: the argument tmux gets must END in the
+    -- ';' (with the newline appended it would not, and the escape would go untested).
+    backend.send(cat, text)
+    backend.send(cat, "\n")
   end
   vim.wait(800)
   -- Scrollback included: the pane is only a few rows high.

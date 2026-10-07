@@ -375,13 +375,38 @@ describe("terminal.status.exporters.tmux", function()
     end
   )
 
-  it("available refuses a Neovim inside another Neovim's terminal ($NVIM)", function()
+  it("available refuses a Neovim inside another LIVE Neovim's terminal ($NVIM)", function()
+    local saved = exporter.alive
+    exporter.alive = function()
+      return true
+    end
     local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1" }
     assert.is_true((exporter.available(env)))
     local nested = vim.tbl_extend("force", env, { NVIM = "/tmp/nvim.sock" })
     local ok, why = exporter.available(nested)
+    exporter.alive = saved
     assert.is_false(ok)
     assert.truthy(why:find("NVIM", 1, true))
+  end)
+
+  it(
+    "a $NVIM that points to a dead Neovim is no outer Neovim (tmux server started from a terminal)",
+    function()
+      -- a tmux server started inside a Neovim terminal hands $NVIM to every pane for good
+      local env = {
+        TMUX = "/tmp/tmux-1/default,1,0",
+        TMUX_PANE = "%1",
+        NVIM = vim.fn.tempname() .. "-gone.sock",
+      }
+      assert.is_false(exporter.alive(env.NVIM))
+      assert.is_true((exporter.available(env)))
+    end
+  )
+
+  it("alive: a running Neovim server answers", function()
+    local address = vim.fn.serverstart()
+    assert.is_true(exporter.alive(address))
+    vim.fn.serverstop(address)
   end)
 
   it("ready needs an attached UI (a headless run leaves the pane alone)", function()

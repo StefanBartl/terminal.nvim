@@ -61,6 +61,17 @@ describe("terminal.config", function()
       assert.same({ "TermOpen" }, clean.auto_insert.events)
     end)
 
+    it(
+      "a valid name with a separator after it is not an event (nvim_create_autocmd rejects it)",
+      function()
+        for _, bad in ipairs({ "TermOpen,TermClose", "TermOpen ", "TermOpen,", "TermOpen|x" }) do
+          local p, clean = config.validate(DEFAULTS, { auto_insert = { events = { bad } } })
+          assert.equals(1, #p, bad)
+          assert.is_nil(clean.auto_insert.events, bad)
+        end
+      end
+    )
+
     it("with no valid event left, the key is dropped so the default list applies", function()
       local p, clean = config.validate(DEFAULTS, { auto_insert = { events = { "Nope" } } })
       assert.equals(1, #p)
