@@ -226,6 +226,26 @@ describe("terminal.backends.wezterm", function()
       assert.equals(0, registry:count())
     end)
 
+    it("a command string is split on any run of white space, empty pieces are dropped", function()
+      backend.spawn(spec({ cmd = "  pwsh \t -NoLogo   -NoProfile  " }))
+      local argv = state.calls[#state.calls].argv
+      local dash = vim.fn.index(argv, "--")
+      assert.same({ "pwsh", "-NoLogo", "-NoProfile" }, vim.list_slice(argv, dash + 2))
+    end)
+
+    it("the PATH scan is not paid for a string without a path separator", function()
+      local looked = {}
+      local original = vim.fn.executable
+      vim.fn.executable = function(name)
+        looked[#looked + 1] = name
+        return original(name)
+      end
+      backend.spawn(spec({ name = "a", cmd = "pwsh -NoLogo" }))
+      backend.spawn(spec({ name = "b", cmd = "pwsh" }))
+      vim.fn.executable = original
+      assert.same({}, looked)
+    end)
+
     it("close with gone = true only forgets the handle: no process", function()
       local h = backend.spawn(spec())
       local before = #state.calls

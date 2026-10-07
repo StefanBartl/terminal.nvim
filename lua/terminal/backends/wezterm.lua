@@ -162,9 +162,11 @@ function M.new(registry, runner, own_pane)
     local cmd = spec.cmd
     if type(cmd) == "string" and cmd ~= "" then
       -- No shell sits between WezTerm and the program: "pwsh -NoLogo" would be looked up as ONE
-      -- program name. A string that is an executable as it stands (a path with spaces) is kept;
-      -- anything else is split on white space (quotes are not interpreted: use a list for those).
-      if vim.fn.executable(cmd) == 1 then
+      -- program name. A string without white space is one word. One with white space is split --
+      -- unless it names an executable as it stands (a path with spaces), which is only possible
+      -- with a path separator in it: the PATH scan of `executable()` (tens of milliseconds on
+      -- Windows) is not paid for "pwsh -NoLogo". Quotes are not interpreted: use a list for those.
+      if not cmd:find("%s") or (cmd:find("[/\\]") and vim.fn.executable(cmd) == 1) then
         cmd = { cmd }
       else
         cmd = vim.split(cmd, "%s+", { trimempty = true })

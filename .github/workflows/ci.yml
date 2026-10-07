@@ -126,3 +126,10 @@ jobs:
           nvim --headless -u NONE -l TESTS/live/nested.lua || true
           cat "$SMOKE_OUT"
           grep -q "^RESULT ok$" "$SMOKE_OUT"
+      # The same with an app name: the default servername is <appname>.<pid>.<n>.
+      - run: |
+          export LIB_NVIM_DIR="$PWD/.deps/lib.nvim"
+          export SMOKE_OUT="$RUNNER_TEMP/tmux-nested-appname.txt"
+          NVIM_APPNAME=my-app.v2 nvim --headless -u NONE -l TESTS/live/nested.lua || true
+          cat "$SMOKE_OUT"
+          grep -q "^RESULT ok$" "$SMOKE_OUT"

@@ -39,11 +39,10 @@ M.run = function(argv)
   return { code = res.code, stderr = res.stderr or "" }
 end
 
---- Whether the Neovim at `address` (the value of `$NVIM`) is still running. A tmux server that was
---- started from a Neovim terminal hands that variable to every pane for good, long after that
---- Neovim exited: a dead address is no outer Neovim. A live one is taken as the owner of the pane
---- (the rare server started from a still-running Neovim: `export = "tmux"` or `set-environment -gu
---- NVIM` in tmux.conf).
+--- Whether the Neovim at `address` (the value of `$NVIM`) is still running -- only that; whether
+--- this Neovim is nested in it is `M.nested`. A tmux server that was started from a Neovim
+--- terminal hands that variable to every pane for good, long after that Neovim exited: a dead
+--- address is no outer Neovim.
 ---@type fun(address: string): boolean
 M.alive = function(address)
   -- `--listen host:port` gives a TCP address (no path separator, ends in :<port>); everything
@@ -64,8 +63,10 @@ M.parent_of = function(pid)
   if f then
     local line = f:read("*l")
     f:close()
-    -- "<pid> (<comm, may hold spaces and parentheses>) <state> <ppid> ..."
-    local ppid = line and line:match("^%d+ %b() %S (%d+)")
+    -- "<pid> (<comm>) <state> <ppid> ...": the kernel ends comm at the LAST ')', and comm can hold
+    -- spaces and parentheses itself ("x) R 1 (y"), so the pattern is greedy -- a balanced match
+    -- would stop at the first one and read a number out of the name.
+    local ppid = line and line:match("^%d+ %(.*%) %S (%d+)")
     if ppid then
       return tonumber(ppid)
     end
@@ -110,15 +111,17 @@ end
 --- Whether this Neovim runs inside the terminal of the (running) Neovim at `address`: the one
 --- `$NVIM` names. A Neovim in a pane of a tmux server that merely *was started* from that
 --- terminal has the same `$NVIM` but is not a descendant of it -- it owns its pane. The default
---- address (`nvim.<pid>.<n>`) names the server process, so the process tree decides; a custom
---- `--listen` address names no process, and a running Neovim there is taken as the outer one.
+--- address (`<appname>.<pid>.<n>`, the app name being `nvim` or `$NVIM_APPNAME`) names the server
+--- process, so the process tree decides; a custom `--listen` address names no process, and a
+--- running Neovim there is taken as the outer one.
 ---@param address string
 ---@return boolean
 function M.nested(address)
   if not M.alive(address) then
     return false
   end
-  local pid = tonumber(address:match("nvim%.(%d+)%.%d+$"))
+  -- Last path component "<appname>.<pid>.<n>" (a Windows pipe is "\\.\pipe\<appname>.<pid>.<n>").
+  local pid = tonumber(address:match("[^/\\]+%.(%d+)%.%d+$"))
   if pid == nil then
     return true
   end

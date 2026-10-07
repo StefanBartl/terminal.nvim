@@ -499,6 +499,13 @@ describe("terminal.status.exporters.tmux", function()
         "running but not an ancestor (a tmux server that was started from its terminal): owns its pane"
       )
       assert.is_true(exporter.nested("127.0.0.1:6666"), "an address without a pid: assume nested")
+      -- the default servername is "<appname>.<pid>.<n>": $NVIM_APPNAME changes the first part
+      assert.is_true(exporter.nested("/run/user/1/myapp.400.0"), "NVIM_APPNAME: an ancestor")
+      assert.is_false(exporter.nested("/run/user/1/myapp.999.0"), "NVIM_APPNAME: not an ancestor")
+      assert.is_true(exporter.nested("/run/user/1/my-app.v2.400.0"), "an app name with dots")
+      assert.is_false(exporter.nested("/run/user/1/my-app.v2.999.0"))
+      assert.is_true(exporter.nested("\\\\.\\pipe\\nvim.400.0"), "a Windows pipe name")
+      assert.is_false(exporter.nested("\\\\.\\pipe\\nvim.999.0"))
       exporter.parent_of = function()
         return nil
       end
@@ -533,6 +540,25 @@ describe("terminal.status.exporters.tmux", function()
       assert.is_true(owner)
     end
   )
+
+  it("parent_of reads the parent of a process whose name looks like a stat line", function()
+    if vim.fn.has("linux") == 0 or vim.fn.executable("sleep") == 0 then
+      return assert.is_true(true) -- /proc/<pid>/stat is Linux; elsewhere `ps` answers
+    end
+    -- comm is whatever the file is called, and the kernel ends it at the LAST ')': a balanced
+    -- match would read the "1" out of the name instead of the real parent
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    local crafted = dir .. "/x) R 1 (y"
+    vim.uv.fs_symlink(vim.fn.exepath("sleep"), crafted)
+    local job = vim.fn.jobstart({ crafted, "5" })
+    local pid = vim.fn.jobpid(job)
+    local parent = exporter.parent_of(pid)
+    vim.fn.jobstop(job)
+    vim.fn.jobwait({ job }, 3000)
+    vim.fn.delete(dir, "rf")
+    assert.equals(vim.uv.os_getpid(), parent)
+  end)
 
   it("parent_of agrees with the OS where it can read the process tree", function()
     local parent = exporter.parent_of(vim.uv.os_getpid())
