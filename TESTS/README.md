@@ -33,6 +33,16 @@ arguments the way tmux does (a trailing `;`). `support/jobs.lua` holds the non-i
 `support/env.lua` clears `$TMUX`, `$TMUX_PANE`, `$WEZTERM_PANE`, `$NVIM` so a run inside a multiplexer
 behaves like one outside (every spec file starts with it).
 
+## Conventions
+
+The spec headers switch off `need-check-nil` and `undefined-field` for the whole file on purpose, and the
+second line of each header says why: a nil in a spec body fails the next assertion anyway, and luassert's
+`assert.*` and the stubbed `vim.*` fields are not in the language server's annotations. A test double that
+replaces a `vim.*` function (or a plugin function such as `exporter.run`) carries a
+`---@diagnostic disable-next-line: duplicate-set-field` with a one-line reason above it.
+A case that cannot run on the current platform calls `pending("reason")` instead of returning early, so the
+run reports it as skipped rather than as passed.
+
 ## What the specs cannot do — and what covers it
 
 A headless Neovim on **Windows** gives a terminal job a closed stdin: interactive shells

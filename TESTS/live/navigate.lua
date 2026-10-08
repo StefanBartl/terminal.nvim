@@ -1,3 +1,5 @@
+---@diagnostic disable: need-check-nil
+-- need-check-nil is off for the whole file: a nil handle or reply makes the next check fail anyway, and the script then ends in RESULT failed.
 -- TESTS/live/navigate.lua -- the edge hand-off against a REAL WezTerm.
 --
 -- Run it inside a WezTerm pane (not headless):

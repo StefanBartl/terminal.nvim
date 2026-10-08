@@ -1,4 +1,5 @@
 ---@diagnostic disable: need-check-nil, undefined-field
+-- need-check-nil and undefined-field are off for the whole file: a nil in a spec body fails the next assertion anyway, and luassert's assert.* and the stubbed vim.* fields are not in the annotations.
 -- TESTS/navigate_spec.lua -- window navigation with hand-off at Neovim's edge.
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -190,6 +191,8 @@ describe("terminal.navigate.go", function()
     function()
       local started, finish, seen_opts = {}, nil, nil
       local original = vim.system
+      -- Test double: record the multiplexer command instead of running it; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.system = function(argv, opts, on_exit)
         started[#started + 1] = argv
         seen_opts = opts
@@ -211,6 +214,8 @@ describe("terminal.navigate.go", function()
       finish()
       vim.wait(50)
       assert.equals(2, #started)
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.system = original
     end
   )

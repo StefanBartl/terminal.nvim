@@ -1,3 +1,5 @@
+---@diagnostic disable: need-check-nil
+-- need-check-nil is off for the whole file: a nil handle or reply makes the next check fail anyway, and the script then ends in RESULT failed.
 -- TESTS/live/wezterm.lua -- the wezterm backend against a REAL WezTerm.
 --
 -- Run it inside a WezTerm pane (not headless):
@@ -90,7 +92,7 @@ local ok, err = pcall(function()
   local tab = backend.spawn({
     name = "tab",
     root = "/live",
-    cwd = vim.uv.cwd(),
+    cwd = assert(vim.uv.cwd()),
     layout = "tab",
   })
   check("a pane in a new tab was created", tab ~= nil, tab)

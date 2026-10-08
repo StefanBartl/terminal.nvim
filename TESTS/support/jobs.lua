@@ -58,6 +58,8 @@ end
 function M.record_sends(fn)
   local sent = {}
   local original = vim.api.nvim_chan_send
+  -- Test double: records what would be sent to the job instead of writing to it.
+  ---@diagnostic disable-next-line: duplicate-set-field
   vim.api.nvim_chan_send = function(job, text)
     sent[#sent + 1] = { job = job, text = text }
   end

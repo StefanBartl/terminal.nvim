@@ -1,3 +1,5 @@
+---@diagnostic disable: need-check-nil
+-- need-check-nil is off for the whole file: a nil reply makes the next check fail anyway (or aborts the run with a Lua error), never a silent pass.
 -- TESTS/live/nested.lua -- the tmux status exporter's ownership test against a REAL process tree.
 --
 --   SMOKE_OUT=/tmp/terminal-nested.txt nvim --headless -u NONE -l TESTS/live/nested.lua

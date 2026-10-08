@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/api_spec.lua -- the public facade (`require("terminal")`) on the native backend.
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -22,6 +23,8 @@ describe("terminal (facade)", function()
       package.loaded[mod] = nil
     end
     notices = {}
+    -- Test double: capture what would be shown to the user; restored in after_each.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.notify = function(msg, level)
       notices[#notices + 1] = { msg = msg, level = level }
     end
@@ -42,6 +45,8 @@ describe("terminal (facade)", function()
     end
     vim.cmd("silent! tabonly")
     vim.cmd("silent! only")
+    -- Restore the original.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.notify = original_notify
   end)
 
@@ -68,6 +73,8 @@ describe("terminal (facade)", function()
   it("setup does not look for wezterm or tmux on $PATH unless the config names them", function()
     local looked = {}
     local original = vim.fn.executable
+    -- Test double: record which executables setup() asks for; restored below.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.fn.executable = function(name)
       looked[#looked + 1] = name
       return original(name)
@@ -76,6 +83,8 @@ describe("terminal (facade)", function()
     vim.env.WEZTERM_PANE, vim.env.TMUX, vim.env.TMUX_PANE = "7", "/tmp/tmux-1/default,1,0", "%1"
     terminal.setup({ commands = false, keymaps = { preset = false } })
     vim.env.WEZTERM_PANE, vim.env.TMUX, vim.env.TMUX_PANE = saved_wez, saved_tmux, saved_pane
+    -- Restore the original.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.fn.executable = original
     assert.is_false(vim.tbl_contains(looked, "wezterm"))
     assert.is_false(vim.tbl_contains(looked, "tmux"))
@@ -133,6 +142,8 @@ describe("terminal (facade)", function()
     vim.cmd("wincmd p") -- focus leaves the terminal, it stays visible
     local starts = 0
     local original = vim.cmd
+    -- Test double: count the startinsert commands; restored below.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.cmd = function(command, ...)
       if command == "startinsert" then
         starts = starts + 1
@@ -140,6 +151,8 @@ describe("terminal (facade)", function()
       return original(command, ...)
     end
     local ok, err = pcall(terminal.toggle)
+    -- Restore the original.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.cmd = original
     assert(ok, err)
     assert.equals(1, starts)
@@ -369,6 +382,8 @@ describe("terminal (facade)", function()
       -- what jobstart is asked for: the directory of the JOB, not only what the handle remembers
       local started_in
       local jobstart = vim.fn.jobstart
+      -- Test double: record the options jobstart is given; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.jobstart = function(command, job_opts)
         started_in = job_opts and job_opts.cwd
         return jobstart(command, job_opts)
@@ -380,6 +395,8 @@ describe("terminal (facade)", function()
         cwd = dir,
         float = { width = 0.5, height = 0.5 },
       })
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.jobstart = jobstart
       -- Assert first, clean up always: a failed assertion must not leave the directory behind.
       local ok, err = pcall(function()

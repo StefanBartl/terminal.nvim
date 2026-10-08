@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/bindings_spec.lua -- keymaps, autocommands and the :Terminal command.
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -111,6 +112,8 @@ describe("terminal bindings", function()
     it("clear types cls for cmd.exe and PowerShell, clear for every other shell", function()
       local chansend = vim.fn.chansend
       local typed
+      -- Test double: capture what the clear key types into the job; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.chansend = function(_, data)
         typed = data
         return 1
@@ -135,6 +138,8 @@ describe("terminal bindings", function()
         map("t", "<A-l>").callback()
         assert.same({ "cls", "" }, typed)
       end)
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.chansend = chansend
       vim.b.terminal_job_id = nil
       assert.is_true(ok, tostring(err))
@@ -177,6 +182,8 @@ describe("terminal bindings", function()
   describe(":Terminal", function()
     it("is still created when another part of the bindings fails", function()
       local original_notify = vim.notify
+      -- Test double: swallow the notification of the expected failure; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = function() end
       package.loaded["terminal.bindings.autocmds"] = {
         setup = function()
@@ -185,6 +192,8 @@ describe("terminal bindings", function()
       }
       terminal.setup({ shell = jobs.sleeper() })
       vim.wait(100)
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = original_notify
       package.loaded["terminal.bindings.autocmds"] = nil
       assert.equals(2, vim.fn.exists(":Terminal"))
@@ -280,11 +289,15 @@ describe("terminal bindings", function()
       terminal.setup({ shell = jobs.sleeper(), start_insert = false })
       local msgs = {}
       local original = vim.notify
+      -- Test double: capture what would be shown to the user; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = function(msg)
         msgs[#msgs + 1] = msg
       end
       vim.cmd("Terminal hide ghost")
       vim.cmd("Terminal close ghost")
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = original
       assert.equals(2, #msgs, vim.inspect(msgs))
       for _, msg in ipairs(msgs) do
@@ -336,12 +349,16 @@ describe("terminal bindings", function()
       vim.api.nvim_buf_set_lines(0, 0, -1, false, { "one", "two", "three" })
       local notified
       local original = vim.notify
+      -- Test double: capture what would be shown to the user; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = function(msg)
         notified = msg
       end
       local refused = jobs.record_sends(function()
         vim.cmd("2,3Terminal send selection")
       end)
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = original
       assert.same({}, refused, "two lines without --exec must not be sent")
       assert.truthy(notified and notified:find("--exec", 1, true))

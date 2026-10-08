@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/pin_adopt_spec.lua -- pin (restart in a multiplexer pane) and adopt (view a pane).
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -34,6 +35,8 @@ describe("terminal pin / adopt", function()
     saved.executable = vim.fn.executable
     saved.runner = wezterm.default_runner
     vim.env.WEZTERM_PANE = with_wezterm and "7" or nil
+    -- Test double: reports `wezterm` as installed, everything else as the real function does.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.fn.executable = function(name)
       if name == "wezterm" then
         return 1
@@ -54,6 +57,8 @@ describe("terminal pin / adopt", function()
 
   before_each(function()
     notices = {}
+    -- Test double: collects the notifications instead of showing them.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.notify = function(msg)
       notices[#notices + 1] = msg
     end
@@ -130,6 +135,8 @@ describe("terminal pin / adopt", function()
     --- WezTerm answers every query but cannot split a pane: the failure comes AFTER the ping.
     local function split_fails()
       local original = wezterm.default_runner
+      -- Test double: a runner that fails `split-pane` and forwards everything else.
+      ---@diagnostic disable-next-line: duplicate-set-field
       wezterm.default_runner = function(argv, opts)
         if argv[3] == "split-pane" then
           return { code = 1, stdout = "", stderr = "mux is gone" }
@@ -146,6 +153,8 @@ describe("terminal pin / adopt", function()
       local native = terminal.open({ name = "work" })
       jobs.settle()
       local original = wezterm.default_runner
+      -- Test double: a multiplexer that does not answer at all (timed out).
+      ---@diagnostic disable-next-line: duplicate-set-field
       wezterm.default_runner = function()
         return { code = 124, stdout = "", stderr = "timed out" }
       end
@@ -192,6 +201,8 @@ describe("terminal pin / adopt", function()
         local old_job = native.job
         local running_at_spawn
         local runner = wezterm.default_runner
+        -- Test double: notes whether the old job still ran when the pane was split, then forwards.
+        ---@diagnostic disable-next-line: duplicate-set-field
         wezterm.default_runner = function(argv, opts)
           if argv[3] == "split-pane" then
             running_at_spawn = vim.fn.jobwait({ old_job }, 0)[1] == -1

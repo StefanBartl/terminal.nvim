@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/quote_spec.lua -- terminal.core.quote (pure shell quoting)
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -187,6 +188,8 @@ describe("terminal.core.quote", function()
       local line, err = quote.argv_to_line({}, "posix")
       assert.is_nil(line)
       assert.truthy(err)
+      -- Deliberately wrong type: the case checks the guard.
+      ---@diagnostic disable-next-line: param-type-mismatch
       assert.is_nil((quote.argv_to_line(nil, "posix")))
     end)
 
@@ -197,6 +200,8 @@ describe("terminal.core.quote", function()
     end)
 
     it("refuses non-string words", function()
+      -- Deliberately wrong type: the case checks the guard.
+      ---@diagnostic disable-next-line: assign-type-mismatch
       local line, err = quote.argv_to_line({ "echo", 3 }, "posix")
       assert.is_nil(line)
       assert.truthy(err:find("argument 2", 1, true))

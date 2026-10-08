@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/health_spec.lua -- :checkhealth terminal
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -52,9 +53,13 @@ describe("terminal.health", function()
     "inside WezTerm on a Neovim without nvim_ui_send it warns that the export needs 0.12",
     function()
       local saved = vim.api.nvim_ui_send
+      -- Test double: a Neovim without nvim_ui_send; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.api.nvim_ui_send = nil
       local r, log = recorder()
       pcall(health.check_wezterm, r, { WEZTERM_PANE = "3" })
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.api.nvim_ui_send = saved
       local warned = false
       for _, line in ipairs(log) do
@@ -93,11 +98,16 @@ describe("terminal.health", function()
     end
 
     after_each(function()
+      -- Restore the originals.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = executable
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.api.nvim_ui_send = ui_send
     end)
 
     it("a missing wezterm binary: warn with the wezterm backend or the auto hand-off", function()
+      -- Test double: no executable is on $PATH; restored in after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function()
         return 0
       end
@@ -113,6 +123,8 @@ describe("terminal.health", function()
     end)
 
     it("a missing wezterm binary is only info when nothing needs its command line", function()
+      -- Test double: no executable is on $PATH; restored in after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function()
         return 0
       end
@@ -127,6 +139,8 @@ describe("terminal.health", function()
     end)
 
     it("inside tmux inside WezTerm the auto hand-off belongs to tmux, not to wezterm", function()
+      -- Test double: no executable is on $PATH; restored in after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function()
         return 0
       end
@@ -140,6 +154,8 @@ describe("terminal.health", function()
     end)
 
     it("a missing nvim_ui_send is a warning only while the wezterm export is wanted", function()
+      -- Test double: a Neovim without nvim_ui_send; restored in after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.api.nvim_ui_send = nil
       local r, log = recorder()
       health.check_wezterm(r, { WEZTERM_PANE = "3" }, cfg())
@@ -153,6 +169,8 @@ describe("terminal.health", function()
     end)
 
     it("a missing tmux binary follows the same rule", function()
+      -- Test double: no executable is on $PATH; restored in after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function()
         return 0
       end
@@ -171,11 +189,17 @@ describe("terminal.health", function()
 
     it("the full check reports a problem the last setup() found in the options", function()
       local config = require("terminal.config")
+      -- Deliberately invalid value: the case checks that health reports it.
+      ---@diagnostic disable-next-line: assign-type-mismatch
       config.setup({ layout = "sideways" })
       local real = vim.health
       local r, log = recorder()
+      -- Test double: a health reporter that records what was said; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.health = r
       local ok, err = pcall(health.check)
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.health = real
       config.setup({})
       assert.is_true(ok, tostring(err))
@@ -184,6 +208,8 @@ describe("terminal.health", function()
 
     it("the full check errors on a lib.nvim module the plugin needs but cannot find", function()
       local real_require = require
+      -- Test double: require fails for one lib.nvim module; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       _G.require = function(name)
         if name == "lib.nvim.debounce" then
           error("module 'lib.nvim.debounce' not found")
@@ -192,9 +218,14 @@ describe("terminal.health", function()
       end
       local real = vim.health
       local r, log = recorder()
+      -- Test double: a health reporter that records what was said; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.health = r
       local ok, err = pcall(health.check)
+      -- Restore the originals.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.health = real
+      ---@diagnostic disable-next-line: duplicate-set-field
       _G.require = real_require
       assert.is_true(ok, tostring(err))
       assert.truthy(first(log, "error", "lib.nvim.debounce not found"), table.concat(log, "\n"))
@@ -202,6 +233,8 @@ describe("terminal.health", function()
 
     it("a quoted 'shell' with a path with spaces and arguments counts as executable", function()
       local path = "C:\\Program Files\\Some Shell\\sh.exe"
+      -- Test double: only the quoted shell path counts as executable; restored in after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function(name)
         return name == path and 1 or 0
       end
@@ -209,8 +242,12 @@ describe("terminal.health", function()
       vim.o.shell = '"' .. path .. '" -l'
       local real = vim.health
       local r, log = recorder()
+      -- Test double: a health reporter that records what was said; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.health = r
       local ok, err = pcall(health.check)
+      -- Restore the original.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.health = real
       vim.o.shell = shell
       assert.is_true(ok, tostring(err))

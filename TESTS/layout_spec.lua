@@ -1,4 +1,5 @@
 ---@diagnostic disable: need-check-nil, undefined-field
+-- need-check-nil and undefined-field are off for the whole file: a nil in a spec body fails the next assertion anyway, and luassert's assert.* and the stubbed vim.* fields are not in the annotations.
 -- TESTS/layout_spec.lua -- terminal.core.layout (pure geometry)
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -22,6 +23,8 @@ describe("terminal.core.layout", function()
       assert.equals(64, layout.resolve_size(0, 80, 0.8))
       assert.equals(64, layout.resolve_size(-3, 80, 0.8))
       assert.equals(64, layout.resolve_size(nil, 80, 0.8))
+      -- Deliberately wrong type: the case checks the guard.
+      ---@diagnostic disable-next-line: param-type-mismatch
       assert.equals(64, layout.resolve_size("big", 80, 0.8))
       assert.equals(64, layout.resolve_size(0 / 0, 80, 0.8))
     end)

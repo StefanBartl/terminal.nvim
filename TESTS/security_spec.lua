@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/security_spec.lua -- property tests for everything that turns attacker-controlled text
 -- (file names, branch names, selections, config values) into something a shell or a terminal
 -- interprets. Seeded and deterministic: a failure reproduces.
@@ -270,7 +271,8 @@ describe("terminal.core.osc and status (property)", function()
   )
 
   it("a wrapped sequence contains no lone ESC except its own envelope", function()
-    local seq = osc.wrap_tmux(osc.user_var("X", "\27\27\7\27\\"))
+    local var = assert(osc.user_var("X", "\27\27\7\27\\"))
+    local seq = osc.wrap_tmux(var)
     -- Inside the envelope every ESC is doubled; the outer ESC P ... ESC \ is the only other use.
     local inner = seq:sub(8, -3)
     assert.equals("\27Ptmux;", seq:sub(1, 7))

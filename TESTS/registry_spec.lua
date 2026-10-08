@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/registry_spec.lua -- terminal.core.registry, terminal.core.context, terminal.backends
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -130,6 +131,8 @@ describe("terminal.core.context", function()
 
   it("refuses a count that is no number from 0 up, with a reason", function()
     for _, bad in ipairs({ "3", -1, 0 / 0, math.huge, {}, true }) do
+      -- Deliberately wrong types: the case checks the guard.
+      ---@diagnostic disable-next-line: param-type-mismatch
       local name, err = context.name_for_count(bad, "main")
       assert.is_nil(name, vim.inspect(bad))
       assert.truthy(err:find("count must be a number from 1 up", 1, true), vim.inspect(bad))

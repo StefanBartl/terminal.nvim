@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/status_spec.lua -- the status dataset, its escape-sequence writer and the exporter.
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -51,7 +52,7 @@ describe("terminal.core.osc", function()
   end)
 
   it("wrap_tmux doubles every ESC of the inner sequence", function()
-    local seq = osc.user_var("A", "b")
+    local seq = assert(osc.user_var("A", "b"))
     assert.equals("\27Ptmux;\27\27]1337;SetUserVar=A=Yg==\7\27\\", osc.wrap_tmux(seq))
   end)
 
@@ -59,10 +60,9 @@ describe("terminal.core.osc", function()
     local plain = osc.user_vars({ { "A", "1" }, { "B", "2" } }, false)
     assert.equals(osc.user_var("A", "1") .. osc.user_var("B", "2"), plain)
     local wrapped = osc.user_vars({ { "A", "1" }, { "B", "2" } }, true)
-    assert.equals(
-      osc.wrap_tmux(osc.user_var("A", "1")) .. osc.wrap_tmux(osc.user_var("B", "2")),
-      wrapped
-    )
+    local var_a = assert(osc.user_var("A", "1"))
+    local var_b = assert(osc.user_var("B", "2"))
+    assert.equals(osc.wrap_tmux(var_a) .. osc.wrap_tmux(var_b), wrapped)
     assert.is_nil((osc.user_vars({ { "bad name", "1" } }, false)))
   end)
 end)
@@ -152,7 +152,7 @@ describe("terminal.core.status", function()
   end)
 
   it("encode returns compact JSON that round-trips", function()
-    local json = (status.encode(status.build(snap())))
+    local json = assert(status.encode(status.build(snap())))
     local back = vim.json.decode(json)
     assert.equals(1, back.v)
     assert.equals("main.lua", back.file)
@@ -163,7 +163,8 @@ describe("terminal.core.status", function()
     local s = status.build(snap({ cwd = long, file = long, branch = long }))
     local json = status.encode(s, 300)
     assert.is_true(#json <= 300)
-    assert.equals("main.lua", vim.json.decode((status.encode(status.build(snap()), 1024))).file)
+    local fitted = assert(status.encode(status.build(snap()), 1024))
+    assert.equals("main.lua", vim.json.decode(fitted).file)
     local none, err = status.encode(s, 20)
     assert.is_nil(none)
     assert.truthy(err:find("over the limit", 1, true))
@@ -179,9 +180,13 @@ describe("terminal.status (publishing)", function()
     publisher = require("terminal.status")
     writes = {}
     original_send, original_uis = vim.api.nvim_ui_send, vim.api.nvim_list_uis
+    -- Test double: records what would be written to the terminal instead of sending it.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.api.nvim_ui_send = function(payload)
       writes[#writes + 1] = payload
     end
+    -- Test double: pretends that one UI is attached.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.api.nvim_list_uis = function()
       return { {} }
     end
@@ -324,9 +329,13 @@ describe("terminal.status (publishing)", function()
   it("without a UI nothing is published, silently, and the exporter stays on", function()
     local notices = {}
     local original_notify = vim.notify
+    -- Test double: collects the notifications instead of showing them.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.notify = function(msg)
       notices[#notices + 1] = msg
     end
+    -- Test double: no UI is attached.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.api.nvim_list_uis = function()
       return {}
     end
@@ -342,6 +351,8 @@ describe("terminal.status (publishing)", function()
 
   it("what could not be sent without a UI goes out once one attaches", function()
     local attached = false
+    -- Test double: a UI that is attached only once `attached` is set.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.api.nvim_list_uis = function()
       return attached and { {} } or {}
     end
@@ -355,6 +366,8 @@ describe("terminal.status (publishing)", function()
 
   it("a UI that attaches again gets the status even when nothing changed", function()
     local attached = true
+    -- Test double: a UI that can go away and come back through `attached`.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.api.nvim_list_uis = function()
       return attached and { {} } or {}
     end
@@ -395,8 +408,13 @@ describe("terminal.status (publishing)", function()
     end))
   end)
 
+  -- A fake exporter that counts what it was asked to do (used by the two blocks below).
+  ---@class Terminal.Spec.FakeExporter: Terminal.StatusExporter
+  ---@field publishes? integer How often publish() was called
+  ---@field cleared? integer How often clear() was called
+
   describe("an exporter that fails", function()
-    ---@type Terminal.StatusExporter
+    ---@type Terminal.Spec.FakeExporter
     local failing
 
     before_each(function()
@@ -445,6 +463,8 @@ describe("terminal.status (publishing)", function()
       publisher.setup(cfg(), { WEZTERM_PANE = "3" })
       local messages = {}
       local original = vim.notify
+      -- Test double: collects the notifications instead of showing them.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = function(msg)
         messages[#messages + 1] = msg
       end
@@ -457,7 +477,7 @@ describe("terminal.status (publishing)", function()
   end)
 
   describe("the delta gate looks at what an exporter publishes", function()
-    ---@type Terminal.StatusExporter
+    ---@type Terminal.Spec.FakeExporter
     local probe
 
     before_each(function()
@@ -504,6 +524,8 @@ describe("terminal.status (publishing)", function()
   it("a dataset over max_bytes is reported once, not on every event", function()
     local notices = {}
     local original_notify = vim.notify
+    -- Test double: collects the notifications instead of showing them.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.notify = function(msg)
       notices[#notices + 1] = msg
     end
@@ -523,6 +545,8 @@ describe("terminal.status (publishing)", function()
   it("choose: a nested Neovim ($NVIM) is skipped by auto, but a name asks for it anyway", function()
     local tmux_exporter = require("terminal.status.exporters.tmux")
     local saved = tmux_exporter.alive
+    -- Test double: the outer Neovim counts as running.
+    ---@diagnostic disable-next-line: duplicate-set-field
     tmux_exporter.alive = function()
       return true -- the outer Neovim is running
     end

@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/tmux_backend_spec.lua -- the tmux backend and status exporter against a fake `tmux`.
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -439,6 +440,8 @@ describe("terminal.status.exporters.tmux", function()
 
   it("available refuses a Neovim inside another LIVE Neovim's terminal ($NVIM)", function()
     local saved = exporter.alive
+    -- Test double: the outer Neovim counts as running.
+    ---@diagnostic disable-next-line: duplicate-set-field
     exporter.alive = function()
       return true
     end
@@ -519,8 +522,14 @@ describe("terminal.status.exporters.tmux", function()
     end
   )
 
+  --- The process lookups of the tmux exporter that `with_stubs` can replace.
+  ---@class Terminal.Spec.ExporterStubs
+  ---@field alive? fun(address: string): boolean Replaces `exporter.alive`
+  ---@field server_pid? fun(address: string): integer|nil Replaces `exporter.server_pid`
+  ---@field parent_of? fun(pid: integer): integer|nil Replaces `exporter.parent_of`
+
   --- Run `body` with the exporter's process lookups replaced; always restore them.
-  ---@param stubs { alive?: fun(): boolean, server_pid?: fun(address: string): integer|nil, parent_of?: fun(pid: integer): integer|nil }
+  ---@param stubs Terminal.Spec.ExporterStubs
   ---@param body fun()
   local function with_stubs(stubs, body)
     local saved = {
@@ -608,6 +617,8 @@ describe("terminal.status.exporters.tmux", function()
       end,
     }, function()
       assert.is_true(exporter.nested("outer"), "chain unreadable: assume nested")
+      -- Test double: the outer Neovim is gone.
+      ---@diagnostic disable-next-line: duplicate-set-field
       exporter.alive = function()
         return false
       end
@@ -685,23 +696,49 @@ describe("terminal.status.exporters.tmux", function()
     end
   )
 
-  it("parent_of reads the parent of a process whose name looks like a stat line", function()
-    if vim.fn.has("linux") == 0 or vim.fn.executable("sleep") == 0 then
-      return assert.is_true(true) -- /proc/<pid>/stat is Linux; elsewhere `ps` answers
-    end
-    -- comm is whatever the file is called, and the kernel ends it at the LAST ')': a balanced
-    -- match would read the "1" out of the name instead of the real parent
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, "p")
-    local crafted = dir .. "/x) R 1 (y"
-    vim.uv.fs_symlink(vim.fn.exepath("sleep"), crafted)
-    local job = vim.fn.jobstart({ crafted, "5" })
+  it("parse_stat takes the parent from after the LAST ')' of the process name", function()
+    -- the same on every platform: it is a pure function of the line
+    assert.equals(45, exporter.parse_stat("123 (bash) S 45 123 123 0 -1"))
+    assert.equals(77, exporter.parse_stat("123 (x) R 1 (y) S 77 123 123 0 -1"))
+    assert.equals(9, exporter.parse_stat("5 (a b (c d)) Z 9 5 5 0 -1"))
+    assert.is_nil(exporter.parse_stat("not a stat line"))
+    assert.is_nil(exporter.parse_stat(""))
+    assert.is_nil(exporter.parse_stat(nil))
+  end)
+
+  -- Linux only by nature: it needs /proc and a program whose name looks like a stat line. It is
+  -- not registered elsewhere (the parser case above covers the same name on every platform).
+  if vim.fn.has("linux") == 1 and vim.fn.executable("sleep") == 1 then
+    it("parent_of reads the parent of a real process whose name looks like a stat line", function()
+      local dir = vim.fn.tempname()
+      vim.fn.mkdir(dir, "p")
+      local crafted = dir .. "/x) R 1 (y"
+      vim.uv.fs_symlink(vim.fn.exepath("sleep"), crafted)
+      local job = vim.fn.jobstart({ crafted, "5" })
+      local pid = vim.fn.jobpid(job)
+      local parent = exporter.parent_of(pid)
+      vim.fn.jobstop(job)
+      vim.fn.jobwait({ job }, 3000)
+      vim.fn.delete(dir, "rf")
+      assert.equals(vim.uv.os_getpid(), parent)
+    end)
+  end
+
+  it("parent_of: a child this process started has this process as its parent", function()
+    -- /proc on Linux, `ps` on macOS and the BSDs. Windows has neither (its `ps`, from Git Bash,
+    -- numbers processes in another namespace): there the answer is nil on purpose, which the
+    -- ownership test treats as "cannot tell" and stays out.
+    local job =
+      vim.fn.jobstart({ vim.v.progpath, "--headless", "-u", "NONE", "-i", "NONE", "-c", "sleep 5" })
     local pid = vim.fn.jobpid(job)
     local parent = exporter.parent_of(pid)
     vim.fn.jobstop(job)
     vim.fn.jobwait({ job }, 3000)
-    vim.fn.delete(dir, "rf")
-    assert.equals(vim.uv.os_getpid(), parent)
+    if vim.fn.has("win32") == 1 then
+      assert.is_nil(parent)
+    else
+      assert.equals(vim.uv.os_getpid(), parent)
+    end
   end)
 
   it("parent_of agrees with the OS where it can read the process tree", function()
@@ -718,6 +755,8 @@ describe("terminal.status.exporters.tmux", function()
     local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
     vim.env.TMUX_PANE = "%9"
     local runs = 0
+    -- Test double: counts the tmux calls instead of running tmux.
+    ---@diagnostic disable-next-line: duplicate-set-field
     exporter.run = function()
       runs = runs + 1
       return { code = 0, stderr = "" }
@@ -737,6 +776,8 @@ describe("terminal.status.exporters.tmux", function()
     local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
     vim.env.TMUX_PANE = "%9"
     local seen = {}
+    -- Test double: records the argv; the first call fails.
+    ---@diagnostic disable-next-line: duplicate-set-field
     exporter.run = function(argv)
       seen[#seen + 1] = argv
       return { code = #seen == 1 and 1 or 0, stderr = "boom" }
@@ -756,12 +797,16 @@ describe("terminal.status.exporters.tmux", function()
     local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
     local seen
     vim.env.TMUX_PANE = "%9"
+    -- Test double: records the argv of the publish.
+    ---@diagnostic disable-next-line: duplicate-set-field
     exporter.run = function(argv)
       seen = argv
       return { code = 0, stderr = "" }
     end
     assert.is_true((exporter.publish(vim.json.encode({ mode = "n", file = "x" }))))
     assert.equals("%9", seen[5])
+    -- Test double: tmux answers with an error.
+    ---@diagnostic disable-next-line: duplicate-set-field
     exporter.run = function()
       return { code = 1, stderr = "no server" }
     end
@@ -804,6 +849,8 @@ describe("terminal facade with the tmux backend", function()
     saved.executable = vim.fn.executable
     saved.runner = tmux.default_runner
     vim.env.TMUX, vim.env.TMUX_PANE = "/tmp/tmux-1/default,1,0", "%0"
+    -- Test double: reports `tmux` as installed, everything else as the real function does.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.fn.executable = function(name)
       if name == "tmux" then
         return 1
@@ -893,6 +940,8 @@ describe("terminal facade with the tmux backend", function()
   it("run quotes only portable words in a pane whose shell is unknown", function()
     boot({ shell = "" })
     local original_notify = vim.notify
+    -- Test double: swallows the notification (only the return value matters here).
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.notify = function() end
     local ok, err = terminal.run({ "echo", "$(calc.exe)" }, { name = "other" })
     vim.notify = original_notify

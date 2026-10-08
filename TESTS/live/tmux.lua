@@ -1,3 +1,5 @@
+---@diagnostic disable: need-check-nil
+-- need-check-nil is off for the whole file: a nil handle or reply makes the next check fail anyway, and the script then ends in RESULT failed.
 -- TESTS/live/tmux.lua -- the tmux backend and status exporter against a REAL tmux server.
 --
 -- Headless is fine (nothing here needs a UI). It starts its own tmux server on a private socket
@@ -75,6 +77,7 @@ local ok, err = pcall(function()
     cmd = { "sh" },
   })
   check("spawn creates a pane", h ~= nil and h.pane:find("^%%%d+$") ~= nil, h)
+  assert(h, "spawn returned no handle") -- every check below needs the pane
   vim.wait(800)
 
   local sent = backend.send(h, "echo terminal-nvim-tmux-check\n")
@@ -103,6 +106,7 @@ local ok, err = pcall(function()
     focus = false,
   })
   check("a pane running cat started", cat ~= nil, cat)
+  assert(cat, "spawn returned no handle for cat") -- the typed lines go into it
   vim.wait(500)
   local samples = {
     "T1 select 1;",
@@ -184,7 +188,7 @@ local ok, err = pcall(function()
     backend.close(single)
   end
 
-  check("the pane is visible and focused", backend.visible(h) and backend.focused(h))
+  check("the pane is visible and focused", backend.visible(h) == true and backend.focused(h))
   backend.hide(h)
   check("hide returns focus to Neovim's pane", backend.focused(h) == false)
   check("focus selects the pane again", backend.focus(h) == true and backend.focused(h) == true)
@@ -236,6 +240,8 @@ local ok, err = pcall(function()
   local exporter = require("terminal.status.exporters.tmux")
   local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
   vim.env.TMUX_PANE = own
+  -- Test double: sends the exporter's tmux calls to the private socket of this script.
+  ---@diagnostic disable-next-line: duplicate-set-field
   exporter.run = function(argv)
     -- argv[1] is "tmux": add the private socket
     local full = { "tmux", "-L", SOCKET }

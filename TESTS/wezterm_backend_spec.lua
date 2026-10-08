@@ -1,4 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/wezterm_backend_spec.lua -- the wezterm backend against a fake `wezterm cli`.
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -117,6 +118,8 @@ describe("terminal.backends.wezterm", function()
     it("says so when it cannot give the focus back to Neovim's pane", function()
       local messages = {}
       local original = vim.notify
+      -- Test double: collects the notifications instead of showing them.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = function(msg)
         messages[#messages + 1] = msg
       end
@@ -174,7 +177,9 @@ describe("terminal.backends.wezterm", function()
       local gone = wezterm.new(registry, function()
         return { code = 1, stdout = "", stderr = "pane not found" }
       end, "7")
-      local ok, err = gone.send({ pane = "99" }, "x")
+      -- A partial handle on purpose: send() only looks at `pane`.
+      local partial = { pane = "99" }
+      local ok, err = gone.send(partial --[[@as Terminal.Handle]], "x")
       assert.is_false(ok)
       assert.truthy(err:find("pane not found", 1, true))
     end)
@@ -300,6 +305,8 @@ describe("terminal.backends.wezterm", function()
       function()
         local original = vim.fn.executable
         local executables = {}
+        -- Test double: `executables` decides which names count as executable, the rest as the real function does.
+        ---@diagnostic disable-next-line: duplicate-set-field
         vim.fn.executable = function(name)
           if executables[name] then
             return 1
@@ -328,6 +335,8 @@ describe("terminal.backends.wezterm", function()
     it("the PATH scan is not paid for a string without a path separator", function()
       local looked = {}
       local original = vim.fn.executable
+      -- Test double: records which names are looked up on the PATH.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function(name)
         looked[#looked + 1] = name
         return original(name)
@@ -359,6 +368,8 @@ describe("terminal.backends.wezterm", function()
 
     it("a command string that is an executable as it stands is kept in one piece", function()
       local original = vim.fn.executable
+      -- Test double: makes the quoted Program Files path an executable.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function(name)
         if name == "C:\\Program Files\\PowerShell\\7\\pwsh.exe" then
           return 1
@@ -397,6 +408,8 @@ describe("terminal facade with the wezterm backend", function()
     saved.executable = vim.fn.executable
     saved.runner = wezterm.default_runner
     vim.env.WEZTERM_PANE = "7"
+    -- Test double: reports `wezterm` as installed, everything else as the real function does.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.fn.executable = function(name)
       if name == "wezterm" then
         return 1
@@ -457,6 +470,8 @@ describe("terminal facade with the wezterm backend", function()
       -- the call cannot tell: count the calls instead.
       local starts = 0
       local original = vim.cmd
+      -- Test double: counts `startinsert` and forwards every other command.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.cmd = function(command, ...)
         if command == "startinsert" then
           starts = starts + 1
@@ -588,6 +603,8 @@ describe("terminal facade with the wezterm backend", function()
 
   it("run quotes for the configured shell; without one only portable words go through", function()
     local original_notify = vim.notify
+    -- Test double: swallows the notifications of the `run` calls.
+    ---@diagnostic disable-next-line: duplicate-set-field
     vim.notify = function() end
     local function typed()
       for i = #state.calls, 1, -1 do

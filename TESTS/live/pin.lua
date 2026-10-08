@@ -1,3 +1,5 @@
+---@diagnostic disable: need-check-nil
+-- need-check-nil is off for the whole file: a nil handle or reply makes the next check fail anyway, and the script then ends in RESULT failed.
 -- TESTS/live/pin.lua -- pin and adopt against a REAL WezTerm.
 --
 -- Run it inside a WezTerm pane (not headless):
@@ -51,6 +53,7 @@ local ok, err = pcall(function()
   vim.wait(1500)
   local buf = terminal.adopt({ name = "pinme" })
   check("adopt returned a buffer", type(buf) == "number")
+  assert(buf, "adopt returned no buffer") -- the checks below need it
   local seen = vim.wait(6000, function()
     local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "")
     return select(2, text:gsub("terminal%-nvim%-pin%-check", "")) >= 2

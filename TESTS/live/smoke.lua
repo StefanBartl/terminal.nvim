@@ -1,3 +1,5 @@
+---@diagnostic disable: need-check-nil
+-- need-check-nil is off for the whole file: a nil handle or reply makes the next check fail anyway, and the script then ends in RESULT failed.
 -- TESTS/live/smoke.lua -- the part the headless specs cannot cover: real terminals in a real UI.
 --
 -- Run it inside a real Neovim (a terminal window, not --headless):

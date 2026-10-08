@@ -1,4 +1,5 @@
 ---@diagnostic disable: need-check-nil, undefined-field
+-- need-check-nil and undefined-field are off for the whole file: a nil in a spec body fails the next assertion anyway, and luassert's assert.* and the stubbed vim.* fields are not in the annotations.
 -- TESTS/conformance_spec.lua -- the contract EVERY backend must keep, run against each one:
 -- native (real windows and jobs), wezterm and tmux (fake CLIs, see support/fakes.lua). A new
 -- backend adds one `contract(...)` call.

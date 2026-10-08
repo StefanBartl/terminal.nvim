@@ -1,4 +1,5 @@
 ---@diagnostic disable: need-check-nil, undefined-field
+-- need-check-nil and undefined-field are off for the whole file: a nil in a spec body fails the next assertion anyway, and luassert's assert.* and the stubbed vim.* fields are not in the annotations.
 -- TESTS/native_spec.lua -- terminal.backends.native: the backend contract on real windows/jobs.
 
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
@@ -158,7 +159,9 @@ describe("terminal.backends.native", function()
         end
         float = nil
         vim.cmd("silent! tabonly")
-        pcall(vim.cmd, "bwipeout! " .. file_buf)
+        pcall(function()
+          vim.cmd("bwipeout! " .. file_buf)
+        end)
         vim.fn.delete(file)
       end)
 
@@ -314,17 +317,24 @@ describe("terminal.backends.native", function()
       local h = backend.spawn(spec())
       jobs.settle()
       local jobwait = vim.fn.jobwait
+      -- Test double: the job never reports as stopped; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.jobwait = function()
         return { -1 }
       end
       local messages = {}
       local original = vim.notify
+      -- Test double: capture what would be shown to the user; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = function(msg)
         messages[#messages + 1] = msg
       end
       local ok = backend.close(h)
       vim.wait(100)
+      -- Restore the originals.
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.notify = original
+      ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.jobwait = jobwait
       assert.is_true(ok)
       assert.equals(0, registry:count(), "the terminal is removed anyway")

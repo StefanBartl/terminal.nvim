@@ -1,3 +1,5 @@
+---@diagnostic disable: undefined-field, redundant-parameter
+-- undefined-field and redundant-parameter are off for the whole file: luassert's assert.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/usrcmds_help_spec.lua -- every flag of `:Terminal` has a line in the option float.
 --
 -- lib.nvim's help float (the option cheatsheet on the command line) shows one line per
@@ -24,9 +26,11 @@ describe(":Terminal option float", function()
   it("leaves no flag and no positional argument without a description", function()
     assert.is_truthy(composer.registry().Terminal)
     -- A lib.nvim older than `help.undocumented` cannot answer the question; that is a missing
-    -- feature of the dependency, not a defect of this plugin.
+    -- feature of the dependency, not a defect of this plugin; the case is reported as skipped.
     if type(composer.help.undocumented) ~= "function" then
-      return
+      -- Inside a running case busted's pending(name) alone marks it pending; the stub also wants a block.
+      ---@diagnostic disable-next-line: missing-parameter
+      return pending("this lib.nvim has no help.undocumented")
     end
     local missing = {}
     for _, m in ipairs(composer.help.undocumented("Terminal", { args = true })) do
