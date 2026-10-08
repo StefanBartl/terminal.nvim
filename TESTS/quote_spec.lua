@@ -174,6 +174,48 @@ describe("terminal.core.quote", function()
       assert.equals("A=b", quote.word("A=b", "fish"))
     end)
 
+    it(
+      "quotes a reserved word as the FIRST word: `time -v make` is a keyword, not a program",
+      function()
+        for _, kind in ipairs({ "posix", "fish" }) do
+          for _, word in ipairs({ "time", "if", "while", "select", "case", "else", "end", "not" }) do
+            assert.equals(
+              "'" .. word .. "' -v",
+              quote.argv_to_line({ word, "-v" }, kind),
+              kind .. " " .. word
+            )
+            -- an ARGUMENT of that name is only text
+            assert.equals("echo " .. word, quote.argv_to_line({ "echo", word }, kind), kind)
+          end
+          -- not reserved, only similar: stays readable
+          assert.equals("times -v", quote.argv_to_line({ "times", "-v" }, kind), kind)
+          assert.equals("timeout 5", quote.argv_to_line({ "timeout", "5" }, kind), kind)
+        end
+      end
+    )
+
+    -- bash reads `time` first on a line as its keyword; the quoted word is the program. Registered
+    -- only where bash exists and the machine is not Windows (a skipped case would count as not green).
+    if vim.fn.has("win32") == 0 and shells.installed("bash") then
+      it("bash runs a program called `time` instead of timing the next word", function()
+        local dir = vim.fn.tempname()
+        vim.fn.mkdir(dir, "p")
+        local program = dir .. "/time"
+        vim.fn.writefile({ "#!/bin/sh", 'echo "program-ran $*"' }, program)
+        vim.uv.fs_chmod(program, 493) -- 0755
+        local line = assert(quote.argv_to_line({ "time", "-v", "make" }, "posix"))
+        local res = vim
+          .system(
+            { vim.fn.exepath("bash"), "-c", line },
+            { clear_env = true, env = { PATH = dir .. ":/usr/bin:/bin" } }
+          )
+          :wait(10000)
+        vim.fn.delete(dir, "rf")
+        assert.equals(0, res.code, (res.stderr or "") .. "\n" .. line)
+        assert.equals("program-ran -v make\n", res.stdout, line)
+      end)
+    end
+
     -- A shell exists on every Linux and macOS machine, not on a stock Windows one: registered only
     -- where it can run (a skipped case would count as not green).
     if vim.fn.has("win32") == 0 then
@@ -249,6 +291,25 @@ describe("terminal.core.quote", function()
       assert.equals("& 'C:\\Program Files\\x.exe' 'a b'", line)
       assert.equals("git status", quote.argv_to_line({ "git", "status" }, "powershell"))
     end)
+
+    it(
+      "quotes a program word that is a keyword or reads as a number, with the call operator",
+      function()
+        -- bare, `if x` is a ParserError and `7 x` is the number 7; `& 'if' x` runs the program
+        for _, word in ipairs({ "if", "While", "for", "7", "0x10", "1kb", "7z", "exit" }) do
+          assert.equals(
+            "& '" .. word .. "' x",
+            quote.argv_to_line({ word, "x" }, "powershell"),
+            word
+          )
+          -- as an argument the same word is only text
+          assert.equals("echo " .. word, quote.argv_to_line({ "echo", word }, "powershell"), word)
+        end
+        -- only the exact words: a name that merely starts like one is a name
+        assert.equals("iftop x", quote.argv_to_line({ "iftop", "x" }, "powershell"))
+        assert.equals("git7 x", quote.argv_to_line({ "git7", "x" }, "powershell"))
+      end
+    )
 
     it("refuses a word with a double quote: a program may receive it split or cut", function()
       -- Windows PowerShell 5.1 turns the first of these into three arguments, drops the quote of
@@ -393,6 +454,18 @@ describe("terminal.core.quote", function()
       assert.equals('"C:\\my dir\\\\"', quote.word("C:\\my dir\\", "cmd"))
     end)
 
+    it("quotes a program word that cmd.exe would take apart: `/`, `,`, a leading `@`", function()
+      -- `./tool.exe x` runs `.` with the switch `/tool.exe`; `a,b` is two words; `@` is the echo prefix
+      for _, word in ipairs({ "./tool.exe", "sub/p.exe", "C:\\a\\Smith,John\\tool.exe", "@tool" }) do
+        assert.equals('"' .. word .. '" x', quote.argv_to_line({ word, "x" }, "cmd"), word)
+        -- as an argument the same word needs no quotes
+        assert.equals("tool " .. word, quote.argv_to_line({ "tool", word }, "cmd"), word)
+      end
+      -- a program word without them stays readable
+      assert.equals("tool.exe x", quote.argv_to_line({ "tool.exe", "x" }, "cmd"))
+      assert.equals("C:\\x\\tool.exe x", quote.argv_to_line({ "C:\\x\\tool.exe", "x" }, "cmd"))
+    end)
+
     it(
       "doubles backslashes in front of an EMBEDDED quote too (else the C runtime reads a literal quote)",
       function()
@@ -434,6 +507,24 @@ describe("terminal.core.quote", function()
       assert.truthy(err:find("argument 2", 1, true))
     end)
 
+    it("refuses a hole in the list instead of dropping the words behind it", function()
+      -- `opt` is nil: `ipairs` and `#` stop at the hole, and `--dry-run` would be lost -- the
+      -- command that was meant to be a dry run is not
+      local opt = nil
+      local argv = { "git", "clean", "-fd", opt, "--dry-run" }
+      for _, kind in ipairs({ "posix", "fish", "powershell", "cmd", "portable" }) do
+        local line, err = quote.argv_to_line(argv, kind)
+        assert.is_nil(line, kind)
+        assert.truthy(err and err:find("argument 4", 1, true), kind .. ": " .. tostring(err))
+      end
+      -- a hole in front, and a list with only holes at the front
+      assert.is_nil((quote.argv_to_line({ nil, "ls" }, "posix")))
+      assert.equals(0, quote.arg_count({}))
+      assert.equals(0, quote.arg_count("git"))
+      assert.equals(5, quote.arg_count(argv))
+      assert.equals(2, quote.arg_count({ "a", "b" }))
+    end)
+
     it(
       "refuses control characters: a line break ends the command line, ESC is interpreted",
       function()
@@ -445,5 +536,26 @@ describe("terminal.core.quote", function()
         end
       end
     )
+  end)
+
+  describe("portable", function()
+    it(
+      "refuses a word that starts with a dash and holds ':' or '.' (PowerShell splits it)",
+      function()
+        -- `-a:b` reaches a program as `-a:` and `b`, `-I./include` as `-I` and `./include`
+        for _, word in ipairs({ "-a:b", "-x.", "-I./include", "-ErrorAction:Stop", "-1.5" }) do
+          local line, err = quote.argv_to_line({ "prog", "--", word, "tail" }, "portable")
+          assert.is_nil(line, word)
+          assert.truthy(err and err:find("argument 3", 1, true), word .. ": " .. tostring(err))
+        end
+      end
+    )
+
+    it("still accepts what every shell reads the same way", function()
+      assert.equals(
+        "prog -v --version a-b:c ./x/y.lua",
+        quote.argv_to_line({ "prog", "-v", "--version", "a-b:c", "./x/y.lua" }, "portable")
+      )
+    end)
   end)
 end)

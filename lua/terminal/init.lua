@@ -739,12 +739,17 @@ function M.run(cmd, opts)
     return false, rerr
   end
   if opts.direct then
-    if type(cmd) ~= "table" or #cmd == 0 then
+    -- Counted past a hole (`{ "git", "clean", nil, "--dry-run" }`): `#` and `ipairs` stop at it,
+    -- and the words behind it would be dropped without a sound.
+    local count = require("terminal.core.quote").arg_count(cmd)
+    if count == 0 then
       local err = "run: `direct` needs a non-empty argv list"
       fail(err)
       return false, err
     end
-    for i, word in ipairs(cmd) do
+    ---@cast cmd string[]
+    for i = 1, count do
+      local word = cmd[i]
       -- The program (word 1) needs a name; an argument may be empty (`rg "" file`).
       if type(word) ~= "string" or (i == 1 and word == "") or word:find("\0", 1, true) then
         local err = (

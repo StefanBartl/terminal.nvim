@@ -642,6 +642,54 @@ describe("terminal (facade)", function()
       assert.equals(1, #terminal.list(), "the empty program started nothing")
     end)
 
+    it("run direct hands an empty argument to the program, in its place", function()
+      -- Not only accepted: the program receives it. A child Neovim writes what it was given.
+      local dir = vim.fn.tempname()
+      vim.fn.mkdir(dir, "p")
+      local script, out = vim.fs.normalize(dir .. "/dump.lua"), vim.fs.normalize(dir .. "/args.txt")
+      vim.fn.writefile({
+        ('local f = assert(io.open(%q, "w"))'):format(out),
+        'for i = 1, 3 do f:write("<", tostring(arg[i]), ">\\n") end',
+        "f:close()",
+      }, script)
+      local ok, err = terminal.run({
+        vim.v.progpath,
+        "-n",
+        "-i",
+        "NONE",
+        "--headless",
+        "-u",
+        "NONE",
+        "-l",
+        script,
+        "",
+        "x",
+        "",
+      }, { direct = true, name = "empty-args-arrive" })
+      assert.is_true(ok, tostring(err))
+      local written = jobs.wait(function()
+        return vim.uv.fs_stat(out) ~= nil
+      end, 20000)
+      local got = written and vim.fn.readfile(out) or {}
+      vim.fn.delete(dir, "rf")
+      assert.is_true(written, "the program ran and wrote its arguments")
+      assert.same({ "<>", "<x>", "<>" }, got)
+    end)
+
+    it("run refuses a hole in the argv instead of starting it without the words behind", function()
+      -- `ipairs` stops at the hole: `{ "git", "clean", "-fd", nil, "--dry-run" }` would have run
+      -- `git clean -fd` for real
+      local opt = nil
+      local before = #terminal.list()
+      local ok, err = terminal.run({ "git", "clean", "-fd", opt, "--dry-run" }, { direct = true })
+      assert.is_false(ok)
+      assert.truthy(err and err:find("argument 4", 1, true), tostring(err))
+      ok, err = terminal.run({ "git", "clean", "-fd", opt, "--dry-run" })
+      assert.is_false(ok)
+      assert.truthy(err and err:find("argument 4", 1, true), tostring(err))
+      assert.equals(before, #terminal.list(), "nothing was started")
+    end)
+
     it("run reports its failures with the same 'run:' prefix it shows", function()
       local ok, err = terminal.run({})
       assert.is_false(ok)

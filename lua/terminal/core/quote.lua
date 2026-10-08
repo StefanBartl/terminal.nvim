@@ -24,7 +24,10 @@
 ---     NEXT argument), and the other two never arrive (the empty word is dropped by 5.1 and by
 ---     legacy passing, `--%` by every version, quoted or not), so no single quoting is right;
 ---     `direct = true` passes the argument without a shell;
----   - "portable" (a multiplexer's unknown shell): anything beyond letters, digits and `. _ / : -`.
+---   - "portable" (a multiplexer's unknown shell): anything beyond letters, digits and `. _ / : -`,
+---     and a word that starts with a dash and holds a `:` or a `.`;
+---   - an argv with a hole (`nil` between two words) in every family: the words after it would be
+---     lost without a sound, so it is not a list of words.
 
 local M = {}
 
@@ -53,17 +56,30 @@ function M.shell_kind(shell)
 end
 
 ---@internal
+--- Words that are syntax, not a program, when they stand first on a line: the reserved words of
+--- POSIX shells (`time -v make` is the `time` keyword, `if x` opens a block), of zsh and of fish.
+--- One list for both families: quoting a word that is no keyword in a shell changes nothing there.
+local RESERVED = {}
+for word in
+  ([[and always begin case coproc do done elif else end esac fi for foreach function if in
+  nocorrect not or repeat select switch then time until while]]):gmatch("%S+")
+do
+  RESERVED[word] = true
+end
+
+---@internal
 --- Whether a word may stand BARE as the program word (the first word of a line) in a POSIX shell
 --- or fish. The set is much smaller than the one for an argument: a first word `NAME=value` is an
 --- environment assignment (the NEXT word then runs as the command and the program word is eaten),
 --- a lone `.` is `source`, `:` the null command, `%1` a job spec, `-` a precommand modifier in
---- zsh. A program name is made of letters, digits and `_ / . + -` and starts with a letter, a
---- digit, `_`, `/` or `.` (`./run.sh`); `=` never belongs to it. Anything else is quoted, which
---- every shell reads as the same command name.
+--- zsh, and a reserved word is syntax. A program name is made of letters, digits and `_ / . + -`
+--- and starts with a letter, a digit, `_`, `/` or `.` (`./run.sh`); `=` never belongs to it.
+--- Anything else is quoted, which stops an assignment and a reserved word from being read as one;
+--- what is left, the shell's own builtins of those names (`'.'`, `':'`), it still finds.
 ---@param s string
 ---@return boolean
 local function bare_program(s)
-  return s ~= "." and s:find("^[%w_/.][%w_/.+-]*$") ~= nil
+  return s ~= "." and not RESERVED[s] and s:find("^[%w_/.][%w_/.+-]*$") ~= nil
 end
 
 ---@internal
@@ -149,6 +165,17 @@ local function has_white_space(s)
 end
 
 ---@internal
+--- PowerShell's language keywords: first on a line they are syntax, not a program.
+local POWERSHELL_KEYWORDS = {}
+for word in
+  ([[begin break catch class clean continue data define do dynamicparam else elseif end enum exit
+  filter finally for foreach from function hidden if in param process return static switch throw
+  trap try until using var while workflow]]):gmatch("%S+")
+do
+  POWERSHELL_KEYWORDS[word] = true
+end
+
+---@internal
 --- The way out the refusals of `powershell` name: `direct` hands the argument to the program
 --- itself, so no shell reads it.
 local POWERSHELL_HINT =
@@ -166,9 +193,10 @@ local POWERSHELL_HINT =
 --- the same reason: they are lost on the way to the program in some or all versions, so every word
 --- after them would move up one place.
 ---@param s string
+---@param program? boolean The word is the program word (first word of the line)
 ---@return string|nil
 ---@return string|nil err
-local function powershell(s)
+local function powershell(s, program)
   if s == "" then
     return nil,
       "PowerShell drops an empty argument when it starts a program (Windows PowerShell 5.1 and "
@@ -200,8 +228,13 @@ local function powershell(s)
   -- `--` is on the line, PowerShell reads `-name:value` and `-name.ext` as a parameter with an
   -- attached value and hands the program TWO arguments (`-x:` and `y`, `-I` and `./include`; every
   -- version does, found by sending every such word of up to four characters to the real shells).
-  -- In single quotes the word arrives whole.
-  if s:find("^[%w%._/:\\-]+$") and not s:find("^%-.*[:.]") then
+  -- In single quotes the word arrives whole. (The consequence for a script or cmdlet that takes
+  -- `-Name:Value`: argv words are data, so the word reaches it as one string; write the parameter
+  -- and its value as two words, `-Name`, `Value`.)
+  -- The program word is read as syntax when it is a keyword (`if`, `while`) or looks like a number
+  -- (`7`, `0x10`, `1kb`): quoted, with the call operator in front, it runs the program.
+  local syntax = program and (POWERSHELL_KEYWORDS[s:lower()] or s:find("^%d") ~= nil)
+  if s:find("^[%w%._/:\\-]+$") and not s:find("^%-.*[:.]") and not syntax then
     return s, nil
   end
   local out = s:gsub("'", "''")
@@ -216,16 +249,20 @@ end
 --- a word containing `%` is refused. A run of backslashes before the closing quote is doubled
 --- (otherwise the last one escapes the quote for the C runtime).
 ---@param s string
+---@param program? boolean The word is the program word (first word of the line)
 ---@return string|nil
 ---@return string|nil err
-local function cmd(s)
+local function cmd(s, program)
   if s == "" then
     return '""', nil
   end
   if s:find("%%") then
     return nil, "cmd.exe cannot quote a word containing '%'"
   end
-  if s:find("^[%w%._/:\\@+,-]+$") then
+  -- As the program word, `/` and `,` separate (`./tool.exe` runs `.` with the argument `/tool.exe`)
+  -- and a leading `@` is the echo prefix: such a word is quoted, which cmd.exe runs as a path.
+  local separated = program and (s:find("[/,]") ~= nil or s:sub(1, 1) == "@")
+  if s:find("^[%w%._/:\\@+,-]+$") and not separated then
     return s, nil
   end
   -- A run of backslashes in front of an embedded quote is doubled (otherwise the C runtime reads
@@ -255,12 +292,16 @@ end
 ---@internal
 --- For a shell that is not known (a multiplexer pane's default shell): a word is accepted only
 --- when it means the same in POSIX shells, PowerShell and cmd.exe -- letters, digits and
---- `. _ / : -`. There is no quoting that is right for all three, so anything else is refused.
+--- `. _ / : -`, except a word that starts with a dash and holds a `:` or a `.` (PowerShell splits
+--- `-a:b` and `-I./include` in two). There is no quoting that is right for all three, so anything
+--- else is refused. One difference stays, because it cannot be told from the pane: a program word
+--- with a `/` is a path in POSIX shells and PowerShell but a switch to cmd.exe -- name the `shell`
+--- when the pane runs cmd.exe.
 ---@param s string
 ---@return string|nil
 ---@return string|nil err
 local function portable(s)
-  if s:find("^[%w%._/:-]+$") then
+  if s:find("^[%w%._/:-]+$") and not s:find("^%-.*[:.]") then
     return s, nil
   end
   return nil,
@@ -268,12 +309,32 @@ local function portable(s)
       .. "cannot be quoted for it (set `shell` in the config, or use `direct`)"
 end
 
+--- How many words an argv list has: its highest positive integer index. `#` and `ipairs` stop at
+--- the first hole, so `{ "git", "clean", "-fd", nil, "--dry-run" }` would lose its last word
+--- without a trace -- and the safety flag with it. A hole is then found by the caller as "word N is
+--- not a string" and refused.
+---@param argv any
+---@return integer
+function M.arg_count(argv)
+  if type(argv) ~= "table" then
+    return 0
+  end
+  local n = 0
+  for k in pairs(argv) do
+    if type(k) == "number" and k > n and k % 1 == 0 then
+      n = k
+    end
+  end
+  return n
+end
+
 --- Quote one word for the given shell family.
 ---
 --- `program` says the word is the first word of a line, the one a shell runs: POSIX shells and fish
 --- read a bare `NAME=value` there as an environment assignment (and `.`, `:`, `%1` as a builtin or a
---- job), so only a plain program name stays bare in that place. The other families quote every word
---- the same.
+--- job) and a reserved word (`time`, `if`) as syntax, so only a plain program name stays bare in
+--- that place; PowerShell does the same for its keywords and for a word that reads as a number, and
+--- cmd.exe quotes a program word that holds a `/` or `,` or starts with `@`.
 ---@param s string
 ---@param kind Terminal.ShellKind
 ---@param program? boolean The word is the program word (first word of the line)
@@ -281,9 +342,9 @@ end
 ---@return string|nil err # Set when the word cannot be represented safely for this shell
 function M.word(s, kind, program)
   if kind == "powershell" then
-    return powershell(s)
+    return powershell(s, program)
   elseif kind == "cmd" then
-    return cmd(s)
+    return cmd(s, program)
   elseif kind == "portable" then
     return portable(s)
   elseif kind == "fish" then
@@ -306,11 +367,13 @@ end
 ---@return string|nil line
 ---@return string|nil err
 function M.argv_to_line(argv, kind)
-  if type(argv) ~= "table" or #argv == 0 then
+  local n = M.arg_count(argv)
+  if n == 0 then
     return nil, "empty command"
   end
   local words = {}
-  for i, a in ipairs(argv) do
+  for i = 1, n do
+    local a = argv[i]
     if type(a) ~= "string" then
       return nil, ("argument %d is not a string"):format(i)
     end

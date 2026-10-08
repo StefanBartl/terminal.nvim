@@ -50,9 +50,13 @@ A selection that spans several lines needs `--exec` (see below).
 
 The selection is only used when the command line that runs the command starts with the range
 `'<,'>` (or its alias `*`): `:` pressed in Visual mode, `:'<,'>Terminal send selection` typed by
-hand, or a mapping whose right-hand side starts with `:`. A linewise selection, a numeric range
-(`:2,3Terminal send selection`, also when it covers the lines of an older selection) and a call
-without a command line (a `<Cmd>` mapping, `vim.cmd()` from Lua) send whole lines.
+hand, or a mapping whose right-hand side starts with `:` and keeps that range
+(`xnoremap <leader>ts :Terminal send selection<CR>`). A mapping that starts with `:<C-u>` throws the
+range away: write `:<C-u>'<,'>Terminal send selection<CR>`, or the cursor line is sent. A linewise
+selection, a numeric range (`:2,3Terminal send selection`, also when it covers the lines of an older
+selection), a range with an offset behind the marks (`'<,'>+1`) and a call without a command line
+(a `<Cmd>` mapping, `vim.cmd()` from Lua) send whole lines. Under `virtualedit` a yank pads the rows
+of a block with blanks; the text sent ends at the last character of each row.
 
 ## Typing versus executing
 
@@ -71,19 +75,29 @@ This is deliberate — a selection that contains a line break would otherwise ru
   more: `cmd.exe` a word containing `%` (it cannot quote one), PowerShell a word containing a double
   quote, a word with white space that ends in a backslash, the empty word and the word `--%`
   (Windows PowerShell 5.1 and `pwsh` before 7.3 would hand the program the first two split, cut or
-  swallowing the next argument, and the other two never arrive at all, so every argument after
-  them would move up one place: no single quoting is right): pass such a word with
+  swallowing the next argument; the empty word is dropped by them as well, and `--%` by every
+  version, so every argument after it would move up one place: no single quoting is right): pass
+  such a word with
   `direct = true`. In POSIX shells and `fish` the first word, the program, stays bare only when it
-  is a plain program name (letters, digits, `_ / . + -`); anything else is quoted, because a bare
-  `NAME=value` in that place would be read as an environment assignment. The shells covered are POSIX
+  is a plain program name (letters, digits, `_ / . + -`) that is no reserved word; anything else is
+  quoted, because a bare `NAME=value` in that place would be read as an environment assignment and
+  a bare `time` or `if` as syntax. PowerShell does the same for its keywords and for a program word
+  that reads as a number (`& 'if' x`), and `cmd.exe` quotes a program word with a `/` or `,` or a
+  leading `@`. The words are **data**: a PowerShell script or cmdlet that takes `-Name:Value` gets that
+  word as one string, so write the parameter and its value as two words (`-Name`, `Value`). A list
+  with a hole (`nil` between two words) is refused, not shortened. The shells covered are POSIX
   (`sh`, `bash`, `zsh`), `fish`, PowerShell and `cmd.exe`; any other shell (`nu`, `csh`, ...) is quoted
   as POSIX, which is a guess for it. In a **tmux or WezTerm pane** the shell is the
   multiplexer's default, which Neovim cannot see: set `shell` (e.g. `shell = "pwsh"`) and the words
   are quoted for it; without it only words made of letters, digits and `. _ / : -` are accepted
-  (they mean the same in every shell) and anything else is refused with that hint.
+  (they mean the same in every shell, except a word that starts with a dash and holds a `:` or a
+  `.`, which PowerShell splits) and anything else is refused with that hint. One difference stays
+  that cannot be told from the pane: a program word with a `/` is a path to POSIX shells and
+  PowerShell but a switch to `cmd.exe`; name `shell` when the pane runs `cmd.exe`.
 - `--direct` starts the command as the job itself (no shell in between; under tmux a one-word argv is run as a
   program, not read as a shell line). The terminal stays
-  after it ends, an earlier terminal of the same name is replaced, and from Lua
+  after it ends, an earlier terminal of the same name is replaced (one that Neovim will not let go
+  makes the call fail with `cannot replace the earlier one: <reason>`, and it stays), and from Lua
   `on_exit(code)` reports the exit code: `run({ "make" }, { direct = true, on_exit = fn })`.
   The words after `--direct` are the argv.
 - Put `--` before a command that has dashed words of its own: `:Terminal run -- git log --oneline`.
@@ -113,9 +127,10 @@ number from 0 up.
 - `open`, `toggle`, `send`, `run`, `pin` and `adopt` also **show** the failure to the user.
 - `hide` and `close` only **answer**: `false, "no terminal 'build' in this project"` when there is
   none, or `false, "...cannot close the window: E565: ..."` when Neovim refuses to close the window
-  (`winfixbuf`, a text lock, the command-line window), without a message, so a script can probe with
-  them. A terminal whose window will not close stays registered and can be closed again later. The
-  `:Terminal hide|close` command shows the reason.
+  (`winfixbuf`, a text lock, the command-line window) -- or `"...cannot delete the buffer: E565: ..."`
+  for a hidden terminal -- without a message, so a script can probe with them. Neovim is asked before
+  anything is stopped: a refused terminal is still running, still registered and can be closed again
+  later. The `:Terminal hide|close` command shows the reason.
 - A target must be a table with a non-empty string `name`, a `layout` of `float`, `split`, `vsplit`
   or `tab`, a boolean `focus`, and a `count` that is a number from 1 up (a fraction is cut off: `3.9`
   is terminal `"3"`; `0` or `nil` mean the default terminal; `count` is ignored when `name` is given);
