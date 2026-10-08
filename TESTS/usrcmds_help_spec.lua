@@ -94,4 +94,75 @@ describe(":Terminal option float", function()
     end
     assert.is_true(seen > 0, "the routes' arguments were actually walked")
   end)
+
+  it("words the layout texts so they hold for every backend, not only the native one", function()
+    local handle = composer.registry().Terminal
+    assert.is_truthy(handle)
+    local multiplexers = require("terminal.backends").MULTIPLEXERS
+    local seen = 0
+    for _, route in ipairs(handle:spec().routes or {}) do
+      for _, flag in ipairs(route.flags or {}) do
+        -- `pin` is multiplexer-only and has its own texts; the others open on whatever backend is set
+        if flag.name == "layout" and route.path[1] ~= "pin" then
+          seen = seen + 1
+          local what = ("--layout of %s"):format(table.concat(route.path, " "))
+          assert.is_table(flag.enum_desc, what .. " describes its values")
+          -- A multiplexer has no floating pane and no Neovim tab page: what it does instead is
+          -- part of the text of exactly those two values.
+          for _, value in ipairs({ "float", "tab" }) do
+            local text = flag.enum_desc[value]:lower()
+            for _, name in ipairs(multiplexers) do
+              assert.is_truthy(
+                text:find(name, 1, true),
+                ("%s: %s says what %s does"):format(what, value, name)
+              )
+            end
+          end
+        end
+      end
+    end
+    assert.is_true(seen >= 3, "toggle, open and run were all walked")
+  end)
+
+  it("names no key in a text: the keys are the user's to move", function()
+    local handle = composer.registry().Terminal
+    assert.is_truthy(handle)
+    local argtypes = require("lib.nvim.bindings.usercmd.composer.argtypes")
+    local texts = {}
+    local function add(text, what)
+      if type(text) == "string" then
+        texts[#texts + 1] = { text = text, what = what }
+      end
+    end
+    local function add_type(name, what)
+      local def = name and argtypes.get(name)
+      if def then
+        add(def.desc, ("type %s of %s"):format(name, what))
+      end
+    end
+    for _, route in ipairs(handle:spec().routes or {}) do
+      local path = table.concat(route.path, " ")
+      add(route.desc, path)
+      for _, item in ipairs(vim.list_extend(vim.deepcopy(route.args or {}), route.flags or {})) do
+        local what = ("%s of %s"):format(item.name, path)
+        add(item.desc, what)
+        add_type(item.type, what)
+        for value, text in pairs(item.enum_desc or {}) do
+          add(text, ("value %s of %s"):format(value, what))
+        end
+      end
+    end
+    assert.is_true(#texts > 0, "the texts were actually collected")
+    -- `keymaps.toggle` is "<A-h>" only until the user sets another; a text must not claim it
+    for action, lhs in pairs(require("terminal.config.DEFAULTS").keymaps) do
+      if type(lhs) == "string" then
+        for _, entry in ipairs(texts) do
+          assert.is_nil(
+            entry.text:find(lhs, 1, true),
+            ("%s names the default key %s of keymaps.%s"):format(entry.what, lhs, action)
+          )
+        end
+      end
+    end
+  end)
 end)

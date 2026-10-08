@@ -80,7 +80,7 @@ local function register_name_types(composer)
     end,
   })
   composer.register_type("TERMINAL", {
-    desc = "terminal name (new or existing); a number N is what <A-h> with count N uses",
+    desc = "terminal name (new or existing); a number N is the toggle key with count N",
     validate = accept,
     complete = function(lead)
       local config = require("terminal.config")
@@ -105,14 +105,17 @@ local function register_name_types(composer)
 end
 
 ---@internal
---- What each layout looks like, for the option float (the native backend's windows; a
---- multiplexer maps split/vsplit/tab to a pane below, a pane to the right and a new tab).
+--- What each layout looks like, for the option float. The table is fixed when the command is
+--- registered, but the backend that opens the terminal is not (`backend = "tmux"` / `"wezterm"`,
+--- or `native` after a fallback), so every text is true for all of them: Neovim's own windows
+--- first, then what a multiplexer does instead (it has no floating pane: `float` is a pane to
+--- the right; `tab` is a new tmux window or WezTerm tab).
 ---@type table<string, string>
 local LAYOUT_ENUM_DESC = {
-  float = "floating window over the editor",
+  float = "floating window; a pane to the right in tmux or WezTerm",
   split = "horizontal split below",
   vsplit = "vertical split on the right",
-  tab = "separate tab page",
+  tab = "tab page; a new window in tmux, a new tab in WezTerm",
 }
 
 ---@internal
@@ -392,7 +395,7 @@ function M.setup()
         path = { "toggle" },
         args = NAME_ARG,
         flags = LAYOUT_FLAG,
-        desc = 'Toggle a terminal (the name "3" is what <A-h> with count 3 uses)',
+        desc = 'Toggle a terminal (the name "3" is the toggle key with count 3)',
         run = function(ctx)
           terminal.toggle(target_of(ctx))
         end,

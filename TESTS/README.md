@@ -18,7 +18,7 @@ the plugin manager's folder) and exits non-zero when anything is missing or red.
 | `native_spec.lua` | the native backend on real windows and jobs |
 | `api_spec.lua` | the public facade on the native backend |
 | `bindings_spec.lua` | keymaps, autocommands, `:Terminal` |
-| `usrcmds_help_spec.lua` | every `:Terminal` flag has a one-line description for the option float |
+| `usrcmds_help_spec.lua` | every `:Terminal` flag has a one-line description for the option float; the layout texts hold for tmux/WezTerm too, and no text names a key |
 | `status_spec.lua` | the status dataset, escape sequences, exporters, the delta gate, UI attach |
 | `navigate_spec.lua` | window navigation, hand-off commands, the in-flight guard |
 | `wezterm_backend_spec.lua` | the WezTerm backend and the facade on it (fake `wezterm cli`) |
