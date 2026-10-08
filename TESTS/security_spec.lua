@@ -89,13 +89,39 @@ end
 -- Every quoting family there is.
 local KINDS = { "posix", "fish", "powershell", "cmd", "portable" }
 
---- The words the powershell family refuses, written down independently of quote.lua: a double
---- quote, or white space together with a trailing backslash. (The generator's only white space is
---- the ASCII blank, so this is exact for its words.)
+--- Why the powershell family refuses a word, written down independently of quote.lua: a double
+--- quote, white space together with a trailing backslash, the empty word, the stop-parsing token
+--- `--%`; nil when the word is accepted. (The generator's only white space is the ASCII blank, so
+--- this is exact for its words.) The reason is the text the refusal names.
 ---@param word string
----@return boolean
-local function powershell_refuses(word)
-  return word:find('"', 1, true) ~= nil or (word:sub(-1) == "\\" and word:find(" ", 1, true) ~= nil)
+---@return "double quote"|"backslash"|"empty"|"--%"|nil
+local function powershell_refusal(word)
+  if word == "" then
+    return "empty"
+  elseif word == "--%" then
+    return "--%"
+  elseif word:find('"', 1, true) then
+    return "double quote"
+  elseif word:sub(-1) == "\\" and word:find(" ", 1, true) then
+    return "backslash"
+  end
+  return nil
+end
+
+--- The words of a seeded draw, each followed by the same word with a backslash appended: a random
+--- word rarely ends in one, and the rule about a trailing backslash is never reached otherwise.
+---@param rand fun(n: integer): integer
+---@param count integer How many words to draw
+---@param max integer Longest drawn word
+---@return string[]
+local function words_with_backslash_twins(rand, count, max)
+  local words = {}
+  for _ = 1, count do
+    local word = random_word(rand, max)
+    words[#words + 1] = word
+    words[#words + 1] = word .. "\\"
+  end
+  return words
 end
 
 --- A random word of raw bytes (0..255): control characters and invalid UTF-8 included.
@@ -226,15 +252,16 @@ describe("terminal.core.quote (property)", function()
     function()
       local rand = xorshift(7)
       local quotes = { "'", "\226\128\152", "\226\128\153", "\226\128\154", "\226\128\155" }
-      local refused = 0
-      for _ = 1, 400 do
-        local word = random_word(rand, 14)
-        local q = quote.word(word, "powershell")
-        -- refused exactly when the documented rule says so: nothing else is turned away, and
-        -- nothing it names is let through
-        assert.equals(powershell_refuses(word), q == nil, word)
-        if q == nil then
-          refused = refused + 1
+      local refused = { ["double quote"] = 0, backslash = 0 }
+      for _, word in ipairs(words_with_backslash_twins(rand, 400, 14)) do
+        local q, err = quote.word(word, "powershell")
+        -- refused exactly when the documented rule says so, and for that rule's reason: nothing
+        -- else is turned away, and nothing it names is let through
+        local reason = powershell_refusal(word)
+        assert.equals(reason ~= nil, q == nil, word)
+        if reason then
+          assert.truthy(err and err:find(reason, 1, true), ("%q: %s"):format(word, tostring(err)))
+          refused[reason] = (refused[reason] or 0) + 1
         elseif q:sub(1, 1) == "'" then
           local inner = q:sub(2, -2)
           for _, quote_char in ipairs(quotes) do
@@ -244,10 +271,17 @@ describe("terminal.core.quote (property)", function()
           end
         else
           assert.is_truthy(q:find("^[%w%._/:\\-]+$"), q)
+          assert.is_nil(q:find("^%-.*:"), "a bare -name:value splits into two arguments: " .. q)
         end
       end
-      -- the draw must reach the refusals, or the rule above is never exercised
-      assert.is_true(refused > 20, ("only %d refused words"):format(refused))
+      -- the draw must reach EACH refusal, or the rule above is never exercised: a loop that only
+      -- ever meets the double-quote rule would not notice the backslash rule being gone
+      for _, reason in ipairs({ "double quote", "backslash" }) do
+        assert.is_true(
+          refused[reason] > 10,
+          ("only %d words refused for: %s"):format(refused[reason], reason)
+        )
+      end
     end
   )
 
@@ -258,6 +292,77 @@ describe("terminal.core.quote (property)", function()
       if q and q:sub(1, 1) ~= "'" then
         assert.is_nil(q:find('[;&|<>(){}@,%%+=$`#!"]'), q)
       end
+    end
+  end)
+
+  it("powershell: a word that starts with '-' and holds ':' or '.' is never bare", function()
+    -- Once a bare `--` is on the line PowerShell splits `-x:y` into `-x:` and `y`, and `-a.b` into
+    -- `-a` and `.b`. The draw starts every word with a dash, so words with a colon or a dot behind
+    -- it are common.
+    local rand = xorshift(59)
+    local quoted_with_colon, quoted_with_dot, bare = 0, 0, 0
+    for _ = 1, 600 do
+      local word = "-" .. random_word(rand, 6)
+      local q = quote.word(word, "powershell")
+      if q and q:sub(1, 1) ~= "'" then
+        bare = bare + 1
+        assert.is_nil(q:find("[:.]"), "bare, with a colon or a dot: " .. q)
+      elseif q and word:find(":", 1, true) then
+        quoted_with_colon = quoted_with_colon + 1
+      elseif q and word:find(".", 1, true) then
+        quoted_with_dot = quoted_with_dot + 1
+      end
+    end
+    -- both branches must have been drawn, or this checks nothing
+    assert.is_true(
+      quoted_with_colon > 10,
+      ("%d quoted words with a colon"):format(quoted_with_colon)
+    )
+    assert.is_true(quoted_with_dot > 10, ("%d quoted words with a dot"):format(quoted_with_dot))
+    assert.is_true(bare > 10, ("%d bare words"):format(bare))
+  end)
+
+  it("posix and fish: a first word is bare only when it is a plain program name", function()
+    -- `NAME=value` in front of a command is an environment assignment (the next word then runs
+    -- as the command), `.` is source, `:` the null command, `%1` a job.
+    local rand = xorshift(61)
+    for _, kind in ipairs({ "posix", "fish" }) do
+      local bare, quoted = 0, 0
+      for _ = 1, 800 do
+        local word = random_word(rand, 4)
+        local suffix = " echo x"
+        local line = assert(quote.argv_to_line({ word, "echo", "x" }, kind))
+        assert.equals(suffix, line:sub(-#suffix))
+        local first = line:sub(1, #line - #suffix)
+        if first:sub(1, 1) == "'" then
+          quoted = quoted + 1
+        else
+          bare = bare + 1
+          assert.equals(word, first, kind)
+          assert.is_truthy(first:find("^[%w_/.][%w_/.+-]*$"), kind .. " " .. first)
+          assert.are_not.equals(".", first, kind)
+        end
+        local parse = kind == "fish" and shells.fish or posix_parse
+        assert.same({ word, "echo", "x" }, parse(line), line)
+      end
+      assert.is_true(bare > 20, ("%s: %d bare first words"):format(kind, bare))
+      assert.is_true(quoted > 20, ("%s: %d quoted first words"):format(kind, quoted))
+    end
+  end)
+
+  it("posix and fish: a first word that contains '=' is always quoted", function()
+    local rand = xorshift(67)
+    for _, kind in ipairs({ "posix", "fish" }) do
+      for _ = 1, 300 do
+        -- `=` at every position: in front, inside, at the end, and as the only character
+        local word = random_word(rand, 4) .. "=" .. random_word(rand, 4)
+        for _, candidate in ipairs({ word, "=" .. word, word .. "=", "=" }) do
+          local line = assert(quote.argv_to_line({ candidate, "echo", "x" }, kind))
+          assert.equals("'", line:sub(1, 1), kind .. " " .. candidate)
+        end
+      end
+      -- as an argument the same word stays readable where it is literal
+      assert.equals("echo A=b", assert(quote.argv_to_line({ "echo", "A=b" }, kind)))
     end
   end)
 
@@ -337,8 +442,11 @@ end)
 -- a model of that would prove nothing, so this runs the real shells. Registered only for the shells
 -- that exist (a skipped case would count as not green).
 --
--- Left out on purpose, and known: the EMPTY word (Windows PowerShell 5.1 and pwsh's legacy passing
--- drop it, quoted or not) and the word `--%` (PowerShell removes it even when it is quoted).
+-- Not in the list, because the family refuses them: the EMPTY word (Windows PowerShell 5.1 and
+-- pwsh's legacy passing drop it, quoted or not) and the word `--%` (PowerShell removes it even when
+-- it is quoted). The words that start with '-' and hold ':' are in it, and the case sends a bare
+-- `--` in front of all of them: after it PowerShell reads a bare `-name:value` as a parameter with a
+-- value and hands the program two arguments.
 local POWERSHELL_WORDS = {
   "plain",
   "a b",
@@ -370,6 +478,28 @@ local POWERSHELL_WORDS = {
   "-rf",
   "--flag=x",
   "--flag=a b",
+  "-x:y",
+  "-p:80",
+  "-ErrorAction:Stop",
+  "-Dkey:value",
+  "-o:out.txt",
+  "-L:C:/lib",
+  "-a-b:c",
+  "--flag:x",
+  "-:",
+  "-I./include",
+  "-a.",
+  "-a.b",
+  "-o.out",
+  "-a/.",
+  "-_.x",
+  "-1.5",
+  "--a.b",
+  "-.",
+  "a-b:c",
+  "a-b.c",
+  "C:/lib",
+  "./include",
   "\195\188n\195\175c\195\182d\195\169",
   "\240\159\152\128",
   "back\\slash",
@@ -388,11 +518,14 @@ describe("terminal.core.quote against the real PowerShell (property)", function(
     return quote.argv_to_line(argv, "powershell")
   end
 
-  --- The fixed words plus a seeded draw of the generator's words, minus what the family refuses.
+  --- A bare `--` first, then the fixed words, then a seeded draw of the generator's words (each
+  --- with its backslash twin), minus what the family refuses. The `--` is part of what the
+  --- program must receive, and every other word follows it.
   ---@return string[] accepted
-  ---@return integer refused How many of the drawn words the family turned away
+  ---@return table<string, integer> refused How many drawn words the family turned away, per rule
   local function words_to_send()
-    local words = vim.deepcopy(POWERSHELL_WORDS)
+    local words = { "--" }
+    vim.list_extend(words, POWERSHELL_WORDS)
     for _, word in ipairs(words) do
       assert.is_not_nil(
         quote.word(word, "powershell"),
@@ -400,13 +533,13 @@ describe("terminal.core.quote against the real PowerShell (property)", function(
       )
     end
     local rand = xorshift(53)
-    local refused = 0
-    for _ = 1, 120 do
-      local word = random_word(rand, 10)
+    local refused = { ["double quote"] = 0, backslash = 0 }
+    for _, word in ipairs(words_with_backslash_twins(rand, 120, 10)) do
       if quote.word(word, "powershell") then
         words[#words + 1] = word
       else
-        refused = refused + 1
+        local reason = assert(powershell_refusal(word), "refused, but not by a documented rule")
+        refused[reason] = (refused[reason] or 0) + 1
       end
     end
     return words, refused
@@ -423,9 +556,9 @@ describe("terminal.core.quote against the real PowerShell (property)", function(
     { exe = "pwsh", command = { "pwsh", "-NoProfile", "-NonInteractive", "-NoLogo", "-Command" } },
   }
   for _, shell in ipairs(shells_here) do
-    if
-      vim.fn.executable(shell.exe) == 1 and (not shell.windows_only or vim.fn.has("win32") == 1)
-    then
+    -- the cheap test first, and `installed` instead of `executable`: on a WSL host the latter
+    -- scans the Windows PATH over a 9p mount for seconds, while the file is being collected
+    if (not shell.windows_only or vim.fn.has("win32") == 1) and shells.installed(shell.exe) then
       -- pwsh 7.3+ has a preference for how a native program gets its arguments, and its default
       -- gets everything right; the older behaviour (`Legacy`) is what Windows PowerShell 5.1
       -- always has and what pwsh 7.0-7.2 had. Setting the variable in an older pwsh does nothing.
@@ -444,7 +577,9 @@ describe("terminal.core.quote against the real PowerShell (property)", function(
           ),
           function()
             local words, refused = words_to_send()
-            assert.is_true(refused > 5, "the draw must include refused words")
+            -- the draw must reach each refusal, or the words it sends prove nothing about it
+            assert.is_true(refused["double quote"] > 2, "the draw must include double-quote words")
+            assert.is_true(refused.backslash > 2, "the draw must include trailing-backslash words")
             local received, diagnostics =
               shells.received_args(shell.command, to_line, words, mode.prefix)
             assert.is_not_nil(received, diagnostics)

@@ -157,11 +157,11 @@ local line_names_marks = false
 --- Modifiers (`silent`, `keepjumps`, `2verbose` ...) are lower case, a user command is not; so
 --- everything in front of the range being lower case, digits, blanks, `:` and `!` means that
 --- nothing but modifiers comes first. Neovim files `:silent` typed in Visual mode as
---- `silent:'<,'>cmd`.
+--- `silent:'<,'>cmd`. The range is `'<,'>` or its alias `*` (Neovim's `:*` is `:'<,'>`).
 ---@param line string
 ---@return boolean
 local function names_marks(line)
-  return line:find("^[%l%d%s:!]*'<,'>") ~= nil
+  return line:find("^[%l%d%s:!]*'<,'>") ~= nil or line:find("^[%l%d%s:!]*%*") ~= nil
 end
 
 ---@internal
@@ -177,10 +177,56 @@ local function note_command_line()
 end
 
 ---@internal
+--- A line of the current buffer ("" when there is none).
+---@param lnum integer
+---@return string
+local function line_at(lnum)
+  return vim.api.nvim_buf_get_lines(0, lnum - 1, lnum, false)[1] or ""
+end
+
+---@internal
+--- Whether a Visual mark sits just past the last character of its (non-empty) line: where the
+--- cursor is after `$` in Visual mode. A position that holds `virtualedit` padding (the fourth
+--- element) is a block that was drawn past the line on purpose, not `$`; and a mark on an empty
+--- line is column 1 whatever the selection (`$` there looks like any other block: the text of such
+--- a selection is the plain block).
+---@param pos integer[] `getpos()` result
+---@return boolean
+local function past_line_end(pos)
+  local line = line_at(pos[2])
+  return pos[4] == 0 and #line > 0 and pos[3] > #line
+end
+
+---@internal
+--- The text of a blockwise selection made with `$` (`CTRL-V` ... `$`): every row from the left edge
+--- of the block to the end of THAT row, as a yank of it gives. `getregion` cannot say so: it cuts
+--- every row at the column of the mark, which is past the end of the line the cursor is on and
+--- so no longer the end of the others. The left edge per row comes from `getregionpos`, which keeps
+--- a multibyte character whole and knows tabs; a row that ends before the left edge has nothing in
+--- the block (empty here, a yank pads it with blanks).
+---@param from integer[]
+---@param to integer[]
+---@return string[]|nil rows nil when the positions cannot be had
+local function block_to_line_ends(from, to)
+  local ok, rows = pcall(vim.fn.getregionpos, from, to, { type = "\22" })
+  if not ok or type(rows) ~= "table" or #rows == 0 then
+    return nil
+  end
+  local out = {}
+  for i, row in ipairs(rows) do
+    local start = row[1]
+    -- column 0: the row has no character at or after the left edge
+    out[i] = start[3] > 0 and line_at(start[2]):sub(start[3]) or ""
+  end
+  return out
+end
+
+---@internal
 --- The text of a Visual selection that is exactly the range the command was given: the characters
---- of a characterwise selection, the block of a blockwise one. nil when the range does not come
---- from a characterwise / blockwise selection: a linewise one, a range typed by hand (`:2,3`, also
---- when it covers the lines of an older selection), or a call without a command line.
+--- of a characterwise selection, the block of a blockwise one (to the end of every row after `$`).
+--- nil when the range does not come from a characterwise / blockwise selection: a linewise one, a
+--- range typed by hand (`:2,3`, also when it covers the lines of an older selection), or a call
+--- without a command line.
 ---@param range Lib.UserCmd.Composer.RangeInfo
 ---@return string[]|nil
 local function visual_text(range)
@@ -193,6 +239,12 @@ local function visual_text(range)
   -- `'<,'>` can be followed by an offset (`'<,'>+1`): only trust the marks for the range they give.
   if from[2] ~= range.line1 or to[2] ~= range.line2 then
     return nil
+  end
+  if range.mode == "\22" and (past_line_end(from) or past_line_end(to)) then
+    local rows = block_to_line_ends(from, to)
+    if rows then
+      return rows
+    end
   end
   local ok, lines = pcall(vim.fn.getregion, from, to, { type = range.mode })
   if not ok or type(lines) ~= "table" or #lines == 0 then

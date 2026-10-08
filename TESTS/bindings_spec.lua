@@ -425,6 +425,103 @@ describe("terminal bindings", function()
         assert.equals("ch\nhi" .. eol(), text)
       end)
 
+      --- What a yank of the selection `keys` makes gives, as lines.
+      ---@param keys string
+      ---@return string[]
+      local function yanked(keys)
+        type_keys(keys .. '"zy')
+        return vim.fn.getreg("z", 1, true)
+      end
+
+      --- The selection `keys` makes, sent and yanked: both as lines.
+      ---@param keys string Ends with the Visual selection; the command or the yank follows it
+      ---@return string[] sent
+      ---@return string[] yanked
+      local function sent_and_yanked(keys)
+        local yank = yanked(keys)
+        local text = sent_by(keys .. ":Terminal send selection --exec<CR>")
+        -- --exec ends the text with the line ending of the platform
+        return vim.split(text:sub(1, -#eol() - 1), "\n", { plain = true }), yank
+      end
+
+      it("blockwise with $: every row from the left edge to the end of THAT row", function()
+        -- the cursor is past the end of the short line: a cut at that column loses "ld"
+        local sent, yank = sent_and_yanked("gg0l<C-v>j$")
+        assert.same({ "cho hello world", "hijkl" }, yank, "what a yank gives")
+        assert.same(yank, sent)
+      end)
+
+      it("blockwise with $ in every direction the selection can grow", function()
+        -- the row the cursor ends on is the SHORTER one in each case: a cut at its column would
+        -- lose the end of the longer rows
+        local long, short = "echo hello world", "ghijkl"
+        local cases = {
+          -- buffer, keys, rows
+          { { long, short, "mnopqr" }, "gg0l<C-v>jj$", { "cho hello world", "hijkl", "nopqr" } },
+          { { long, short }, "gg0l<C-v>$j", { "cho hello world", "hijkl" } }, -- $ first, then down
+          -- upwards: it is the mark '< that sits past the end of its line
+          { { short, long, "mnopqr" }, "G0l<C-v>kk$", { "hijkl", "cho hello world", "nopqr" } },
+          { { short, long }, "G0l<C-v>$k", { "hijkl", "cho hello world" } },
+        }
+        for _, case in ipairs(cases) do
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, case[1])
+          local sent, yank = sent_and_yanked(case[2])
+          assert.same(case[3], yank, case[2] .. ": what a yank gives")
+          assert.same(case[3], sent, case[2])
+        end
+      end)
+
+      it("blockwise with $ keeps multibyte characters, wide ones and tabs whole", function()
+        local cases = {
+          -- two-byte letters: the left edge is the second one, and a cut at the byte column of the
+          -- short row would split a letter of the long one
+          {
+            { "αβγδ ε ζ", "ηθικ" },
+            "gg0l<C-v>j$",
+            { "βγδ ε ζ", "θικ" },
+          },
+          -- three-byte, two-cell characters: the left edge is the first of them
+          {
+            { "ab日本語テキスト", "cd日本" },
+            "gg0ll<C-v>j$",
+            { "日本語テキスト", "日本" },
+          },
+          -- a tab starts the block
+          {
+            { "a\tb and more text", "cdefghijk" },
+            "gg0l<C-v>j$",
+            { "\tb and more text", "defghijk" },
+          },
+        }
+        for _, case in ipairs(cases) do
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, case[1])
+          local sent, yank = sent_and_yanked(case[2])
+          assert.same(case[3], yank, vim.inspect(case[1]) .. ": what a yank gives")
+          assert.same(case[3], sent, vim.inspect(case[1]))
+        end
+      end)
+
+      it(
+        "blockwise with $: a row that ends before the left edge has nothing in the block",
+        function()
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, { "echo hello world", "mn", "ghijklmnopqrs" })
+          -- left edge at column 8; a yank pads the short row with blanks, which nobody wants typed
+          local sent = sent_and_yanked("gg07l<C-v>jj$")
+          assert.same({ "llo world", "", "nopqrs" }, sent)
+        end
+      )
+
+      it(
+        "blockwise without $: a block that ends on an empty line is still the plain block",
+        function()
+          -- the mark of an empty line is column 1, as it is for any selection that ends there
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdef", "ghijkl", "" })
+          local sent, yank = sent_and_yanked("gg0l<C-v>jj")
+          assert.same({ "ab", "gh", "" }, yank, "what a yank gives")
+          assert.same(yank, sent)
+        end
+      )
+
       it("linewise: whole lines", function()
         local text = sent_by("ggVj:Terminal send selection --exec<CR>")
         assert.equals("echo hello world\nghijkl" .. eol(), text)
@@ -433,6 +530,26 @@ describe("terminal bindings", function()
       it("a command-line modifier in front of the range changes nothing", function()
         assert.equals("hello", sent_by("gg0wviw:silent Terminal send selection<CR>"))
         assert.equals("hello", sent_by("gg0wviw:keepjumps Terminal send selection<CR>"))
+      end)
+
+      it("the range typed as * (Neovim's alias for '<,'>) is the selection too", function()
+        assert.equals("hello", sent_by("gg0wviw<Esc>:*Terminal send selection<CR>"))
+        assert.equals("hello", sent_by("gg0wviw<Esc>:silent *Terminal send selection<CR>"))
+        assert.equals("hello", sent_by("gg0wviw<Esc>:'<,'>Terminal send selection<CR>"))
+        -- a blockwise one as well
+        assert.equals(
+          "ch\nhi" .. eol(),
+          sent_by("gg0l<C-v>jl<Esc>:*Terminal send selection --exec<CR>")
+        )
+      end)
+
+      it("an offset behind the marks is a plain range: whole lines, not the selection", function()
+        -- the marks still say "hello" on line 1, but the range is lines 1-2
+        local plus = sent_by("gg0wviw<Esc>:'<,'>+1Terminal send selection --exec<CR>")
+        assert.equals("echo hello world\nghijkl" .. eol(), plus)
+        -- and lines 1-2 again when a selection over lines 1-3 loses its last line
+        local minus = sent_by("gg0wvjj<Esc>:'<,'>-1Terminal send selection --exec<CR>")
+        assert.equals("echo hello world\nghijkl" .. eol(), minus)
       end)
 
       it("a mapping that starts with ':' from Visual mode sends the selection", function()

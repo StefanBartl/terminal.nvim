@@ -29,9 +29,10 @@ does the rest.
 
 `<Tab>` completes the terminal name from the terminals that are open in this project (read when
 the key is pressed). `:Terminal send selection` sends exactly the selected characters for a
-characterwise (`v`) selection and the block for a blockwise one — when the command line that runs it
-starts with the range `'<,'>`: `:` pressed in Visual mode (Neovim fills the range in), `:'<,'>Terminal
-send selection` typed by hand, or a mapping whose right-hand side starts with `:` (`xnoremap <leader>ts
+characterwise (`v`) selection and the block for a blockwise one (made with `$`, every row to its own
+end) — when the command line that runs it starts with the range `'<,'>` (or its alias `*`): `:`
+pressed in Visual mode (Neovim fills the range in), `:'<,'>Terminal send selection` typed by hand,
+or a mapping whose right-hand side starts with `:` (`xnoremap <leader>ts
 :Terminal send selection<CR>`). It sends whole lines for a linewise selection, for a numeric range
 (`:2,3Terminal send selection`, also when it covers the lines of an older selection) and for a call
 that has no command line at all (a `<Cmd>` mapping, `vim.cmd()` from Lua).

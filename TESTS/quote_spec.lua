@@ -129,9 +129,78 @@ describe("terminal.core.quote", function()
       assert.equals("printf '=ls' tail", quote.argv_to_line({ "printf", "=ls", "tail" }, "posix"))
     end)
 
+    it("quotes a FIRST word that is not a plain program name; arguments keep their set", function()
+      for _, kind in ipairs({ "posix", "fish" }) do
+        -- `A=b echo INJECTED` runs INJECTED and eats the program word as an assignment
+        assert.equals(
+          "'A=b' echo INJECTED",
+          quote.argv_to_line({ "A=b", "echo", "INJECTED" }, kind),
+          kind
+        )
+        assert.equals("'PATH=/tmp/evil' ls", quote.argv_to_line({ "PATH=/tmp/evil", "ls" }, kind))
+        assert.equals("'x=' y", quote.argv_to_line({ "x=", "y" }, kind), kind)
+        -- `.` is source, `:` the null command, `%1` a job, `-` a precommand modifier in zsh
+        for _, special in ipairs({ ".", ":", "%1", "-", "-x", "@x", "a:b", "a,b", "~" }) do
+          assert.equals(
+            "'" .. special .. "' x",
+            quote.argv_to_line({ special, "x" }, kind),
+            kind .. " " .. special
+          )
+        end
+        assert.equals("''", quote.argv_to_line({ "" }, kind), kind)
+        -- the same words as arguments need no quotes (`=` is literal there)
+        assert.equals("echo A=b a:b a,b", quote.argv_to_line({ "echo", "A=b", "a:b", "a,b" }, kind))
+        -- plain program names stay readable
+        for _, name in ipairs({
+          "git",
+          "ls",
+          "node18",
+          "g++",
+          "x_y-z.1",
+          "/usr/bin/env",
+          "./run.sh",
+          "../bin/tool",
+          "..",
+          ".hidden",
+          "a-b",
+        }) do
+          assert.equals(name .. " x", quote.argv_to_line({ name, "x" }, kind), kind .. " " .. name)
+        end
+      end
+      -- the single-word form asks for the program rule through its third argument
+      assert.equals("'A=b'", quote.word("A=b", "posix", true))
+      assert.equals("A=b", quote.word("A=b", "posix"))
+      assert.equals("'A=b'", quote.word("A=b", "fish", true))
+      assert.equals("A=b", quote.word("A=b", "fish"))
+    end)
+
+    -- A shell exists on every Linux and macOS machine, not on a stock Windows one: registered only
+    -- where it can run (a skipped case would count as not green).
+    if vim.fn.has("win32") == 0 then
+      it("sh runs a program called NAME=value instead of reading an assignment", function()
+        local dir = vim.fn.tempname()
+        vim.fn.mkdir(dir, "p")
+        local program = dir .. "/A=b"
+        vim.fn.writefile({ "#!/bin/sh", "echo program-ran" }, program)
+        vim.uv.fs_chmod(program, 493) -- 0755
+        local line = assert(quote.argv_to_line({ "A=b", "echo", "INJECTED" }, "posix"))
+        -- PATH holds only the directory with the program and the system's own: an unquoted
+        -- `A=b echo INJECTED` would set a variable and print INJECTED instead
+        local res = vim
+          .system(
+            { "/bin/sh", "-c", line },
+            { clear_env = true, env = { PATH = dir .. ":/usr/bin:/bin" } }
+          )
+          :wait(10000)
+        vim.fn.delete(dir, "rf")
+        assert.equals(0, res.code, (res.stderr or "") .. "\n" .. line)
+        assert.equals("program-ran\n", res.stdout, line)
+      end)
+    end
+
     -- zsh exists on Linux and macOS machines, not on a stock Windows one: the case is registered
     -- only where it can run (a skipped case would count as not green).
-    if vim.fn.executable("zsh") == 1 then
+    if shells.installed("zsh") then
       it("zsh reads every hostile word back as itself, =ls and =nosuchcmd included", function()
         local words = vim.list_extend(vim.deepcopy(HOSTILE), { "=nosuchcmd", "==", "a=b", "=a=b" })
         local argv = vim.list_extend({ "printf", "%s\\n" }, words)
@@ -241,7 +310,68 @@ describe("terminal.core.quote", function()
       )
       assert.equals("'\195\160\\'", quote.word("\195\160\\", "powershell"))
       assert.equals("'a\226\128\139b\\'", quote.word("a\226\128\139b\\", "powershell"))
-      assert.equals("''", quote.word("", "powershell"))
+    end)
+
+    it("refuses the empty word and `--%`: a real PowerShell drops both on the way", function()
+      -- `grep '' file` would reach grep as `grep file`; `--%` is PowerShell's stop-parsing token
+      -- and goes away even when it is quoted. Every other argument would move up one place.
+      for _, word in ipairs({ "", "--%" }) do
+        local w, err = quote.word(word, "powershell")
+        assert.is_nil(w, word)
+        assert.truthy(err and err:find("`direct = true`", 1, true), err)
+        local line, line_err = quote.argv_to_line({ "grep", word, "file" }, "powershell")
+        assert.is_nil(line, word)
+        assert.truthy(line_err and line_err:find("argument 2: ", 1, true), line_err)
+        -- the program word too
+        assert.is_nil((quote.argv_to_line({ word, "x" }, "powershell")), word)
+      end
+      -- only the whole word is the token: neighbours of `--%` and a blank word are fine
+      assert.equals("'--%x'", quote.word("--%x", "powershell"))
+      assert.equals("'x--%'", quote.word("x--%", "powershell"))
+      assert.equals("' '", quote.word(" ", "powershell"))
+      -- the other families keep the empty word: they pass it on
+      assert.equals("''", quote.word("", "posix"))
+      assert.equals("''", quote.word("", "fish"))
+      assert.equals('""', quote.word("", "cmd"))
+    end)
+
+    it("single-quotes a word that starts with '-' and holds ':' or '.' (-name:value)", function()
+      -- Once a bare `--` is on the line PowerShell reads `-x:y` as a parameter with a value and
+      -- hands the program `-x:` and `y`; `-I./include` arrives as `-I` and `./include`. Single
+      -- quotes keep the word whole.
+      for _, word in ipairs({
+        "-x:y",
+        "-p:80",
+        "-ErrorAction:Stop",
+        "-Dkey:value",
+        "-o:out.txt",
+        "-L:C:/lib",
+        "-a-b:c",
+        "--flag:x",
+        "-:",
+        "-I./include",
+        "-a.",
+        "-a.b",
+        "-o.out",
+        "-a/.",
+        "-_.x",
+        "-1.5",
+        "--a.b",
+        "-.",
+      }) do
+        assert.equals("'" .. word .. "'", quote.word(word, "powershell"), word)
+      end
+      -- a colon or dot elsewhere and a dash elsewhere stay bare, as do options without either
+      assert.equals("C:/lib", quote.word("C:/lib", "powershell"))
+      assert.equals("a-b:c", quote.word("a-b:c", "powershell"))
+      assert.equals("a-b.c", quote.word("a-b.c", "powershell"))
+      assert.equals("./include", quote.word("./include", "powershell"))
+      assert.equals("x-y", quote.word("x-y", "powershell"))
+      assert.equals("-rf", quote.word("-rf", "powershell"))
+      assert.equals("--verbose", quote.word("--verbose", "powershell"))
+      assert.equals("--no-color", quote.word("--no-color", "powershell"))
+      assert.equals("-1", quote.word("-1", "powershell"))
+      assert.equals("-a/b\\c", quote.word("-a/b\\c", "powershell"))
     end)
   end)
 

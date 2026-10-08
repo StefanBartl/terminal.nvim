@@ -11,8 +11,40 @@
 --                 not a model: the REAL thing. Types a quoted line into a real shell and returns the
 --                 arguments a real program received (PowerShell's native argument passing differs
 --                 between versions, so no model of it would be trusted)
+--   installed(exe) whether a program is on the PATH, without the slow scan of a WSL host (see below)
 
 local M = {}
+
+--- Whether `exe` can be started from the PATH. It decides which real-shell cases get registered, and
+--- that happens while a spec file is collected, so it must be cheap.
+---
+--- `vim.fn.executable` looks through every PATH entry, and a miss costs seconds on a WSL host: the
+--- Windows PATH is on it (`/mnt/c/...`, a 9p mount where every lookup is a round trip to Windows),
+--- and a spec file that asks for a shell that is not installed (`pwsh`, `zsh`) ran into the
+--- 10 s limit of a case before its first case even started. A program found through such an entry
+--- is a Windows program (`pwsh.exe` is never called `pwsh` there) that the Linux Neovim cannot
+--- start by the paths these specs hand over, so on a WSL host those entries are not looked at.
+---
+--- A WSL host is told by the kernel's name (`...-microsoft-standard-WSL2`), not by
+--- `$WSL_DISTRO_NAME`: the spec runner may start its children with a cleaned environment.
+---@param exe string
+---@return boolean
+function M.installed(exe)
+  local on_wsl = (vim.uv.os_uname().release or ""):lower():find("microsoft", 1, true) ~= nil
+  if vim.fn.has("win32") == 1 or not on_wsl then
+    return vim.fn.executable(exe) == 1
+  end
+  for dir in vim.gsplit(vim.env.PATH or "", ":", { plain = true }) do
+    if dir ~= "" and not vim.startswith(dir, "/mnt/") then
+      local path = dir .. "/" .. exe
+      local stat = vim.uv.fs_stat(path)
+      if stat and stat.type == "file" and vim.uv.fs_access(path, "X") then
+        return true
+      end
+    end
+  end
+  return false
+end
 
 --- Words of a line quoted with single quotes only (the POSIX form; backslash is literal).
 ---@param line string

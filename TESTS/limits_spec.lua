@@ -133,9 +133,15 @@ describe("quote: cmd.exe words", function()
 
   it("the other shells take a long word in linear time too", function()
     local word = ("a'b\\c\" "):rep(30000)
+    -- the program word has a pattern of its own: a long plain name matches to the very end, and a
+    -- long name with '=' at the end fails only there
+    local name = ("a"):rep(200000)
     for _, kind in ipairs({ "posix", "fish" }) do
       local took = seconds(function()
         quote.word(word, kind)
+        quote.word(word, kind, true)
+        assert.equals(name, quote.word(name, kind, true))
+        assert.equals("'" .. name .. "='", quote.word(name .. "=", kind, true))
       end)
       assert.is_true(took < 1, ("%s took %.2f s"):format(kind, took))
     end
@@ -151,6 +157,10 @@ describe("quote: cmd.exe words", function()
       double_quote = ("a'b\\c\" "):rep(30000),
       blank_and_backslash = ("a b"):rep(70000) .. "\\",
       backslash_no_white_space = ("a"):rep(200000) .. "\\",
+      -- the dash rule scans the whole word, whether it finds a colon or a dot only at the end, or none
+      dash_without_colon_or_dot = "-" .. ("a"):rep(200000),
+      dash_colon_last = "-" .. ("a"):rep(200000) .. ":",
+      dash_dot_last = "-" .. ("a"):rep(200000) .. ".",
     }
     for name, word in pairs(long) do
       local got, err
@@ -159,7 +169,13 @@ describe("quote: cmd.exe words", function()
       end)
       assert.is_true(took < 1, ("%s took %.2f s"):format(name, took))
       -- the verdicts, so the timing is not of a different code path than the one named
-      if name == "accepted" or name == "backslash_no_white_space" then
+      if
+        name == "accepted"
+        or name == "backslash_no_white_space"
+        or name == "dash_without_colon_or_dot"
+        or name == "dash_colon_last"
+        or name == "dash_dot_last"
+      then
         assert.is_string(got, name)
       else
         assert.is_nil(got, name)
