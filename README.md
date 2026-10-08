@@ -35,14 +35,16 @@ your shell so a file name with a space or a `$(...)` stays data.
 
 ```
 <A-h>         toggle the terminal       3<A-h>  toggle terminal "3"
-:Terminal run --direct make test       run a command as the job, get its exit code
+:Terminal run --direct make test       run a command as the job; the window stays after it ends
 :Terminal send selection --exec        type the selection into the terminal and press Enter
 ```
 
-The terminal layer is a **backend** behind one API. Today the `native` backend (Neovim's
-own `:terminal`) and a `wezterm` backend (terminals as WezTerm panes) exist; the nvim status
-also goes to WezTerm (tab title, right status). A tmux backend and navigation across pane
-borders are the next steps.
+The terminal layer is a **backend** behind one API: `native` (Neovim's own `:terminal`, the
+default), `tmux` and `wezterm` (terminals as panes of the multiplexer Neovim runs in).
+`:Terminal pin` restarts a native terminal as such a pane so it outlives Neovim, and
+`:Terminal adopt` shows a pane's screen in a read-only buffer. Beside that, Neovim reports
+what it is doing (mode, file, branch, diagnostics) to tmux and WezTerm, and one key moves
+from a Neovim window into the neighbouring pane across the border.
 
 ## Table of contents
 
@@ -56,34 +58,36 @@ borders are the next steps.
 Start at [docs/README.md](docs/README.md) — what is where, and which question each page
 answers.
 
-**The Basics**
+### The Basics
 
 - [Requirements](docs/requirements.md) — Neovim version (0.11+, 0.12+ for the WezTerm status export), tmux 3.1+, required plugins.
 - [Installation](docs/installation.md) — plugin managers and load-trigger variants.
 - [Quickstart](docs/quickstart.md) — the first things to run after installing.
 
-**Configuration**
+### Configuration
 
 - [All options](docs/configuration.md) — every `setup()` option and its default.
-- [Commands](docs/commands.md) / [Bindings cheatsheet](docs/BINDINGS.md)
+- [Commands](docs/commands.md) / [Bindings cheatsheet](docs/BINDINGS.md) — `:Terminal`, and every key and autocommand the plugin binds.
 
-**Navigation**
+### Navigation
 
-- [Navigation](docs/navigation.md) — one key from Neovim windows into the neighbouring pane.
+- [Navigation](docs/navigation.md) — one key from Neovim windows into the neighbouring tmux or WezTerm pane.
 
-**Backends**
+### Backends
 
-- [Backends](docs/backends.md) — native windows or WezTerm panes.
+- [Backends](docs/backends.md) — native windows, tmux panes or WezTerm panes.
+- [tmux](docs/tmux.md) — the tmux backend, the status in `status-right`, a `tmux.conf` to start from.
 
-**Status export**
+### Status export
 
-- [Status export](docs/status.md) — mode, file, branch, diagnostics to WezTerm.
+- [Status export](docs/status.md) — mode, file, branch, diagnostics to tmux (pane options) and WezTerm (tab title, right status).
 
-**Internals**
+### Internals
 
 - [Architecture](docs/architecture.md) — core, backends, how a call travels.
+- [References](docs/references.md) — the WezTerm, iTerm2, tmux and Neovim documentation the status export and the pane commands rest on.
 
-`:help terminal.nvim` has the same in Vim help form (`doc/terminal.txt`).
+`:help terminal.nvim` has the short version in Vim help form (`doc/terminal.txt`).
 
 ## License
 

@@ -20,7 +20,10 @@ set -g allow-passthrough on
 set -g status-right '#{?#{&&:#{@terminal_mode},#{||:#{m:*vim*,#{pane_current_command}},#{||:#{m:vi,#{pane_current_command}},#{m:view,#{pane_current_command}}}}},#{@terminal_mode} #{@terminal_branch} #{@terminal_diag} | ,}%H:%M'
 ```
 
-`:checkhealth terminal` reports `allow-passthrough` and the detected tmux.
+`:checkhealth terminal` reports `allow-passthrough` and the detected tmux. The option matters only for
+the WezTerm status export (the tmux exporter and the backend never write an escape sequence): measured on
+2026-10-07, a bare `OSC 1337` sequence never leaves tmux and a wrapped one arrives only with the option
+on ([status.md](status.md#measured)).
 
 A theme plugin that sets `status-right` itself (catppuccin-tmux does, unconditionally, while TPM loads it) replaces
 that line. The author's `Configs/terminals/tmux/tmux.conf` keeps the segment in a user option
@@ -48,3 +51,6 @@ first split; `:checkhealth terminal` shows it).
 `TESTS/tmux_backend_spec.lua` runs against a fake `tmux`. `TESTS/live/tmux.lua` starts a **private**
 server (`tmux -L terminal-nvim-live`) and drives a real one; on Windows with
 `TMUX_LIVE_WSL=<distro>` through `wsl.exe -e tmux`. CI runs it on ubuntu.
+
+See also: [references.md](references.md) for the tmux manual sections (`allow-passthrough`,
+`set-option`, `send-keys`, `split-window`) the backend and the exporter rest on.

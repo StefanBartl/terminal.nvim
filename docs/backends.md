@@ -13,8 +13,12 @@ the same for all of them.
 Reporting Neovim's *status* to WezTerm is separate and additive: see [status.md](status.md).
 A backend that is named but not available (not inside WezTerm, `wezterm` not on `$PATH`) falls
 back to `native` with one notice that says why. A multiplexer backend is looked at only when the
-config names it (or `pin` / a pinned terminal needs it): finding `wezterm` or `tmux` on `$PATH` takes
-tens of milliseconds on Windows and `setup()` does not pay that on every start.
+config names it (or `pin` / a pinned terminal needs it): finding `wezterm` or `tmux` on `$PATH`
+(a `vim.fn.executable` lookup) takes tens of milliseconds on Windows and `setup()` does not pay that
+on every start.
+
+A native terminal can be restarted as a multiplexer pane with `:Terminal pin`, and a pane's screen
+shown in a read-only buffer with `:Terminal adopt` ([commands.md](commands.md#pin-and-adopt)).
 
 ## Asking a multiplexer
 
@@ -59,3 +63,6 @@ Differences from `native`, on purpose:
 
 Specs run against a fake `wezterm cli` (`TESTS/wezterm_backend_spec.lua`); `TESTS/live/wezterm.lua`
 drives a real one inside a WezTerm pane.
+
+See also: [references.md](references.md) for the `wezterm cli` and tmux manual pages the multiplexer
+backends call.

@@ -16,7 +16,18 @@ terminal.nvim gives you named terminals per project root: a float, split,
 vsplit or tab that you toggle with one key, that keeps running while hidden,
 and that you can type into from buffers. It needs lib.nvim.
 
-Only the "native" backend (Neovim's own |:terminal|) is implemented.
+The terminals live in a backend, the same API for all of them:
+
+  native            Neovim's own |:terminal| windows (the default)
+  tmux              panes of the tmux window Neovim runs in
+  wezterm           panes of the WezTerm window Neovim runs in
+
+`backend = "tmux"` or `"wezterm"` picks a multiplexer; one that is not
+available falls back to native with a notice. `:Terminal pin` restarts a
+native terminal as a pane so it outlives Neovim. Neovim also reports what it
+is doing (mode, file, branch, diagnostics) to tmux and WezTerm, and the window
+keys move on into the neighbouring pane at Neovim's edge. See
+docs/backends.md, docs/status.md and docs/navigation.md.
 
 ==============================================================================
 2. COMMANDS                                                 *terminal-commands*
@@ -27,17 +38,27 @@ Only the "native" backend (Neovim's own |:terminal|) is implemented.
 :Terminal open [name]           Show and focus; create when needed.
 :Terminal hide [name]           Close the window, keep the job.
 :Terminal close [name]          Stop the job and remove the terminal.
-:Terminal pin [name] [--backend=] Restart a native terminal as a tmux/WezTerm pane.
+:Terminal pin [name] [--backend=] [--layout=]
+                                Restart a native terminal as a tmux/WezTerm
+                                pane so it outlives Neovim. Not a transfer:
+                                the old output is gone.
 :Terminal adopt [name]          View a pane's screen in a read-only buffer.
 :Terminal list                  Pick one of this project's terminals.
 :Terminal send {line|file} [name] [--exec]
 :{range}Terminal send selection [name] [--exec]
                                 Type text into a terminal; --exec adds Enter.
+                                A characterwise selection sends exactly the
+                                selected characters, a blockwise one the
+                                block, a linewise one or a plain range whole
+                                lines.
 :Terminal run [--name=] [--layout=] [--direct] {command...}
                                 Run a command in the "run" terminal.
                                 --direct starts it as the job itself.
 
-`--layout=` is float, split, vsplit or tab.
+`--layout=` is float, split, vsplit or tab. `--backend=` is tmux or wezterm.
+<Tab> completes [name] from the terminals open in this project; toggle, open,
+send and --name= also offer the default name, the "run" name and the counts 1
+to 9.
 
 ==============================================================================
 3. LUA API                                                      *terminal-api*
@@ -49,22 +70,50 @@ Only the "native" backend (Neovim's own |:terminal|) is implemented.
   terminal.open({ count = 3, focus = false })
   terminal.hide(target)    terminal.close(target)
   terminal.list(all)
+  terminal.names(all)
   terminal.send(text, { newline = true, name = "repl" })
   terminal.run({ "git", "status" })
   terminal.run({ "make" }, { direct = true, on_exit = function(code) end })
+  terminal.navigate("h", 2)
+  terminal.pin({ name = "build" }, { backend = "tmux", layout = "vsplit" })
+  terminal.adopt({ name = "build" })
   terminal.status()
 <
 
 An argv list given to run() is quoted for the terminal's shell; a string is
 typed as given.
 
+names([all])        The names of this project's terminals (all projects with
+                    `all = true`), straight from the registry: no multiplexer
+                    is asked. Cheap enough for completion; list() is exact.
+navigate(dir, count)
+                    Move to the window in direction h, j, k or l (count
+                    windows, default 1). At Neovim's edge the multiplexer
+                    around it focuses the neighbouring pane; a floating window
+                    never hands off. Raises on another direction or on a
+                    count that is not a number from 0 up.
+pin(target, opts)   Restart a native terminal as a pane of tmux or WezTerm
+                    (`opts.backend`, `opts.layout`) so it outlives Neovim.
+adopt(target)       Show a multiplexer terminal's screen in a read-only
+                    buffer (a view, not a transfer); returns the buffer.
+
+Failures come back as `nil, err` or `false, err`. open, toggle, send, run, pin
+and adopt also show the message; hide and close only answer.
+
 ==============================================================================
 4. KEYMAPS                                                   *terminal-keymaps*
 
   <A-h>            normal, terminal   toggle (a count picks terminal N)
   <Esc>, <C-c>     terminal           leave terminal mode
-  (off) clear      terminal           type cls/clear; (off) window_right <C-l>
-  <C-h/j/k>        terminal           window navigation (<C-l> clears in the shell)
+  <C-h/j/k>        terminal           window left/down/up; at Neovim's edge
+                                      the multiplexer focuses the next pane
+  window_right     terminal           (off) so <C-l> clears in the shell
+  clear            terminal           (off) types "cls" for cmd.exe and
+                                      PowerShell, "clear" for any other shell
+                                      (the terminal's shell decides, not the
+                                      OS)
+  nav_*            normal             (off) the same moves from Normal mode:
+                                      nav_left/down/up/right, with a count
 
 Move one with `keymaps = { toggle = "<A-x>" }`, drop one with `false`, bind
 nothing with `preset = false`.
