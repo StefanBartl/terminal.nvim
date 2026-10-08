@@ -522,6 +522,184 @@ describe("terminal bindings", function()
         end
       )
 
+      it("blockwise: a corner on a shorter row is not mistaken for $", function()
+        -- the cursor of such a block stands one past the last character of the short row, which
+        -- is also where `$` leaves it: the marks cannot tell the two apart
+        local cases = {
+          -- (`gg0`: with 'nostartofline' `gg` keeps the column an earlier case left behind)
+          { { "abcdefghij", "abcd" }, "gg07l<C-v>j", { "efgh", "" } },
+          { { "abcdefghij", "abcdef" }, "gg02l<C-v>j4l", { "cdefg", "cdef" } }, -- one `l` too many
+        }
+        for _, case in ipairs(cases) do
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, case[1])
+          local sent, yank = sent_and_yanked(case[2])
+          assert.same(case[3], yank, case[2] .. ": what a yank gives")
+          assert.same(case[3], sent, case[2])
+        end
+      end)
+
+      it(
+        "blockwise with $: the left edge is found per row, whatever the rows hold before it",
+        function()
+          -- rows with a different number of BYTES in front of the edge: a byte offset taken from one
+          -- row would cut the others in the wrong place
+          local cases = {
+            { { "aβγδ ez long long", "abcd", "wxyz12" }, "gg0ll<C-v>jj$" },
+            { { "日本abc long long", "wxyzabcdef", "k" }, "gg0ll<C-v>j$" },
+          }
+          for _, case in ipairs(cases) do
+            vim.api.nvim_buf_set_lines(0, 0, -1, false, case[1])
+            local sent, yank = sent_and_yanked(case[2])
+            assert.same(yank, sent, vim.inspect(case[1]) .. " " .. case[2])
+          end
+        end
+      )
+
+      it(
+        "blockwise with 'virtualedit' all or onemore: a block drawn past a row is not $",
+        function()
+          -- the mark of a block that ends just past a row is the same as after `$` (and with
+          -- 'virtualedit' all it carries padding); neither is the end of every row
+          local cases = {
+            { "onemore", "gg0l<C-v>j6l", { "cho he", "hijkl" } },
+            { "all", "gg02l<C-v>j9l" },
+          }
+          local saved = vim.o.virtualedit
+          local failure
+          for _, case in ipairs(cases) do
+            vim.o.virtualedit = case[1]
+            vim.api.nvim_buf_set_lines(0, 0, -1, false, { "echo hello world", "ghijkl", "mnopqr" })
+            local ok, sent, yank = pcall(sent_and_yanked, case[2])
+            if not ok then
+              failure = sent
+              break
+            end
+            if case[3] and not vim.deep_equal(case[3], yank) then
+              failure = ("%s: a yank gives %s"):format(case[1], vim.inspect(yank))
+              break
+            end
+            if not vim.deep_equal(yank, sent) then
+              failure = ("%s: yank %s, sent %s"):format(
+                case[1],
+                vim.inspect(yank),
+                vim.inspect(sent)
+              )
+              break
+            end
+          end
+          vim.o.virtualedit = saved
+          assert.is_nil(failure)
+        end
+      )
+
+      it("blockwise with $ that ends on an empty line: every row to its end", function()
+        -- the empty line puts the left edge at column 1, and `$` still means "to the end"
+        local cases = {
+          { { "echo hello world", "ghijkl", "" }, "gg0l<C-v>jj$" },
+          { { "", "echo hello world", "ghijkl" }, "G0l<C-v>kk$" }, -- upwards: it is the first line
+        }
+        for _, case in ipairs(cases) do
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, case[1])
+          local sent, yank = sent_and_yanked(case[2])
+          assert.same(case[1], yank, case[2] .. ": what a yank gives")
+          assert.same(case[1], sent, case[2])
+        end
+      end)
+
+      it("blockwise with $ and 'selection' old: the block is not cut at the mark", function()
+        local saved = vim.o.selection
+        vim.o.selection = "old"
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { "echo hello world", "ghijkl" })
+        local ok, sent, yank = pcall(sent_and_yanked, "gg0l<C-v>j$")
+        vim.o.selection = saved
+        assert.is_true(ok, tostring(sent))
+        assert.same({ "cho hello world", "hijkl" }, yank, "what a yank gives")
+        assert.same(yank, sent)
+      end)
+
+      it("blockwise with $ whose left edge cuts a tab or a wide character", function()
+        -- The part of the character inside the block becomes blanks, as in a yank: sending the
+        -- whole Tab would type a Tab the selection did not contain.
+        local saved = vim.o.tabstop
+        vim.o.tabstop = 8
+        local cases = {
+          {
+            { "abcdefghijklmn", "a\tbcdefghijkl" },
+            "gg4|<C-v>j$",
+            { "defghijklmn", "     bcdefghijkl" },
+          },
+          {
+            { "abcdefghijklmn", "a日本語bcdef" },
+            "gg3|<C-v>j$",
+            { "cdefghijklmn", " 本語bcdef" },
+          },
+        }
+        local failure
+        for _, case in ipairs(cases) do
+          vim.api.nvim_buf_set_lines(0, 0, -1, false, case[1])
+          local ok, sent, yank = pcall(sent_and_yanked, case[2])
+          if not ok then
+            failure = sent
+            break
+          end
+          if not vim.deep_equal(case[3], yank) or not vim.deep_equal(yank, sent) then
+            failure = ("%s: expected %s, yank %s, sent %s"):format(
+              case[2],
+              vim.inspect(case[3]),
+              vim.inspect(yank),
+              vim.inspect(sent)
+            )
+            break
+          end
+        end
+        vim.o.tabstop = saved
+        assert.is_nil(failure)
+      end)
+
+      it("blockwise with 'virtualedit' block: a corner drawn past a short row counts", function()
+        -- Visual mode leaves the empty space past the line behind; the corner is still where the
+        -- user put it, and the block is as wide as they drew it.
+        local saved = vim.o.virtualedit
+        vim.o.virtualedit = "block"
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abcdefghijkl", "abcdefghijkl", "abcd" })
+        local ok, sent, yank = pcall(sent_and_yanked, "gg0<C-v>jj7l")
+        vim.o.virtualedit = saved
+        assert.is_true(ok, tostring(sent))
+        assert.same({ "abcdefgh", "abcdefgh", "abcd    " }, yank, "what a yank gives")
+        assert.same(yank, sent)
+      end)
+
+      it("characterwise ending with $ is not taken for a block", function()
+        -- the guard on the kind of selection: a characterwise `$` has no block edges to apply
+        local text = sent_by("gg0wvj$:Terminal send selection --exec<CR>")
+        assert.equals("hello world\nghijkl" .. eol(), text)
+      end)
+
+      it(
+        "a selection that ends in a closed fold is the selection, not the lines of the fold",
+        function()
+          -- An Ex range is widened to a closed fold on both ends, so line numbers alone would
+          -- have said "not the selection" and sent whole lines, some of them unselected.
+          vim.api.nvim_buf_set_lines(
+            0,
+            0,
+            -1,
+            false,
+            { "aaa bbb", "ccc ddd", "eee fff", "ggg hhh" }
+          )
+          vim.cmd("2,3fold")
+          local chars_sent, chars_yank = sent_and_yanked("gg0wvj")
+          local block_sent, block_yank = sent_and_yanked("gg0l<C-v>j")
+          pcall(function()
+            vim.cmd("normal! zE")
+          end)
+          assert.same({ "bbb", "ccc d" }, chars_yank, "what a yank gives")
+          assert.same(chars_yank, chars_sent)
+          assert.same({ "a", "c" }, block_yank, "what a yank gives")
+          assert.same(block_yank, block_sent)
+        end
+      )
+
       it("linewise: whole lines", function()
         local text = sent_by("ggVj:Terminal send selection --exec<CR>")
         assert.equals("echo hello world\nghijkl" .. eol(), text)

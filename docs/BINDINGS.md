@@ -32,8 +32,9 @@ the key is pressed). `:Terminal send selection` sends exactly the selected chara
 characterwise (`v`) selection and the block for a blockwise one (made with `$`, every row to its own
 end) — when the command line that runs it starts with the range `'<,'>` (or its alias `*`): `:`
 pressed in Visual mode (Neovim fills the range in), `:'<,'>Terminal send selection` typed by hand,
-or a mapping whose right-hand side starts with `:` (`xnoremap <leader>ts
-:Terminal send selection<CR>`). It sends whole lines for a linewise selection, for a numeric range
+or a mapping whose right-hand side starts with `:` and keeps that range (`xnoremap <leader>ts
+:Terminal send selection<CR>`; `:<C-u>` would delete the range, so write `:<C-u>'<,'>Terminal send
+selection<CR>`, or the cursor line is sent). It sends whole lines for a linewise selection, for a numeric range
 (`:2,3Terminal send selection`, also when it covers the lines of an older selection) and for a call
 that has no command line at all (a `<Cmd>` mapping, `vim.cmd()` from Lua).
 
@@ -52,7 +53,7 @@ twice does not double a handler.
 | `terminal.status` | `VimLeavePre` | Clear the published status (pane options, user variables). | `status.enable` |
 | `terminal.status` | `VimEnter` (once) | First publication, only when `setup()` ran before Neovim had started; otherwise it is published at once. | `status.enable` |
 | `terminal.native` | `BufWipeout` | Forget the handle of a native terminal whose buffer was wiped by other means (`:bwipeout`, another plugin). One autocommand for all terminals. | none: created with the native backend |
-| `terminal.usrcmds` | `CmdlineLeave` (`:` only) | Note whether the command line that is about to run starts with the range `'<,'>`; `:Terminal send selection` uses the Visual marks only then. Nothing is stored but that yes/no, and only until the command has run. | `commands` |
+| `terminal.usrcmds` | `CmdlineLeave` (`:` only) | Note whether the command line that is about to run starts with the range `'<,'>` (or its alias `*`); `:Terminal send selection` uses the Visual marks only then, and only when no offset follows them (`'<,'>+1` is a plain range). Nothing is stored but that yes/no, and only until the command has run. | `commands` |
 
 The `terminal.status` autocommands exist only while status export is on and at least one exporter
 fits the environment (inside tmux or WezTerm, `status.export`); otherwise the group stays empty.

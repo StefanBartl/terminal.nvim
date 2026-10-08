@@ -53,10 +53,12 @@ docs/backends.md, docs/status.md and docs/navigation.md.
                                 end) -- when the command line starts with
                                 the range '<,'> (or its alias "*"): ":" in
                                 Visual mode, typed by hand, or from a
-                                mapping that starts with ":". A linewise
-                                selection, a numeric range (:2,3) and a
-                                call without a command line (<Cmd> mapping,
-                                Lua) send whole lines.
+                                mapping that starts with ":" and keeps the
+                                range (":<C-u>" deletes it: write
+                                ":<C-u>'<,'>"). A linewise selection, a
+                                numeric range (:2,3) and a call without a
+                                command line (<Cmd> mapping, Lua) send
+                                whole lines.
 :Terminal run [--name=] [--layout=] [--direct] {command...}
                                 Run a command in the "run" terminal.
                                 --direct starts it as the job itself.

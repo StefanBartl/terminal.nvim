@@ -177,48 +177,71 @@ local function note_command_line()
 end
 
 ---@internal
---- A line of the current buffer ("" when there is none).
----@param lnum integer
----@return string
-local function line_at(lnum)
-  return vim.api.nvim_buf_get_lines(0, lnum - 1, lnum, false)[1] or ""
-end
-
----@internal
---- Whether a Visual mark sits just past the last character of its (non-empty) line: where the
---- cursor is after `$` in Visual mode. A position that holds `virtualedit` padding (the fourth
---- element) is a block that was drawn past the line on purpose, not `$`; and a mark on an empty
---- line is column 1 whatever the selection (`$` there looks like any other block: the text of such
---- a selection is the plain block).
----@param pos integer[] `getpos()` result
----@return boolean
-local function past_line_end(pos)
-  local line = line_at(pos[2])
-  return pos[4] == 0 and #line > 0 and pos[3] > #line
-end
-
----@internal
---- The text of a blockwise selection made with `$` (`CTRL-V` ... `$`): every row from the left edge
---- of the block to the end of THAT row, as a yank of it gives. `getregion` cannot say so: it cuts
---- every row at the column of the mark, which is past the end of the line the cursor is on and
---- so no longer the end of the others. The left edge per row comes from `getregionpos`, which keeps
---- a multibyte character whole and knows tabs; a row that ends before the left edge has nothing in
---- the block (empty here, a yank pads it with blanks).
----@param from integer[]
----@param to integer[]
----@return string[]|nil rows nil when the positions cannot be had
-local function block_to_line_ends(from, to)
-  local ok, rows = pcall(vim.fn.getregionpos, from, to, { type = "\22" })
-  if not ok or type(rows) ~= "table" or #rows == 0 then
+--- The text of the last blockwise Visual selection, as a yank of it gives. The marks cannot say it:
+--- a block made with `$` (every row to its own end) leaves marks that look like any block whose
+--- corner sits on a shorter row, and a corner drawn into the empty space past a line (`virtualedit`)
+--- is dropped as soon as Visual mode is left. Both are known only in Visual mode itself, so it is
+--- entered again with `gv` for the length of the reading and left again; the cursor and the view
+--- are put back.
+---
+--- After `gv` the wanted column of the cursor (`curswant`) is `v:maxcol` exactly when `$` was used.
+--- `getregion` knows nothing of that and cuts every row at the column of the cursor, which is past
+--- the end of the row it is on and so not the end of the others; a block with `$` is therefore taken
+--- row by row, from its left edge (`getregionpos` keeps a multibyte character whole and knows tabs)
+--- to the end of THAT row, as a yank of it gives. A row that ends before the left edge has nothing
+--- in the block (empty here, a yank pads it with blanks).
+---@return string[]|nil rows nil when the selection cannot be had
+local function block_text()
+  local view = vim.fn.winsaveview()
+  local ok, lines = pcall(function()
+    vim.cmd("silent keepjumps normal! gv")
+    local from, to = vim.fn.getpos("v"), vim.fn.getpos(".")
+    if vim.fn.getcurpos()[5] ~= vim.v.maxcol then
+      return vim.fn.getregion(from, to, { type = "\22" })
+    end
+    local out = {}
+    for i, row in ipairs(vim.fn.getregionpos(from, to, { type = "\22" })) do
+      local start = row[1]
+      local line = vim.api.nvim_buf_get_lines(0, start[2] - 1, start[2], false)[1] or ""
+      if start[3] == 0 or start[3] > #line then
+        -- the row has no character at or after the left edge
+        out[i] = ""
+      elseif start[4] > 0 then
+        -- The left edge cuts a Tab or a wide character in two (`start[4]` cells of it lie left of
+        -- the edge): what is inside the block becomes blanks, as `getregion` and a yank do.
+        local after = vim.fn.byteidx(line, vim.fn.charidx(line, start[3] - 1) + 1)
+        local width = vim.fn.strdisplaywidth(line:sub(1, after))
+          - vim.fn.strdisplaywidth(line:sub(1, start[3] - 1))
+        out[i] = (" "):rep(math.max(width - start[4], 0)) .. line:sub(after + 1)
+      else
+        out[i] = line:sub(start[3])
+      end
+    end
+    return out
+  end)
+  if vim.fn.mode():find("^[vV\22]") then
+    pcall(function()
+      vim.cmd("silent! normal! \27")
+    end)
+  end
+  pcall(vim.fn.winrestview, view)
+  if not ok or type(lines) ~= "table" or #lines == 0 then
     return nil
   end
-  local out = {}
-  for i, row in ipairs(rows) do
-    local start = row[1]
-    -- column 0: the row has no character at or after the left edge
-    out[i] = start[3] > 0 and line_at(start[2]):sub(start[3]) or ""
-  end
-  return out
+  return lines
+end
+
+---@internal
+--- The line range an Ex command gets for a mark pair: a closed fold is taken whole, so the range
+--- starts at its first line and ends at its last, not at the line the mark is on.
+---@param from integer[] `getpos("'<")`
+---@param to integer[] `getpos("'>")`
+---@return integer line1
+---@return integer line2
+local function marks_as_range(from, to)
+  local first = vim.fn.foldclosed(from[2])
+  local last = vim.fn.foldclosedend(to[2])
+  return first ~= -1 and first or from[2], last ~= -1 and last or to[2]
 end
 
 ---@internal
@@ -237,14 +260,12 @@ local function visual_text(range)
   end
   local from, to = vim.fn.getpos("'<"), vim.fn.getpos("'>")
   -- `'<,'>` can be followed by an offset (`'<,'>+1`): only trust the marks for the range they give.
-  if from[2] ~= range.line1 or to[2] ~= range.line2 then
+  local line1, line2 = marks_as_range(from, to)
+  if line1 ~= range.line1 or line2 ~= range.line2 then
     return nil
   end
-  if range.mode == "\22" and (past_line_end(from) or past_line_end(to)) then
-    local rows = block_to_line_ends(from, to)
-    if rows then
-      return rows
-    end
+  if range.mode == "\22" then
+    return block_text()
   end
   local ok, lines = pcall(vim.fn.getregion, from, to, { type = range.mode })
   if not ok or type(lines) ~= "table" or #lines == 0 then
