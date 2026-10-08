@@ -20,7 +20,7 @@ local DEFAULTS = {
     title = true,
     title_pos = "center",
     winblend = 0,
-    zindex = 50,
+    zindex = 50, -- what `nvim_open_win` uses for a float without one
   },
   split = {
     size = 0.3,
@@ -67,6 +67,7 @@ local DEFAULTS = {
     -- "auto" (every exporter whose environment signal is present), a name ("wezterm"), a list
     -- of names, or false (none).
     export = "auto",
+    -- Events closer together than this (a mode change and a buffer switch, say) publish once.
     debounce_ms = 80,
     -- The dataset is shortened, then refused, above this size.
     max_bytes = 1024,

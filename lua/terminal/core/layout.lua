@@ -11,7 +11,7 @@ local M = {}
 ---@param total integer Available cells on that axis
 ---@param default number Used when `spec` is not a usable number
 ---@param min? integer Smallest result (default 1)
----@return integer cells Between `min` and `total`
+---@return integer cells # Between `min` and `total`
 function M.resolve_size(spec, total, default, min)
   min = min or 1
   local value = spec
@@ -40,7 +40,7 @@ end
 ---@param editor_cols integer `vim.o.columns`
 ---@param editor_lines integer `vim.o.lines`
 ---@param cfg { width: number, height: number, border: any }
----@return { row: integer, col: integer, width: integer, height: integer }
+---@return Terminal.FloatGeometry
 function M.float(editor_cols, editor_lines, cfg)
   -- The command line and a possible statusline sit below the editor grid.
   local usable_lines = math.max(editor_lines - 2, 1)
@@ -65,7 +65,7 @@ end
 ---@param editor_cols integer
 ---@param editor_lines integer
 ---@param spec number|nil
----@return integer cells Height for "split", width for "vsplit"
+---@return integer cells # Height for "split", width for "vsplit"
 function M.split(layout, editor_cols, editor_lines, spec)
   if layout == "vsplit" then
     return M.resolve_size(spec, editor_cols, 0.3, 5)

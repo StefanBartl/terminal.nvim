@@ -1,11 +1,14 @@
 ---@module 'terminal.navigate'
 --- `go(dir)`: move to the window in that direction; when nothing is further in that direction
---- inside Neovim, ask the surrounding multiplexer to focus the neighbouring pane.
+--- inside Neovim, ask the surrounding multiplexer (a hand-off, `terminal.navigate.handoff`) to
+--- focus the neighbouring pane. What a move amounted to is decided in `terminal.core.navigate`.
 ---
 --- Floating windows never hand off (a float has no neighbours). The hand-off is fire-and-forget:
 --- the key press does not wait for the multiplexer command (starting the process still costs a
 --- few milliseconds, tens on Windows), it runs in the background and its failure (no neighbour in
 --- that direction, ...) is ignored -- it is the normal case at the outer edge.
+---@see terminal.navigate.handoff
+---@see terminal.core.navigate
 
 local core = require("terminal.core.navigate")
 
@@ -35,6 +38,7 @@ local function spawn_detached(argv)
     return
   end
   inflight = true
+  -- Two seconds: a multiplexer answers in milliseconds, so only a hung one runs into the limit.
   local ok = pcall(vim.system, argv, { text = true, timeout = 2000 }, function()
     inflight = false
     local next_argv = pending

@@ -8,9 +8,10 @@
 --- of them (`nu`, `csh`, ...) is NOT covered and is treated as POSIX -- name it in the `shell`
 --- config and the quoting is a guess for it; the "portable" kind (see below) is the safe choice.
 ---
---- `argv_to_line` and `shell_kind` are the entries the rest of the plugin uses; it never builds a
---- line from an unquoted string. A word that cannot be represented safely for the shell is
---- **refused** (`nil, err`), never guessed at.
+--- `argv_to_line` and `shell_kind` are the entries the rest of the plugin uses (`word`, the quoting
+--- of a single word, is only reached through `argv_to_line`); the plugin never builds a line from
+--- an unquoted string. A word that cannot be represented safely for the shell is **refused**
+--- (`nil, err`), never guessed at.
 
 local M = {}
 
@@ -116,14 +117,25 @@ local function cmd(s)
   end
   -- A run of backslashes in front of an embedded quote is doubled (otherwise the C runtime reads
   -- `\"` as a literal quote and the next quote ends the word: argument injection into the target
-  -- program), the quote itself becomes `""`.
-  local body = s:gsub('(\\*)"', function(slashes)
-    return slashes .. slashes .. '""'
-  end)
-  local trailing = body:match("(\\+)$")
-  if trailing then
-    body = body .. trailing
+  -- program), the quote itself becomes `""`, and a run at the very end is doubled too (it sits in
+  -- front of the closing quote). One pass over the bytes: the pattern forms of this
+  -- (`(\\*)"`, `(\\+)$`) are quadratic on a long run of backslashes.
+  local parts, run = {}, 0
+  for i = 1, #s do
+    local byte = s:byte(i)
+    if byte == 92 then
+      run = run + 1
+    else
+      if byte == 34 then
+        parts[#parts + 1] = ("\\"):rep(run * 2) .. '""'
+      else
+        parts[#parts + 1] = ("\\"):rep(run) .. string.char(byte)
+      end
+      run = 0
+    end
   end
+  parts[#parts + 1] = ("\\"):rep(run * 2)
+  local body = table.concat(parts)
   return '"' .. body .. '"', nil
 end
 
@@ -147,7 +159,7 @@ end
 ---@param s string
 ---@param kind Terminal.ShellKind
 ---@return string|nil word
----@return string|nil err Set when the word cannot be represented safely for this shell
+---@return string|nil err # Set when the word cannot be represented safely for this shell
 function M.word(s, kind)
   if kind == "powershell" then
     return powershell(s), nil

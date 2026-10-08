@@ -5,6 +5,8 @@
 --- `keymaps = { toggle = "<A-x>" }`, drops one with `toggle = false`, or binds nothing at all
 --- with `preset = false`. An action whose default is `false` exists but is unbound until the user
 --- gives it a key.
+---@see terminal.config.DEFAULTS
+---@see lib.nvim.bindings.keymap
 
 local DEFAULTS = require("terminal.config.DEFAULTS").keymaps
 

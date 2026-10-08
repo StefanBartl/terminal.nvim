@@ -3,8 +3,9 @@
 --- terminal Neovim runs in, asked to focus the pane in that direction.
 ---
 --- Each hand-off is a name, an availability test over the environment and the command that does
---- it. The command is built here (pure, testable) and run elsewhere, fire-and-forget: a key press
---- must never wait for it.
+--- it. The command is built here (pure, testable) and run elsewhere (`terminal.navigate`),
+--- fire-and-forget: a key press must never wait for it.
+---@see terminal.navigate
 
 local navigate = require("terminal.core.navigate")
 
@@ -63,7 +64,7 @@ local ORDER = { "tmux", "wezterm" }
 ---@param handoff string|string[]|boolean
 ---@param env table<string, string|nil>
 ---@return Terminal.Handoff[] chosen
----@return string[] notes Why a named hand-off is unusable
+---@return string[] notes # Why a named hand-off is unusable
 function M.choose(handoff, env)
   if handoff == false then
     return {}, {}
@@ -74,6 +75,7 @@ function M.choose(handoff, env)
   elseif type(handoff) == "string" then
     names = { handoff }
   else
+    ---@cast handoff string[]
     names = handoff
   end
   local chosen, notes = {}, {}

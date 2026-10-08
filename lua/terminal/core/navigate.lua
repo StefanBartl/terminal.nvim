@@ -6,9 +6,14 @@ local M = {}
 
 ---@alias Terminal.Direction "h"|"j"|"k"|"l"
 
+---@class Terminal.DirectionWords
+---@field wezterm string Argument of `wezterm cli activate-pane-direction`
+---@field tmux string Flag of `tmux select-pane`
+---@field edge string Side of the window, for the tmux format variable `#{pane_at_<edge>}`
+
 --- Direction keys and the words the multiplexers use. `edge` is the tmux format variable
 --- (`#{pane_at_<edge>}`) that is 1 when the pane touches that side of its window.
----@type table<string, { wezterm: string, tmux: string, edge: string }>
+---@type table<string, Terminal.DirectionWords>
 M.DIRECTIONS = {
   h = { wezterm = "Left", tmux = "-L", edge = "left" },
   j = { wezterm = "Down", tmux = "-D", edge = "bottom" },

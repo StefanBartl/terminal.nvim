@@ -6,6 +6,7 @@
 --- This module knows their names and the order in which they are tried, and decides which one a
 --- configuration asks for: `detect` and `resolve` are pure functions over an environment table, so
 --- they are testable without a real terminal.
+---@see terminal
 
 local M = {}
 
@@ -47,13 +48,13 @@ end
 ---
 --- `wanted` is the configured name. "auto" is `native`: terminals stay Neovim windows even inside
 --- WezTerm or tmux (status export to those is a separate, additive feature). A multiplexer
---- backend is used only when it is named; one that is not registered (not available here) falls
---- back to `native` and says why.
+--- backend is used only when it is named; one the facade has not registered (it found it unusable
+--- here) falls back to `native` and says why.
 ---@param wanted Terminal.BackendName
 ---@param _env table<string, string|nil> Unused: kept so a future "auto" can read it
 ---@param registered table<string, any> Set of registered backend names
 ---@return string name
----@return string|nil note Why the choice differs from what was asked, nil when it does not
+---@return string|nil note # Why the choice differs from what was asked, nil when it does not
 function M.resolve(wanted, _env, registered)
   if wanted == "auto" or wanted == "native" then
     return "native", nil

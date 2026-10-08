@@ -1,12 +1,17 @@
 ---@module 'terminal.status'
---- Keeps the surrounding terminal informed about this Neovim: builds the status dataset when
---- something it contains changes, and hands it to every exporter that fits the environment.
+--- Keeps the surrounding terminal informed about this Neovim: builds the status dataset
+--- (`terminal.core.status`, read from the editor by `terminal.status.collector`) when something
+--- it contains changes, and hands it to every exporter that fits the environment.
 ---
---- *When* it runs is deliberately narrow: only on events that can change a field (mode, buffer,
---- directory, diagnostics, macro recording, modified flag, focus), never per key press, always
---- debounced, and nothing is written when what an exporter publishes equals what it sent last.
---- An exporter that fails is switched off after one notice, not retried on every event -- but it
---- stays in the list, so its published state is still cleaned up when Neovim leaves.
+--- *When* it runs is deliberately narrow: only on events that can change a field, never per key
+--- press, always debounced, and nothing is written when what an exporter publishes equals what it
+--- sent last. An exporter that fails is switched off after one notice, not retried on every event
+--- -- but it stays in the list, so its published state is still cleaned up when Neovim leaves.
+--- See docs/status.md.
+---@see terminal.status.collector
+---@see terminal.core.status
+---@see terminal.status.exporters.tmux
+---@see terminal.status.exporters.wezterm
 
 local status = require("terminal.core.status")
 
@@ -24,10 +29,11 @@ local M = {}
 ---@field exporters Terminal.StatusExporter[]
 ---@field off table<string, true> Exporters that failed once
 ---@field last table<string, string> Last published key per exporter
----@field debounce table|nil
+---@field debounce? table
 ---@field max_bytes integer
 ---@field oversize boolean A dataset over `max_bytes` was already reported
 
+-- `max_bytes` starts at the default of `config/DEFAULTS.lua`; `setup()` sets the configured one.
 ---@type Terminal.StatusRuntime
 local runtime =
   { exporters = {}, off = {}, last = {}, debounce = nil, max_bytes = 1024, oversize = false }
@@ -62,7 +68,7 @@ end
 ---@param export string|string[]|boolean
 ---@param env table<string, string|nil>
 ---@return Terminal.StatusExporter[] chosen
----@return string[] notes Why a named exporter was not usable
+---@return string[] notes # Why a named exporter was not usable
 function M.choose(export, env)
   local names
   local auto = export == "auto"
@@ -74,6 +80,7 @@ function M.choose(export, env)
   elseif type(export) == "string" then
     names = { export }
   else
+    ---@cast export string[]
     names = export
   end
   local asked = env

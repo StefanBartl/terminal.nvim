@@ -6,6 +6,7 @@
 ---
 --- Loaded by the facade (`terminal.adopt(target)` calls `run`); it needs the facade's internals
 --- through the `host` table instead of requiring the facade back.
+---@see terminal
 
 local M = {}
 
@@ -46,17 +47,18 @@ function M.run(host, target)
     return nil, cwd_or_err
   end
   local handle = host.state.registry:find(root, name)
-  local b = handle and host.backend_of(handle)
-  local err
   if not handle then
-    err = ("adopt: no terminal '%s' in this project"):format(name)
-  elseif not b.capture then
-    err = ("adopt: terminal '%s' lives in %s, which has no pane to show"):format(
+    local err = ("adopt: no terminal '%s' in this project"):format(name)
+    host.fail(err)
+    return nil, err
+  end
+  local b = host.backend_of(handle)
+  local capture = b.capture
+  if not capture then
+    local err = ("adopt: terminal '%s' lives in %s, which has no pane to show"):format(
       name,
       handle.backend
     )
-  end
-  if err then
     host.fail(err)
     return nil, err
   end
@@ -75,7 +77,7 @@ function M.run(host, target)
     if not vim.api.nvim_buf_is_valid(buf) then
       return false
     end
-    local text, cerr = b.capture(handle)
+    local text, cerr = capture(handle)
     -- The capture blocks (up to the CLI timeout) and lets scheduled callbacks run: the buffer may
     -- have been wiped meanwhile.
     if not vim.api.nvim_buf_is_valid(buf) then
@@ -92,33 +94,36 @@ function M.run(host, target)
   -- A one-shot timer, armed again only after the refresh has ended: no overlapping captures, and
   -- `stop` is safe to call twice (closing a closed handle raises).
   local timer = vim.uv.new_timer()
-  local done = false
-  local function stop()
-    if done then
-      return
+  if timer then
+    local done = false
+    local function stop()
+      if done then
+        return
+      end
+      done = true
+      if not timer:is_closing() then
+        timer:stop()
+        timer:close()
+      end
     end
-    done = true
-    if not timer:is_closing() then
-      timer:stop()
-      timer:close()
-    end
+    local tick
+    tick = vim.schedule_wrap(function()
+      if done then
+        return
+      end
+      if not vim.api.nvim_buf_is_valid(buf) then
+        return stop()
+      end
+      if #vim.fn.win_findbuf(buf) > 0 and not refresh() then
+        return stop()
+      end
+      if not done then
+        timer:start(REFRESH_MS, 0, tick)
+      end
+    end)
+    timer:start(REFRESH_MS, 0, tick)
   end
-  local tick
-  tick = vim.schedule_wrap(function()
-    if done then
-      return
-    end
-    if not vim.api.nvim_buf_is_valid(buf) then
-      return stop()
-    end
-    if #vim.fn.win_findbuf(buf) > 0 and not refresh() then
-      return stop()
-    end
-    if not done then
-      timer:start(REFRESH_MS, 0, tick)
-    end
-  end)
-  timer:start(REFRESH_MS, 0, tick)
+  -- Without a timer (libuv out of handles) the view still shows the screen as of now.
 
   vim.cmd("botright split")
   vim.api.nvim_win_set_buf(0, buf)

@@ -5,6 +5,7 @@
 --- `get(path)` accessor (dot-separated path) so no other module reads a raw options table.
 --- `validate` is pure: it returns the problems it found and never notifies, so it is
 --- testable without a UI; `setup` reports them (deferred, see the comment there).
+---@see terminal.config.DEFAULTS
 
 local DEFAULTS = require("terminal.config.DEFAULTS")
 local lib_config = require("lib.lua.config")
@@ -237,12 +238,14 @@ function M.validate(schema, opts, prefix)
         end
       end
     elseif OPEN_TABLES[path] then
-      if type(v) == "table" or (path == "keymaps" and v == false) then
+      if type(v) == "table" then
         -- An empty table means "no overrides": merged over the defaults it would replace them
         -- (see the section branch below).
-        if v == false or next(v) ~= nil then
+        if next(v) ~= nil then
           clean[k] = v
         end
+      elseif path == "keymaps" and v == false then
+        clean[k] = v
       else
         problems[#problems + 1] = ("config key '%s' should be a table, got %s"):format(
           path,
@@ -309,7 +312,7 @@ end
 ---
 --- `deep_merge` copies `base` one level at a time, so untouched sub-tables of the result would
 --- alias DEFAULTS again; `vim.deepcopy` severs that.
----@param opts Terminal.Config|table|nil
+---@param opts Terminal.Options|nil
 ---@return string[] problems
 function M.setup(opts)
   local problems = {}

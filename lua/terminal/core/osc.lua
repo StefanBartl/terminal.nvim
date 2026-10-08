@@ -8,8 +8,8 @@
 ---
 --- Inside tmux a sequence only reaches the outer terminal when it is wrapped in tmux's DCS
 --- passthrough envelope (`ESC P tmux ; <seq with every ESC doubled> ESC \`) *and* tmux has
---- `allow-passthrough on`. Measured 2026-10-07: a bare sequence never arrives, a wrapped one
---- arrives only with the option on.
+--- `allow-passthrough on`. That is why `user_vars` wraps every sequence when asked to: a bare one
+--- never reaches the outer terminal (measured, see docs/status.md#measured).
 
 local M = {}
 
@@ -22,6 +22,7 @@ local BEL = "\7"
 ---@param max? integer Byte limit (default 200)
 ---@return string
 function M.sanitize(s, max)
+  -- Bounded even when the caller names no limit: display text is never passed on unbounded.
   max = max or 200
   if type(s) ~= "string" then
     s = tostring(s == nil and "" or s)

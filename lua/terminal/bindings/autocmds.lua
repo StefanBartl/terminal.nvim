@@ -1,8 +1,6 @@
 ---@module 'terminal.bindings.autocmds'
 --- Terminal-focused autocommands, one named augroup per feature:
 --- window options on open, Kitty padding on startup/exit, auto-Insert.
----
---- Ported from the author's former `bindings.autocmds.terminals` module.
 ---@see lib.nvim.bindings.autocmd
 
 local M = {}

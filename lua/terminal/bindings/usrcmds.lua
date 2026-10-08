@@ -3,12 +3,18 @@
 --- completion (`lib.nvim.bindings.usercmd.composer`).
 ---
 ---   :Terminal                          toggle the default terminal
----   :Terminal toggle|open [name]       show / focus (create when missing); `3` is the terminal "3"
+---   :Terminal toggle|open [name] [--layout=]
+---                                      show / focus (create when missing); `3` is the terminal "3"
 ---   :Terminal hide|close [name]
----   :Terminal pin|adopt [name]         restart in a multiplexer pane / view a pane's screen
+---   :Terminal pin [name] [--backend=] [--layout=]
+---                                      restart a native terminal as a tmux / WezTerm pane
+---   :Terminal adopt [name]             view a multiplexer pane's screen in a read-only buffer
 ---   :Terminal list                     pick one of this project's terminals
 ---   :Terminal send line|selection|file [name] [--exec]
----   :Terminal run [--name=] [--direct] <command...>
+---   :Terminal run [--name=] [--layout=] [--direct] [--] <command...>
+---
+--- `--layout=` takes float, split, vsplit or tab; `--backend=` takes tmux or wezterm.
+---@see lib.nvim.bindings.usercmd.composer
 
 local notify = require("terminal.notify")
 
@@ -216,7 +222,7 @@ end
 --- passed on **verbatim**: a `--` ends the flags and is itself dropped, any later `--word` or a
 --- second `--` stays part of the command.
 ---@param fargs string[] Words of the command line, starting with the subcommand `run`
----@return table opts name / layout / direct
+---@return Terminal.RunOpts opts # name / layout / direct
 ---@return string[] command
 function M.parse_run(fargs)
   local opts = {}
@@ -252,7 +258,7 @@ function M.setup()
   register_name_types(composer)
 
   composer.verb("Terminal", {
-    desc = "Named terminals: toggle, open, hide, close, list, send, run",
+    desc = "Named terminals of this project",
     -- The command-level range comes from the verb, not from the first route that sets one:
     -- without this `:'<,'>Terminal send selection` fails with E481 (`send line` has none).
     range = true,

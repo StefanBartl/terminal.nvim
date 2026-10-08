@@ -18,6 +18,8 @@
 --- may write them. `available()` refuses a Neovim inside another Neovim's terminal (`$NVIM`), `ready()`
 --- refuses one without an attached UI (a headless child), and `clear()` removes the options only
 --- when this instance wrote them.
+---@see terminal.backends.tmux
+---@see terminal.core.status
 
 local tmux_backend = require("terminal.backends.tmux")
 
@@ -28,15 +30,11 @@ M.name = "tmux"
 --- Whether this instance wrote the pane options (and so has to remove them).
 local owned = false
 
----@type fun(argv: string[]): { code: integer, stderr: string }
+--- Runs a tmux command. A status publish blocks the editor for as long as tmux takes (it runs
+--- from the debounced event), so a hung tmux is given two seconds, not the backend's three.
+---@type fun(argv: string[]): Terminal.ExecResult
 M.run = function(argv)
-  local ok, res = pcall(function()
-    return vim.system(argv, { text = true, timeout = 2000 }):wait()
-  end)
-  if not ok then
-    return { code = 127, stderr = tostring(res) }
-  end
-  return { code = res.code, stderr = res.stderr or "" }
+  return require("terminal.core.exec").run(argv, { timeout = 2000 })
 end
 
 --- Whether the Neovim at `address` (the value of `$NVIM`) is still running -- only that; whether
@@ -56,6 +54,17 @@ M.alive = function(address)
   return true
 end
 
+--- The parent process id out of one line of `/proc/<pid>/stat`: `<pid> (<comm>) <state> <ppid> ...`.
+--- The kernel ends `comm` at the LAST `)`, and `comm` can hold spaces and parentheses itself
+--- (`x) R 1 (y`), so the pattern is greedy -- a balanced match would stop at the first one and read
+--- a number out of the name.
+---@param line string|nil
+---@return integer|nil
+function M.parse_stat(line)
+  local ppid = line and line:match("^%d+ %(.*%) %S (%d+)")
+  return ppid and tonumber(ppid) or nil
+end
+
 --- The parent process id of `pid`; nil when it cannot be read (no /proc and no `ps`).
 ---@type fun(pid: integer): integer|nil
 M.parent_of = function(pid)
@@ -63,22 +72,19 @@ M.parent_of = function(pid)
   if f then
     local line = f:read("*l")
     f:close()
-    -- "<pid> (<comm>) <state> <ppid> ...": the kernel ends comm at the LAST ')', and comm can hold
-    -- spaces and parentheses itself ("x) R 1 (y"), so the pattern is greedy -- a balanced match
-    -- would stop at the first one and read a number out of the name.
-    local ppid = line and line:match("^%d+ %(.*%) %S (%d+)")
+    local ppid = M.parse_stat(line)
     if ppid then
-      return tonumber(ppid)
+      return ppid
     end
   end
   -- Not on Windows: a `ps` there (Git Bash) numbers processes in its own namespace.
   if vim.fn.has("win32") == 0 and vim.fn.executable("ps") == 1 then
-    local ok, res = pcall(function()
-      return vim
-        .system({ "ps", "-o", "ppid=", "-p", tostring(pid) }, { text = true, timeout = 1000 })
-        :wait()
-    end)
-    local parent = ok and res.code == 0 and tonumber(vim.trim(res.stdout or "")) or nil
+    -- One second: `ps` answers at once, the limit only bounds a hang.
+    local res = require("terminal.core.exec").run(
+      { "ps", "-o", "ppid=", "-p", tostring(pid) },
+      { timeout = 1000 }
+    )
+    local parent = res.code == 0 and tonumber(vim.trim(res.stdout)) or nil
     if parent then
       return parent
     end
@@ -93,6 +99,7 @@ end
 ---@return boolean|nil
 local function is_ancestor(pid)
   local current = vim.uv.os_getpid()
+  -- 64 levels: deeper than any real process chain, it only ends a loop in a broken parent table.
   for _ = 1, 64 do
     local parent = M.parent_of(current)
     if parent == nil then
@@ -114,31 +121,28 @@ end
 --- name or a TCP address can look like it or look like anything). Done by a child `nvim --server
 --- <address> --remote-expr getpid()` with a timeout, never by an RPC call in this process: a
 --- server that is busy (the outer Neovim sits in a blocking `:!`) must not freeze this one's start.
---- nil when it does not answer.
+--- nil when it does not answer within 1.5 s: the limit bounds how long this start can wait, and
+--- a server that stays silent is taken to own the pane anyway (`M.nested`).
 ---@type fun(address: string): integer|nil
 M.server_pid = function(address)
-  local ok, res = pcall(function()
-    return vim
-      .system({
-        vim.v.progpath,
-        -- `--headless`: without it a `--remote-expr` client prints nothing on Windows (and waits
-        -- 1 s); `-u NONE -i NONE` keeps the client from loading a config and shada.
-        "--headless",
-        "-u",
-        "NONE",
-        "-i",
-        "NONE",
-        "--server",
-        address,
-        "--remote-expr",
-        "getpid()",
-      }, { text = true, timeout = 1500 })
-      :wait()
-  end)
-  if not ok or res.code ~= 0 then
+  local res = require("terminal.core.exec").run({
+    vim.v.progpath,
+    -- `--headless`: without it a `--remote-expr` client prints nothing on Windows (and waits
+    -- 1 s); `-u NONE -i NONE` keeps the client from loading a config and shada.
+    "--headless",
+    "-u",
+    "NONE",
+    "-i",
+    "NONE",
+    "--server",
+    address,
+    "--remote-expr",
+    "getpid()",
+  }, { timeout = 1500 })
+  if res.code ~= 0 then
     return nil
   end
-  return tonumber(vim.trim(res.stdout or ""))
+  return tonumber(vim.trim(res.stdout))
 end
 
 --- Whether this Neovim runs inside the terminal of the (running) Neovim at `address`: the one

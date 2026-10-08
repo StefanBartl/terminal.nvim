@@ -2,44 +2,27 @@
 --- The `wezterm` backend: terminals are **panes of the WezTerm window** Neovim runs in, driven
 --- through `wezterm cli`. Chosen explicitly (`backend = "wezterm"`); `auto` keeps terminals native.
 ---
---- What maps and what does not:
----   * `split` / `float` -> a pane below / to the right (WezTerm has no floats); `vsplit` -> right;
----     `tab` -> a new tab.
----   * `send` types the text into the pane (`send-text --no-paste`, text on stdin, so no word of it
----     can be read as an option).
----   * `hide` returns focus to Neovim's own pane (a pane cannot be hidden); `show` does not exist --
----     a pane that is gone is replaced by a new one.
----   * `env` is not supported (`wezterm cli` has no per-command environment) and is refused.
----   * The exit of the command is not reported (`on_exit_cb` is never called); `list()` notices a
----     pane that no longer exists.
+--- `split` opens a pane below, `float` (WezTerm has no floats) and `vsplit` one to the right,
+--- `tab` a new tab; `hide` only gives focus back to Neovim's own pane, there is no `show` (a pane
+--- that is gone is replaced), `env` is refused and the exit of the command is not reported
+--- (`on_exit_cb` is never called). The differences from `native`: docs/backends.md.
 ---
 --- Every call is a short blocking `wezterm cli` process with a timeout. The runner is injected
 --- (`new(registry, runner)`), so the specs run against a fake `wezterm` instead of a real one.
+---@see terminal.backends.tmux
 
 local registry_mod = require("terminal.core.registry")
 
 local M = {}
 
----@class Terminal.WezTermRun
----@field code integer
----@field stdout string
----@field stderr string
+---@alias Terminal.WezTermRun Terminal.ExecResult
 
----@alias Terminal.WezTermRunner fun(argv: string[], opts?: { stdin?: string, timeout?: integer }): Terminal.WezTermRun
+---@alias Terminal.WezTermRunner fun(argv: string[], opts?: Terminal.ExecOpts): Terminal.WezTermRun
 
---- The real runner: `vim.system`, with a timeout.
+--- The real runner: `terminal.core.exec`, three seconds by default.
 ---@type Terminal.WezTermRunner
 function M.default_runner(argv, opts)
-  opts = opts or {}
-  local ok, res = pcall(function()
-    return vim
-      .system(argv, { text = true, stdin = opts.stdin, timeout = opts.timeout or 3000 })
-      :wait()
-  end)
-  if not ok then
-    return { code = 127, stdout = "", stderr = tostring(res) }
-  end
-  return { code = res.code, stdout = res.stdout or "", stderr = res.stderr or "" }
+  return require("terminal.core.exec").run(argv, opts)
 end
 
 ---@internal
@@ -47,7 +30,7 @@ end
 --- answer: whatever is not an object (a number, a JSON null) is dropped, and a null inside an
 --- object is an absent field -- never `vim.NIL`, which is truthy and not equal to nil.
 ---@param stdout string
----@return table[]|nil objects nil when the text is not JSON or not a list
+---@return table[]|nil objects # nil when the text is not JSON or not a list
 local function decode_objects(stdout)
   local ok, data = pcall(vim.json.decode, stdout, { luanil = { object = true } })
   if not ok or type(data) ~= "table" then
@@ -85,14 +68,15 @@ function M.new(registry, runner, own_pane)
   runner = runner or M.default_runner
   own_pane = own_pane or vim.env.WEZTERM_PANE or ""
 
-  ---@type Terminal.Backend
+  -- Filled by the `function backend.<name>` definitions below; `new` returns it as a
+  -- `Terminal.Backend`, which is where the language server checks that nothing is missing.
   local backend = {
     name = "wezterm",
   }
 
   ---@internal
   ---@param args string[] Arguments after `wezterm cli`
-  ---@param opts? { stdin?: string }
+  ---@param opts? Terminal.ExecOpts
   ---@return Terminal.WezTermRun|nil run
   ---@return string|nil err
   local function cli(args, opts)
@@ -133,6 +117,11 @@ function M.new(registry, runner, own_pane)
     return by_id, nil
   end
 
+  --- Interface method (`Terminal.Backend`); the facade asks the module-level `available()` before
+  --- an instance exists.
+  ---@param env table<string, string|nil>
+  ---@return boolean ok
+  ---@return string|nil reason
   function backend.available(env)
     return M.available(env)
   end
@@ -188,8 +177,9 @@ function M.new(registry, runner, own_pane)
       -- No shell sits between WezTerm and the program: "pwsh -NoLogo" would be looked up as ONE
       -- program name. A string without white space is one word. One with white space is split --
       -- unless it names an executable as it stands (a path with spaces), which is only possible
-      -- with a path separator in it: the PATH scan of `executable()` (tens of milliseconds on
-      -- Windows) is not paid for "pwsh -NoLogo". Quotes are not interpreted: use a list for those.
+      -- with a path separator in it: the PATH scan of `executable()` (slow on Windows, see
+      -- docs/backends.md) is not paid for "pwsh -NoLogo". Quotes are not interpreted: use a list
+      -- for those.
       if not cmd:find("%s") or (cmd:find("[/\\]") and vim.fn.executable(cmd) == 1) then
         cmd = { cmd }
       else
@@ -238,6 +228,8 @@ function M.new(registry, runner, own_pane)
     return handle, nil
   end
 
+  --- Type `text` into the pane (`send-text --no-paste`), on stdin: no word of it can be read as an
+  --- option of `wezterm cli`.
   ---@param handle Terminal.Handle
   ---@param text string
   ---@return boolean
@@ -275,7 +267,7 @@ function M.new(registry, runner, own_pane)
   --- about a pane in a tab the user is not looking at; for that case the client's focused pane
   --- decides.
   ---@param handle Terminal.Handle
-  ---@return { visible: boolean, focused: boolean }|nil
+  ---@return Terminal.Probe|nil
   ---@return string|nil err
   function backend.probe(handle)
     local all, err = panes()
@@ -295,7 +287,7 @@ function M.new(registry, runner, own_pane)
   end
 
   ---@param handle Terminal.Handle
-  ---@return boolean|nil visible nil when WezTerm could not be asked
+  ---@return boolean|nil visible # nil when WezTerm could not be asked
   function backend.visible(handle)
     local state = backend.probe(handle)
     return state and state.visible
@@ -369,7 +361,7 @@ function M.new(registry, runner, own_pane)
   --- whose state cannot be read) stays registered and the failure is reported. `gone`: the caller
   --- has just seen that the pane does not exist, so there is nothing to ask WezTerm.
   ---@param handle Terminal.Handle
-  ---@param how? { gone?: boolean }
+  ---@param how? Terminal.CloseOpts
   ---@return boolean
   ---@return string|nil
   function backend.close(handle, how)

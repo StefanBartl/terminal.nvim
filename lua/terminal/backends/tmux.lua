@@ -2,29 +2,27 @@
 --- The `tmux` backend: terminals are **panes of the tmux window** Neovim runs in, driven through
 --- the `tmux` CLI. Chosen explicitly (`backend = "tmux"`); `auto` keeps terminals native.
 ---
---- Mapping (like the wezterm backend, see docs/backends.md):
----   * `split` / `float` -> a pane below / to the right; `vsplit` -> right; `tab` -> a new window.
----   * `send` types the text with `send-keys -l -- <text>`: literal, and after `--`, so no word of
----     it can be read as a key name or an option.
----   * `hide` returns focus to Neovim's own pane; there is no `show` (a pane that is gone is
----     replaced).
----   * `env` is refused; the exit of the command is not reported.
+--- `split` opens a pane below, `float` and `vsplit` one to the right, `tab` a new window; `hide`
+--- only gives focus back to Neovim's own pane, there is no `show`, `env` is refused and the exit
+--- of the command is not reported. The full mapping and the differences from `native`:
+--- docs/tmux.md (the wezterm backend has the same shape).
 ---
 --- The runner is injected (`new(registry, runner, own_pane, opts)`); `opts.socket` selects a
 --- tmux server (`-L name`), which is how the specs run against a private server.
 ---
---- Every piece of *data* that becomes a tmux argument (typed text, a directory, the words of a
---- command, an option value) goes through `M.word`: tmux reads a trailing `;` of an argument as a
---- command separator, so a bare word like `select 1;` would lose its `;` and a word like
---- `notes;` followed by `run-shell` would start another tmux command.
+--- Every piece of *data* that becomes a tmux argument goes through `M.word`, which says why.
+---@see terminal.backends.wezterm
 
 local registry_mod = require("terminal.core.registry")
 
 local M = {}
 
---- One data word as a tmux argument. tmux's command parser ends a command at an argument that
---- ends in `;` and turns a trailing `\;` into `;`; a backslash in front of the final `;` makes it
---- a literal again: `a;` -> `a\;` (read as `a;`), `a\;` -> `a\\;` (read as `a\;`).
+--- One data word as a tmux argument: typed text, a directory, the words of a command, an option
+--- value. tmux's command parser ends a command at an argument that ends in `;` and turns a
+--- trailing `\;` into `;`; a backslash in front of the final `;` makes it a literal again: `a;`
+--- -> `a\;` (read as `a;`), `a\;` -> `a\\;` (read as `a\;`). Without it a bare word like
+--- `select 1;` would lose its `;`, and a word like `notes;` followed by `run-shell` would start
+--- another tmux command.
 ---@param s string
 ---@return string
 function M.word(s)
@@ -59,24 +57,19 @@ function M.has_percent_size(major, minor)
   return major > 3 or (major == 3 and (minor or 0) >= 1)
 end
 
----@class Terminal.TmuxRun
----@field code integer
----@field stdout string
----@field stderr string
+---@alias Terminal.TmuxRun Terminal.ExecResult
 
----@alias Terminal.TmuxRunner fun(argv: string[], opts?: { timeout?: integer }): Terminal.TmuxRun
+---@alias Terminal.TmuxRunner fun(argv: string[], opts?: Terminal.ExecOpts): Terminal.TmuxRun
 
---- The real runner: `vim.system` with a timeout.
+--- The state of one pane in `list-panes`, as far as focus is concerned.
+---@class Terminal.TmuxPane
+---@field active boolean The pane is the active one of its window
+---@field window_active boolean Its window is the active one of the session
+
+--- The real runner: `terminal.core.exec`, three seconds by default.
 ---@type Terminal.TmuxRunner
 function M.default_runner(argv, opts)
-  opts = opts or {}
-  local ok, res = pcall(function()
-    return vim.system(argv, { text = true, timeout = opts.timeout or 3000 }):wait()
-  end)
-  if not ok then
-    return { code = 127, stdout = "", stderr = tostring(res) }
-  end
-  return { code = res.code, stdout = res.stdout or "", stderr = res.stderr or "" }
+  return require("terminal.core.exec").run(argv, opts)
 end
 
 --- Whether `tmux` can be used from here.
@@ -107,7 +100,8 @@ function M.new(registry, runner, own_pane, opts)
   own_pane = own_pane or vim.env.TMUX_PANE or ""
   opts = opts or {}
 
-  ---@type Terminal.Backend
+  -- Filled by the `function backend.<name>` definitions below; `new` returns it as a
+  -- `Terminal.Backend`, which is where the language server checks that nothing is missing.
   local backend = {
     name = "tmux",
   }
@@ -153,7 +147,7 @@ function M.new(registry, runner, own_pane, opts)
 
   ---@internal
   --- Every pane tmux knows: id -> { active = pane active in its window, window_active }.
-  ---@return table<string, { active: boolean, window_active: boolean }>|nil
+  ---@return table<string, Terminal.TmuxPane>|nil
   ---@return string|nil err
   local function panes()
     local res, err = tmux({
@@ -185,6 +179,11 @@ function M.new(registry, runner, own_pane, opts)
     return res ~= nil, err
   end
 
+  --- Interface method (`Terminal.Backend`); the facade asks the module-level `available()` before
+  --- an instance exists.
+  ---@param env table<string, string|nil>
+  ---@return boolean ok
+  ---@return string|nil reason
   function backend.available(env)
     return M.available(env)
   end
@@ -293,6 +292,8 @@ function M.new(registry, runner, own_pane, opts)
     return handle, nil
   end
 
+  --- Type `text` into the pane: `-l` types it literally (no word of it is a key name) and, after
+  --- `--`, none can be read as an option.
   ---@param handle Terminal.Handle
   ---@param text string
   ---@return boolean
@@ -311,7 +312,7 @@ function M.new(registry, runner, own_pane, opts)
   --- Whether the pane exists and whether it has the user's focus, from ONE `list-panes`.
   --- nil (with the reason) when tmux cannot be asked: the state is unknown, not "gone".
   ---@param handle Terminal.Handle
-  ---@return { visible: boolean, focused: boolean }|nil
+  ---@return Terminal.Probe|nil
   ---@return string|nil err
   function backend.probe(handle)
     local all, err = panes()
@@ -326,7 +327,7 @@ function M.new(registry, runner, own_pane, opts)
   end
 
   ---@param handle Terminal.Handle
-  ---@return boolean|nil visible nil when tmux could not be asked
+  ---@return boolean|nil visible # nil when tmux could not be asked
   function backend.visible(handle)
     local state = backend.probe(handle)
     return state and state.visible
@@ -398,7 +399,7 @@ function M.new(registry, runner, own_pane, opts)
   --- whose state cannot be read) stays registered and the failure is reported. `gone`: the caller
   --- has just seen that the pane does not exist, so there is nothing to ask tmux.
   ---@param handle Terminal.Handle
-  ---@param how? { gone?: boolean }
+  ---@param how? Terminal.CloseOpts
   ---@return boolean
   ---@return string|nil
   function backend.close(handle, how)

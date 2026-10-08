@@ -2,6 +2,7 @@
 --- Reads the running editor into a `Terminal.StatusSnapshot` -- the only place the status code
 --- touches editor state. Every read is cheap (no shelling out, no scanning) because this runs on
 --- every mode change, buffer switch and diagnostic update.
+---@see terminal.core.status
 
 local M = {}
 
@@ -106,7 +107,7 @@ local function branch_of(dir)
 end
 
 ---@internal
----@return { error: integer, warn: integer, info: integer, hint: integer }
+---@return Terminal.DiagCounts
 local function diagnostics()
   local counts = vim.diagnostic.count(0)
   local S = vim.diagnostic.severity

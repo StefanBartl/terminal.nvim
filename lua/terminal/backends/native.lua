@@ -103,6 +103,7 @@ local function open_window(bufnr, spec)
     end
     return win, nil
   elseif layout == "split" or layout == "vsplit" then
+    ---@cast layout "split"|"vsplit"
     local size = layout_math.split(layout, vim.o.columns, vim.o.lines, (spec.split or {}).size)
     local config = layout == "split" and { split = "below", win = -1, height = size }
       or { split = "right", win = -1, width = size }
@@ -133,7 +134,8 @@ end
 ---@param registry Terminal.Registry Where this backend's handles are kept
 ---@return Terminal.Backend
 function M.new(registry)
-  ---@type Terminal.Backend
+  -- Filled by the `function backend.<name>` definitions below; `new` returns it as a
+  -- `Terminal.Backend`, which is where the language server checks that nothing is missing.
   local backend = {
     name = "native",
   }
@@ -178,6 +180,7 @@ function M.new(registry)
     end
   end
 
+  --- Interface method (`Terminal.Backend`); native is always available, so the facade never asks.
   ---@param _env table<string, string|nil>
   ---@return boolean available
   ---@return string|nil reason
@@ -190,6 +193,7 @@ function M.new(registry)
   ---@return string|nil err
   function backend.spawn(spec)
     local bufnr = api.nvim_create_buf(false, false)
+    -- Closing the window (`hide`) must leave the buffer, and the job in it, alive.
     vim.bo[bufnr].bufhidden = "hide"
 
     local win, werr = open_window(bufnr, spec)
@@ -284,7 +288,7 @@ function M.new(registry)
 
   --- Visible and focused in one answer (the facade asks every backend this way).
   ---@param handle Terminal.Handle
-  ---@return { visible: boolean, focused: boolean }
+  ---@return Terminal.Probe
   function backend.probe(handle)
     local visible = backend.visible(handle)
     return { visible = visible, focused = visible and backend.focused(handle) }

@@ -24,7 +24,7 @@ local CLI_TIMEOUT_MS = 2000
 --- The program of a 'shell' value: Neovim quotes a path with spaces itself (`"C:\Program
 --- Files\Git\bin\bash.exe" -l`), and a value can carry arguments.
 ---@param shell string
----@return string|nil program Whatever `executable()` finds first, nil when nothing runs
+---@return string|nil program # Whatever `executable()` finds first, nil when nothing runs
 local function shell_program(shell)
   if shell == "" then
     return nil
@@ -46,8 +46,8 @@ end
 --- Does the option (`"auto"`, a name, a list of names, false) pick `name`?
 ---@param option string|string[]|boolean|nil
 ---@param name string
----@return boolean explicit The option names `name`
----@return boolean auto The option is `"auto"`
+---@return boolean explicit # The option names `name`
+---@return boolean auto # The option is `"auto"`
 local function picks(option, name)
   if option == "auto" then
     return false, true
@@ -225,16 +225,15 @@ end
 local WEZTERM_TESTED = 20240203
 
 ---@internal
+--- stdout and stderr of a command that succeeded; nil when it failed or could not run.
 ---@param argv string[]
 ---@return string|nil out
 local function run(argv)
-  local ok, res = pcall(function()
-    return vim.system(argv, { text = true, timeout = CLI_TIMEOUT_MS }):wait()
-  end)
-  if not ok or res.code ~= 0 then
+  local res = require("terminal.core.exec").run(argv, { timeout = CLI_TIMEOUT_MS })
+  if res.code ~= 0 then
     return nil
   end
-  return vim.trim((res.stdout or "") .. (res.stderr or ""))
+  return vim.trim(res.stdout .. res.stderr)
 end
 
 --- Report on WezTerm. `cfg` is the effective configuration (default: the current one); it

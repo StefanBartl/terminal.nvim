@@ -46,11 +46,12 @@ local function environment()
 end
 
 ---@internal
----@param err string
+--- Show a problem to the user (deferred, so a command run from a script never surfaces a raw error).
+---@param err string|nil # nil is reported as an unknown error
 ---@return nil
 local function fail(err)
   vim.schedule(function()
-    notify.error(err)
+    notify.error(err or "unknown error")
   end)
 end
 
@@ -87,7 +88,7 @@ end
 --- The multiplexer backend `name`, registered on first use.
 ---@param name string "wezterm" or "tmux"
 ---@return Terminal.Backend|nil
----@return string|nil reason Why it is not usable
+---@return string|nil reason # Why it is not usable
 local function multiplexer(name)
   if not vim.list_contains(backends.MULTIPLEXERS, name) then
     return nil, "not a multiplexer backend (use tmux or wezterm)"
@@ -110,7 +111,7 @@ local function multiplexer(name)
 end
 
 --- Set the plugin up. Safe to call again: the options are replaced, the terminals stay.
----@param opts Terminal.Config|table|nil
+---@param opts Terminal.Options|nil
 ---@return nil
 function M.setup(opts)
   config.setup(opts)
@@ -122,7 +123,7 @@ function M.setup(opts)
   state.env = env
   -- A multiplexer backend is looked at (and registered) only when the config names it, or later
   -- when `pin` or a pinned terminal needs it: whether its CLI is installed is a lookup over
-  -- $PATH, which costs tens of milliseconds on Windows -- not something every startup pays.
+  -- $PATH, which is slow on Windows (docs/backends.md) -- not something every startup pays.
   local wanted = config.get("backend")
   local reason
   if vim.list_contains(backends.MULTIPLEXERS, wanted) then
@@ -223,8 +224,8 @@ end
 --- Resolve target name, working directory and project root for one call. A call resolves ONCE and
 --- hands the result on (`Terminal.Resolved`).
 ---@param target Terminal.Target|nil
----@return string|nil name nil when the target is invalid
----@return string cwd_or_err The working directory, or the reason the target is invalid
+---@return string|nil name # nil when the target is invalid
+---@return string cwd_or_err # The working directory, or the reason the target is invalid
 ---@return string|nil root
 local function resolve(target)
   local bad = check_target(target)
@@ -237,7 +238,7 @@ local function resolve(target)
     local nerr
     name, nerr = context.name_for_count(target.count, config.get("default_name"))
     if not name then
-      return nil, nerr
+      return nil, nerr or "invalid count"
     end
   end
   local cwd, root = context.resolve(config.get("cwd"), state.deps)
@@ -368,7 +369,7 @@ end
 ---
 --- With `focus = false` the terminal appears but the window that was current stays current.
 ---@param target Terminal.Target|nil
----@return Terminal.Handle|nil handle Live reference into the registry: read it, never write to it
+---@return Terminal.Handle|nil handle # Live reference into the registry: read it, never write to it
 ---@return string|nil err
 function M.open(target)
   return open_impl(target, nil, nil)
@@ -397,7 +398,7 @@ end
 --- shows it.
 ---@param target Terminal.Target|nil
 ---@return boolean hidden
----@return string|nil err Why not (also when there is no such terminal)
+---@return string|nil err # Why not (also when there is no such terminal)
 function M.hide(target)
   backend()
   local at, rerr = resolved(target)
@@ -420,37 +421,42 @@ function M.toggle(target)
     return false, rerr
   end
   local handle = find_live(at.root, at.name)
-  local b = handle and backend_of(handle)
-  local where = handle and probe(b, handle)
-  if handle and (where == nil or where.visible) then
-    if where and where.focused then
-      local hidden, herr = hide_impl(at)
-      if not hidden then
-        fail(herr)
+  ---@type Terminal.OpenKnown|nil
+  local known
+  if handle then
+    local b = backend_of(handle)
+    local where = probe(b, handle)
+    if where == nil or where.visible then
+      if where and where.focused then
+        local hidden, herr = hide_impl(at)
+        if not hidden then
+          fail(herr)
+        end
+        return hidden, herr
       end
-      return hidden, herr
+      local ok, err = b.focus(handle)
+      if not ok then
+        local msg = ("terminal '%s': %s"):format(at.name, err or "cannot focus")
+        fail(msg)
+        return false, msg
+      end
+      -- Insert mode belongs to a Neovim window; a multiplexer pane takes its own input, and
+      -- Neovim must stay in Normal mode in the pane the user just left.
+      if handle.backend == "native" and config.get("start_insert") then
+        vim.cmd("startinsert")
+      end
+      return true, nil
     end
-    local ok, err = b.focus(handle)
-    if not ok then
-      local msg = ("terminal '%s': %s"):format(at.name, err or "cannot focus")
-      fail(msg)
-      return false, msg
-    end
-    -- Insert mode belongs to a Neovim window; a multiplexer pane takes its own input, and
-    -- Neovim must stay in Normal mode in the pane the user just left.
-    if handle.backend == "native" and config.get("start_insert") then
-      vim.cmd("startinsert")
-    end
-    return true, nil
+    known = { handle = handle, where = where }
   end
-  local opened, err = open_impl(target, handle and { handle = handle, where = where } or nil, at)
+  local opened, err = open_impl(target, known, at)
   return opened ~= nil, err
 end
 
 --- Stop the terminal's job and remove it. Answers, does not report (like `hide`).
 ---@param target Terminal.Target|nil
 ---@return boolean closed
----@return string|nil err Why not (also when there is no such terminal)
+---@return string|nil err # Why not (also when there is no such terminal)
 function M.close(target)
   backend()
   local at, rerr = resolved(target)
@@ -470,7 +476,7 @@ end
 
 --- The terminals of the current project (all projects with `all = true`).
 ---@param all? boolean
----@return Terminal.Handle[] handles Live references into the registry: read them, never write
+---@return Terminal.Handle[] handles # Live references into the registry: read them, never write
 function M.list(all)
   backend()
   -- Prune the handles whose buffer or pane is gone; a backend is asked once, and only when it
@@ -494,7 +500,7 @@ end
 --- registry: no multiplexer is asked, so a pane the user closed a moment ago can still be named.
 --- Cheap enough for completion on every key; `list` is the exact answer.
 ---@param all? boolean
----@return string[] names In creation order
+---@return string[] names # In creation order
 function M.names(all)
   backend()
   local root
@@ -674,15 +680,19 @@ end
 ---@return boolean started
 ---@return string|nil err
 local function run_line(b, cmd, opts, at)
-  local line = cmd
+  ---@type string|nil
+  local line
   if type(cmd) == "table" then
     local qerr
     line, qerr = require("terminal.core.quote").argv_to_line(cmd, line_shell_kind(at, b))
     if not line then
-      fail("run: " .. qerr)
-      return false, qerr
+      local err = qerr or "cannot quote the command"
+      fail("run: " .. err)
+      return false, err
     end
-  elseif type(cmd) ~= "string" or cmd == "" then
+  elseif type(cmd) == "string" and cmd ~= "" then
+    line = cmd
+  else
     local err = "run: empty command"
     fail(err)
     return false, err
@@ -701,7 +711,7 @@ end
 ---@param opts? Terminal.RunOpts
 ---@return boolean started
 ---@return string|nil err
----@return Terminal.Handle|nil handle Only with `direct`
+---@return Terminal.Handle|nil handle # Only with `direct`
 function M.run(cmd, opts)
   if opts ~= nil and type(opts) ~= "table" then
     local msg = ("run: opts must be a table, got %s"):format(type(opts))

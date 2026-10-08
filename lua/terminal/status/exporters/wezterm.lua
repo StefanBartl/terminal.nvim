@@ -1,16 +1,17 @@
 ---@module 'terminal.status.exporters.wezterm'
 --- Publishes the status dataset to WezTerm as per-pane user variables (OSC 1337 `SetUserVar`).
 ---
---- Three variables, read on the WezTerm side with `pane:get_user_vars()`:
+--- The variables, read on the WezTerm side with `pane:get_user_vars()`:
 ---   `MUX_NVIM`    "1" while this Neovim runs in the pane, "" after it left
 ---   `MUX_PIPE`    this Neovim's RPC address (`vim.v.servername`), for control from outside
 ---   `MUX_STATUS`  the dataset as compact JSON (see `terminal.core.status`)
---- The names keep the `MUX_` prefix of the protocol's first draft; they are part of the contract
---- with the WezTerm config, not of the plugin's name.
+--- The names keep the `MUX_` prefix: they are part of the contract with the WezTerm config, not
+--- of the plugin's name.
 ---
---- Measured (WezTerm 20240203, Windows, Neovim 0.12): `nvim_ui_send` is the right channel, 200
---- updates arrive without loss, payloads up to 64 KiB arrive intact, an empty value reads as
---- "not set". Under tmux the sequence is wrapped for passthrough (`core/osc.lua`).
+--- The channel is `nvim_ui_send` (measured, see docs/status.md#measured); under tmux the sequence
+--- is wrapped for passthrough (`core/osc.lua`).
+---@see terminal.core.status
+---@see terminal.core.osc
 
 local osc = require("terminal.core.osc")
 
