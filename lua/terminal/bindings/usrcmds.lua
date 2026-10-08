@@ -17,8 +17,28 @@ local M = {}
 local LAYOUTS = { "float", "split", "vsplit", "tab" }
 
 ---@internal
+--- The optional terminal-name argument; `desc` is the line the option float shows for it.
+---@param desc string
+---@return Lib.UserCmd.Composer.ArgSpec[]
+local function name_arg(desc)
+  return { { name = "name", type = "STRING", optional = true, desc = desc } }
+end
+
+---@internal
+--- A name that may be new (toggle, open): the terminal is created when missing.
 ---@type Lib.UserCmd.Composer.ArgSpec[]
-local NAME_ARG = { { name = "name", type = "STRING", optional = true } }
+local NAME_ARG = name_arg("Terminal name, created when missing (default: config default_name)")
+
+---@internal
+--- Where `send` types to: the `run.name` terminal unless named, created when missing.
+---@type Lib.UserCmd.Composer.ArgSpec[]
+local SEND_NAME_ARG =
+  name_arg("Terminal to send to, created when missing (default: config run.name)")
+
+---@internal
+--- A terminal that has to exist (hide, close, pin, adopt); the command says when there is none.
+---@type Lib.UserCmd.Composer.ArgSpec[]
+local LIVE_NAME_ARG = name_arg("Terminal open in this project (default: config default_name)")
 
 ---@internal
 --- What each layout looks like, for the option float (the native backend's windows; a
@@ -76,7 +96,7 @@ local function send_route(what)
   return {
     path = { "send", what },
     range = what == "selection",
-    args = NAME_ARG,
+    args = SEND_NAME_ARG,
     flags = {
       {
         name = "exec",
@@ -175,7 +195,7 @@ function M.setup()
       },
       {
         path = { "hide" },
-        args = NAME_ARG,
+        args = LIVE_NAME_ARG,
         desc = "Hide a terminal's window; its job keeps running",
         run = function(ctx)
           local ok, err = terminal.hide(target_of(ctx))
@@ -186,7 +206,7 @@ function M.setup()
       },
       {
         path = { "close" },
-        args = NAME_ARG,
+        args = LIVE_NAME_ARG,
         desc = "Stop a terminal's job and remove it",
         run = function(ctx)
           local ok, err = terminal.close(target_of(ctx))
@@ -197,7 +217,7 @@ function M.setup()
       },
       {
         path = { "pin" },
-        args = NAME_ARG,
+        args = name_arg("Native terminal to restart as a pane (default: config default_name)"),
         flags = {
           {
             name = "backend",
@@ -228,7 +248,7 @@ function M.setup()
       },
       {
         path = { "adopt" },
-        args = NAME_ARG,
+        args = name_arg("Multiplexer terminal to view (default: config default_name)"),
         desc = "Show a tmux/WezTerm terminal's screen in a read-only buffer",
         run = function(ctx)
           terminal.adopt({ name = ctx.args.name })

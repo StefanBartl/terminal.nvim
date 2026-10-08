@@ -21,9 +21,15 @@ describe(":Terminal option float", function()
     pcall(vim.api.nvim_del_user_command, "Terminal")
   end)
 
-  it("leaves no flag without a description", function()
+  it("leaves no flag and no positional argument without a description", function()
+    assert.is_truthy(composer.registry().Terminal)
+    -- A lib.nvim older than `help.undocumented` cannot answer the question; that is a missing
+    -- feature of the dependency, not a defect of this plugin.
+    if type(composer.help.undocumented) ~= "function" then
+      return
+    end
     local missing = {}
-    for _, m in ipairs(composer.help.undocumented("Terminal")) do
+    for _, m in ipairs(composer.help.undocumented("Terminal", { args = true })) do
       missing[#missing + 1] = ("%s %s %s"):format(m.route, m.kind, m.name)
     end
     assert.equals("", table.concat(missing, ", "))
@@ -51,5 +57,37 @@ describe(":Terminal option float", function()
       end
     end
     assert.is_true(seen > 0, "the routes' flags were actually walked")
+  end)
+
+  it("keeps every argument text to one short line without a trailing full stop", function()
+    local handle = composer.registry().Terminal
+    assert.is_truthy(handle)
+    local argtypes = require("lib.nvim.bindings.usercmd.composer.argtypes")
+    local seen = 0
+    -- Every text an argument can bring: its own `desc`, the `desc` of its type, its `enum_desc`.
+    local function check(text, what)
+      seen = seen + 1
+      assert.is_string(text, what .. " is a string")
+      assert.is_true(text ~= "", what .. " shows a text")
+      assert.is_nil(text:find("\n", 1, true), what .. " is one line")
+      assert.is_true(#text <= 80, what .. " stays short")
+      assert.is_nil(text:find("%.$"), what .. " has no trailing full stop")
+    end
+    for _, route in ipairs(handle:spec().routes or {}) do
+      for _, arg in ipairs(route.args or {}) do
+        local what = ("argument %s of %s"):format(arg.name, table.concat(route.path, " "))
+        if arg.desc then
+          check(arg.desc, what)
+        end
+        local def = arg.type and argtypes.get(arg.type)
+        if def and def.desc then
+          check(def.desc, ("type %s of %s"):format(arg.type, what))
+        end
+        for value, text in pairs(arg.enum_desc or {}) do
+          check(text, ("value %s of %s"):format(value, what))
+        end
+      end
+    end
+    assert.is_true(seen > 0, "the routes' arguments were actually walked")
   end)
 end)
