@@ -218,11 +218,26 @@ describe("terminal.config", function()
         { "a", "b" },
         { "1", "2", "3", "4", "5", "6", "7", "8" },
       }
-      if vim.fn.has("nvim-0.11.1") == 1 then
-        good_borders[#good_borders + 1] = "bold" -- 0.11.0 refuses it in nvim_open_win
+      if vim.fn.has("nvim-0.12") == 1 then
+        good_borders[#good_borders + 1] = "bold" -- new in 0.12, refused by nvim_open_win before
       end
       for _, good in ipairs(good_borders) do
         assert.same({}, config.setup({ float = { border = good } }), vim.inspect(good))
+      end
+    end)
+
+    it("the border name list takes 'bold' only from Neovim 0.12 on", function()
+      local with = config.border_names(function(feature)
+        return feature == "nvim-0.12" and 1 or 0
+      end)
+      local without = config.border_names(function()
+        return 0
+      end)
+      assert.is_true(vim.tbl_contains(with, "bold"))
+      assert.is_false(vim.tbl_contains(without, "bold"))
+      for _, name in ipairs({ "none", "single", "double", "rounded", "solid", "shadow" }) do
+        assert.is_true(vim.tbl_contains(without, name), name)
+        assert.is_true(vim.tbl_contains(with, name), name)
       end
     end)
 

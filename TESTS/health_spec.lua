@@ -198,6 +198,13 @@ describe("terminal.health", function()
       -- Test double: a Neovim without nvim_ui_send; restored in after_each.
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.api.nvim_ui_send = nil
+      -- Test double: no `wezterm` on $PATH, so the check ends after the line this case is about
+      -- instead of starting the real program (slow where the PATH is long, WSL); restored in
+      -- after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.fn.executable = function()
+        return 0
+      end
       local r, log = recorder()
       health.check_wezterm(r, { WEZTERM_PANE = "3" }, cfg())
       assert.truthy(first(log, "warn", "nvim_ui_send"))

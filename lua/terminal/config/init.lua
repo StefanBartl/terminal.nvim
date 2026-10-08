@@ -71,14 +71,22 @@ local function whole(v)
   return v % 1 == 0
 end
 
----@internal
---- The border styles `nvim_open_win` and 'winborder' know by name (`:h nvim_open_win()`).
---- `bold` joined that list in Neovim 0.11.1; on 0.11.0 `nvim_open_win` refuses it, so the name is
---- accepted only where it opens a window.
-local BORDER_NAMES = { "none", "single", "double", "rounded", "solid", "shadow" }
-if vim.fn.has("nvim-0.11.1") == 1 then
-  BORDER_NAMES[#BORDER_NAMES + 1] = "bold"
+--- The border styles `nvim_open_win` and 'winborder' know by name (`:h nvim_open_win()`: the string
+--- form takes the values of 'winborder'). `bold` is new in Neovim 0.12 (`:h news`, "'winborder'
+--- "bold" style"); before that `nvim_open_win` refuses it, so the name is accepted only where it
+--- opens a window.
+---@param has fun(feature: string): integer `vim.fn.has` (the spec feeds its own)
+---@return string[]
+function M.border_names(has)
+  local names = { "none", "single", "double", "rounded", "solid", "shadow" }
+  if has("nvim-0.12") == 1 then
+    names[#names + 1] = "bold"
+  end
+  return names
 end
+
+---@internal
+local BORDER_NAMES = M.border_names(vim.fn.has)
 
 ---@internal
 --- Keys whose value, once it has the right type, must also be in a range. A value that only

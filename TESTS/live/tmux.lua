@@ -204,7 +204,14 @@ local ok, err = pcall(function()
     focus = false,
   })
   check("a one-word argv spawned", single ~= nil, single)
-  vim.wait(1200)
+  -- The word names no program, so the pane ends at once; wait for that (up to 5 s) instead of a
+  -- fixed pause: a shell that DID read it would have run `touch` by then, and the absence of the
+  -- file says something only after the pane has had its chance.
+  if single then
+    vim.wait(5000, function()
+      return not tmux("list-panes", "-a", "-F", "#{pane_id}").stdout:find(single.pane, 1, true)
+    end, 50)
+  end
   check("its ';' and spaces were not interpreted by a shell", run({ "test", "-e", lone }).code ~= 0)
   if single then
     backend.close(single)

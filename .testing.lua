@@ -13,6 +13,9 @@ return {
   host = "c",
   -- A case without assertions fails: a spec that asserts nothing proves nothing.
   assertions = "error",
+  -- Real shells are started by some specs (a PowerShell property run takes 5-10 s on a machine
+  -- that is busy with something else); the default of 10 s per case cut them off.
+  timeouts = { case_ms = 30000, file_ms = 180000 },
   guards = {
     fs = "error",
     scheduled_error = "error",
