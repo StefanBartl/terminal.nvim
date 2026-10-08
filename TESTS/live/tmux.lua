@@ -163,6 +163,27 @@ local ok, err = pcall(function()
     backend.close(words)
   end
 
+  -- A ONE-word argv is data too: tmux would hand a lone argument to its default shell
+  -- (`sh -c "<arg>"`), where `;` and `$(...)` are interpreted. The word names a program that does
+  -- not exist; nothing it contains may run.
+  local lone = "/tmp/terminal-nvim-live-lone"
+  run({ "rm", "-f", lone })
+  local single = backend.spawn({
+    name = "single",
+    root = "/live",
+    cwd = "/tmp",
+    layout = "split",
+    split = { size = 0.3 },
+    cmd = { "touch " .. lone .. "; sleep 20" },
+    focus = false,
+  })
+  check("a one-word argv spawned", single ~= nil, single)
+  vim.wait(1200)
+  check("its ';' and spaces were not interpreted by a shell", run({ "test", "-e", lone }).code ~= 0)
+  if single then
+    backend.close(single)
+  end
+
   check("the pane is visible and focused", backend.visible(h) and backend.focused(h))
   backend.hide(h)
   check("hide returns focus to Neovim's pane", backend.focused(h) == false)

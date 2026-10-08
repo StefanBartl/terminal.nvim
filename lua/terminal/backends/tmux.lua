@@ -244,13 +244,27 @@ function M.new(registry, runner, own_pane, opts)
     end
     local cmd = spec.cmd
     if type(cmd) == "string" and cmd ~= "" then
-      cmd = { cmd }
-    end
-    if type(cmd) == "table" and #cmd > 0 then
+      -- A string is a shell line on purpose (`pwsh -NoLogo`, a `shell` setting): tmux hands ONE
+      -- argument to its default shell.
+      args[#args + 1] = "--"
+      args[#args + 1] = M.word(cmd)
+    elseif type(cmd) == "table" and #cmd > 0 then
       -- `--`: a first word that starts with a dash is the program, not an option of tmux.
       args[#args + 1] = "--"
-      for _, word in ipairs(cmd) do
-        args[#args + 1] = M.word(word)
+      if #cmd == 1 then
+        -- tmux treats ONE argument as a shell line (`default-shell -c`), several as an argv it
+        -- executes directly. A one-word argv must stay data -- a script path holding `;` or
+        -- `$(...)` -- so it is executed as a program (a word starting with `-` gets `./`: `exec`
+        -- would read it as an option).
+        local program = cmd[1]
+        if program:sub(1, 1) == "-" then
+          program = "./" .. program
+        end
+        vim.list_extend(args, { "sh", "-c", 'exec "$0"', M.word(program) })
+      else
+        for _, word in ipairs(cmd) do
+          args[#args + 1] = M.word(word)
+        end
       end
     end
 

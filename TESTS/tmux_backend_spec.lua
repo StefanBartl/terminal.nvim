@@ -99,6 +99,35 @@ describe("terminal.backends.tmux", function()
       assert.equals("%1", state.active)
     end)
 
+    it("a one-word argv is executed as a program, never read as a shell line", function()
+      -- tmux hands ONE argument to its default shell (`sh -c`), several to exec directly
+      backend.spawn(spec({ cmd = { "/tmp/odd dir/run;it.sh" } }))
+      local split = ran()[1]
+      local dash = vim.fn.index(split, "--")
+      assert.same(
+        { "sh", "-c", 'exec "$0"', "/tmp/odd dir/run;it.sh" },
+        vim.list_slice(split, dash + 2)
+      )
+    end)
+
+    it(
+      "a one-word argv that starts with a dash gets ./ (exec would read it as an option)",
+      function()
+        backend.spawn(spec({ cmd = { "-weird" } }))
+        local split = ran()[1]
+        local dash = vim.fn.index(split, "--")
+        assert.equals("./-weird", split[#split])
+        assert.equals('exec "$0"', split[dash + 4])
+      end
+    )
+
+    it("a command STRING stays one argument: it is a shell line on purpose", function()
+      backend.spawn(spec({ cmd = "pwsh -NoLogo" }))
+      local split = ran()[1]
+      local dash = vim.fn.index(split, "--")
+      assert.same({ "pwsh -NoLogo" }, vim.list_slice(split, dash + 2))
+    end)
+
     it("a word that ends in ';' stays one word and starts no tmux command", function()
       backend.spawn(spec({ cmd = { "cat", "notes;", "run-shell", "touch /tmp/pwned" } }))
       assert.equals(1, #ran())

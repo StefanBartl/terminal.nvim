@@ -38,7 +38,6 @@ local ALPHABET = {
   "Z",
   "0",
   " ",
-  "\t",
   "'",
   '"',
   "`",
@@ -116,6 +115,49 @@ local function posix_parse(line)
   end
   return words
 end
+
+local shells =
+  dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/shells.lua")
+
+describe("quoting for the other shells (property)", function()
+  it(
+    "cmd: whatever the words, the C runtime reads them back (no % : cmd cannot quote it)",
+    function()
+      local rand = xorshift(77)
+      for _ = 1, 600 do
+        local argv = {}
+        for i = 1, rand(4) do
+          argv[i] = random_word(rand, 10)
+        end
+        local line = quote.argv_to_line(argv, "cmd")
+        if line then
+          assert.same(argv, shells.msvcrt(line), line)
+        else
+          -- refused: only a word with a percent sign may be
+          assert.truthy(table.concat(argv):find("%", 1, true), vim.inspect(argv))
+        end
+      end
+    end
+  )
+
+  it("fish: whatever the words, fish reads them back", function()
+    local rand = xorshift(78)
+    for _ = 1, 600 do
+      local argv = {}
+      for i = 1, rand(4) do
+        argv[i] = random_word(rand, 10)
+      end
+      local line = assert(quote.argv_to_line(argv, "fish"))
+      assert.same(argv, shells.fish(line), line)
+    end
+  end)
+
+  it("a TAB anywhere is refused for every shell", function()
+    for _, kind in ipairs({ "posix", "fish", "powershell", "cmd", "portable" }) do
+      assert.is_nil((quote.argv_to_line({ "echo", "a\tb" }, kind)), kind)
+    end
+  end)
+end)
 
 describe("the property generator", function()
   it("covers its whole range, ESC and BEL included", function()

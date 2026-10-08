@@ -5,6 +5,8 @@
 dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
 
 local quote = require("terminal.core.quote")
+local shells =
+  dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/shells.lua")
 
 -- Strings an attacker (or an unlucky file name) could use to break out of a quoted word.
 local HOSTILE = {
@@ -41,6 +43,36 @@ describe("terminal.core.quote", function()
     it("does not mistake a path component that merely contains the name", function()
       assert.equals("posix", quote.shell_kind("/opt/mycmdtools/zsh"))
     end)
+  end)
+
+  describe("fish", function()
+    it(
+      "is recognised by name, path or command string, and not by a path component that contains it",
+      function()
+        assert.equals("fish", quote.shell_kind("fish"))
+        assert.equals("fish", quote.shell_kind("/usr/bin/fish"))
+        assert.equals("fish", quote.shell_kind("fish -l"))
+        assert.equals("posix", quote.shell_kind("/opt/fisheye/zsh"))
+      end
+    )
+
+    it("escapes the backslash and the quote: inside '...' fish reads both as escapes", function()
+      assert.equals("'it\\'s'", quote.word("it's", "fish"))
+      assert.equals("'a\\\\b'", quote.word("a\\b", "fish"))
+      assert.equals("'\\\\'", quote.word("\\", "fish"))
+      assert.equals("''", quote.word("", "fish"))
+      assert.equals("plain", quote.word("plain", "fish"))
+    end)
+
+    it(
+      "round-trips what POSIX quoting would break: a word that holds backslash and quote",
+      function()
+        for _, word in ipairs({ "\\'; touch x; '", "a\\", "\\\\", "it's \\ here", "x\\'y" }) do
+          local line = quote.argv_to_line({ "echo", word }, "fish")
+          assert.same({ "echo", word }, shells.fish(line), word)
+        end
+      end
+    )
   end)
 
   describe("shell_kind", function()
@@ -132,6 +164,17 @@ describe("terminal.core.quote", function()
     it("doubles backslashes before the closing quote", function()
       assert.equals('"C:\\my dir\\\\"', quote.word("C:\\my dir\\", "cmd"))
     end)
+
+    it(
+      "doubles backslashes in front of an EMBEDDED quote too (else the C runtime reads a literal quote)",
+      function()
+        assert.equals('"a\\\\"" b"', quote.word('a\\" b', "cmd"))
+        -- the argument-injection word: it used to come out as three arguments
+        local word = 'a\\" --injected=1 "b'
+        local line = quote.argv_to_line({ "node", word }, "cmd")
+        assert.same({ "node", word }, shells.msvcrt(line))
+      end
+    )
   end)
 
   describe("argv_to_line", function()
@@ -147,6 +190,12 @@ describe("terminal.core.quote", function()
       assert.is_nil((quote.argv_to_line(nil, "posix")))
     end)
 
+    it("refuses TAB: readline completes INSIDE the quotes and closes them", function()
+      local line, err = quote.argv_to_line({ "echo", "x\t; touch f #" }, "posix")
+      assert.is_nil(line)
+      assert.truthy(err:find("TAB", 1, true), err)
+    end)
+
     it("refuses non-string words", function()
       local line, err = quote.argv_to_line({ "echo", 3 }, "posix")
       assert.is_nil(line)
@@ -156,8 +205,8 @@ describe("terminal.core.quote", function()
     it(
       "refuses control characters: a line break ends the command line, ESC is interpreted",
       function()
-        for _, bad in ipairs({ "a\nb", "a\rb", "a\0b", "a\27[31mb", "a\127b" }) do
-          for _, kind in ipairs({ "posix", "powershell", "cmd" }) do
+        for _, bad in ipairs({ "a\nb", "a\rb", "a\0b", "a\27[31mb", "a\127b", "a\tb" }) do
+          for _, kind in ipairs({ "posix", "fish", "powershell", "cmd" }) do
             local line = quote.argv_to_line({ "echo", bad }, kind)
             assert.is_nil(line, ("%s / %q"):format(kind, bad))
           end

@@ -3,16 +3,18 @@
 ---
 --- Anything that reaches a shell as one *line* must be quoted for **that** shell: a name with a
 --- space, `;`, `$(...)`, a backtick or a quote would otherwise be interpreted instead of passed.
---- Three families are covered: POSIX (`sh`, `bash`, `zsh`; `fish` accepts the same single-quote
---- form), PowerShell (`powershell`, `pwsh`) and `cmd.exe`.
+--- The shells covered: POSIX (`sh`, `bash`, `zsh`), `fish` (its own single-quote rules: a backslash
+--- is an escape inside '...'), PowerShell (`powershell`, `pwsh`) and `cmd.exe`. A shell that is none
+--- of them (`nu`, `csh`, ...) is NOT covered and is treated as POSIX -- name it in the `shell`
+--- config and the quoting is a guess for it; the "portable" kind (see below) is the safe choice.
 ---
---- `argv_to_line` is the only entry the rest of the plugin uses; it never builds a line from an
---- unquoted string. A word that cannot be represented safely for the shell is **refused**
---- (`nil, err`), never guessed at.
+--- `argv_to_line` and `shell_kind` are the entries the rest of the plugin uses; it never builds a
+--- line from an unquoted string. A word that cannot be represented safely for the shell is
+--- **refused** (`nil, err`), never guessed at.
 
 local M = {}
 
----@alias Terminal.ShellKind "posix"|"powershell"|"cmd"|"portable"
+---@alias Terminal.ShellKind "posix"|"fish"|"powershell"|"cmd"|"portable"
 
 --- Which quoting family a shell belongs to. Unknown shells are treated as POSIX.
 ---
@@ -29,6 +31,9 @@ function M.shell_kind(shell)
   end
   if padded:find('[/%s"]cmd[%.%s"]') then
     return "cmd"
+  end
+  if padded:find('[/%s"]fish[%.%s"]') then
+    return "fish"
   end
   return "posix"
 end
@@ -47,6 +52,24 @@ local function posix(s)
     return s
   end
   return "'" .. s:gsub("'", [['\'']]) .. "'"
+end
+
+---@internal
+--- fish: inside '...' a backslash escapes `\` and `'` (anything else after a backslash stays
+--- literal), so both are escaped; the POSIX form `'\''` would leave a lone backslash in front of
+--- the next character. Bare words: a deliberately small set (`%` starts a process expansion at the
+--- front of a word in fish, `~` expands, `{}` and `*` glob).
+---@param s string
+---@return string
+local function fish(s)
+  if s == "" then
+    return "''"
+  end
+  if s:find("^[%w%._/:=@+,-]+$") then
+    return s
+  end
+  local escaped = s:gsub("\\", "\\\\"):gsub("'", "\\'")
+  return "'" .. escaped .. "'"
 end
 
 ---@internal
@@ -91,7 +114,12 @@ local function cmd(s)
   if s:find("^[%w%._/:\\@+,-]+$") then
     return s, nil
   end
-  local body = s:gsub('"', '""')
+  -- A run of backslashes in front of an embedded quote is doubled (otherwise the C runtime reads
+  -- `\"` as a literal quote and the next quote ends the word: argument injection into the target
+  -- program), the quote itself becomes `""`.
+  local body = s:gsub('(\\*)"', function(slashes)
+    return slashes .. slashes .. '""'
+  end)
   local trailing = body:match("(\\+)$")
   if trailing then
     body = body .. trailing
@@ -127,6 +155,8 @@ function M.word(s, kind)
     return cmd(s)
   elseif kind == "portable" then
     return portable(s)
+  elseif kind == "fish" then
+    return fish(s), nil
   end
   return posix(s), nil
 end
@@ -134,9 +164,10 @@ end
 --- A command line for `argv`, every word quoted for the shell family.
 ---
 --- PowerShell needs the call operator when the program word itself is quoted
---- (`& 'C:\Program Files\x.exe' ...`); it is added only then. Control characters (line breaks,
---- NUL, ESC, ...) are refused: a line break would end the command line, the others would be
---- interpreted by the terminal's line editor. Tab is allowed.
+--- (`& 'C:\Program Files\x.exe' ...`); it is added only then. Every control character is refused
+--- (line breaks, NUL, ESC, ... and TAB): a line break would end the command line, the others are
+--- interpreted by the terminal's line editor -- a TAB makes readline / PSReadLine / cmd.exe complete
+--- INSIDE the quotes and close them, which breaks the quoting.
 ---@param argv string[] Non-empty; every element a string
 ---@param kind Terminal.ShellKind
 ---@return string|nil line
@@ -150,8 +181,9 @@ function M.argv_to_line(argv, kind)
     if type(a) ~= "string" then
       return nil, ("argument %d is not a string"):format(i)
     end
-    if a:find("[%z\1-\8\10-\31\127]") then
-      return nil, ("argument %d contains a control character (line break, NUL, ESC, ...)"):format(i)
+    if a:find("[%z\1-\31\127]") then
+      return nil,
+        ("argument %d contains a control character (line break, TAB, NUL, ESC, ...)"):format(i)
     end
     local w, err = M.word(a, kind)
     if not w then

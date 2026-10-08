@@ -47,12 +47,16 @@ This is deliberate — a selection that contains a line break would otherwise ru
   presses Enter. It is your text.
 - From Lua, `require("terminal").run({ "git", "commit", "-m", msg })` takes an **argv list**
   and quotes every word for the terminal's shell (POSIX, PowerShell or cmd.exe), so a
-  message with spaces, quotes or `$(...)` stays data. A word containing a line break or NUL
-  is refused: it would end the command line. In a **tmux or WezTerm pane** the shell is the
+  message with spaces, quotes or `$(...)` stays data. A word with any control character —
+  a line break, NUL, ESC, **TAB** — is refused: a line break ends the command line, and a TAB makes
+  the shell's line editor complete inside the quotes and close them. The shells covered are POSIX
+  (`sh`, `bash`, `zsh`), `fish`, PowerShell and `cmd.exe`; any other shell (`nu`, `csh`, ...) is quoted
+  as POSIX, which is a guess for it. In a **tmux or WezTerm pane** the shell is the
   multiplexer's default, which Neovim cannot see: set `shell` (e.g. `shell = "pwsh"`) and the words
   are quoted for it; without it only words made of letters, digits and `. _ / : -` are accepted
   (they mean the same in every shell) and anything else is refused with that hint.
-- `--direct` starts the command as the job itself (no shell in between). The terminal stays
+- `--direct` starts the command as the job itself (no shell in between; under tmux a one-word argv is run as a
+  program, not read as a shell line). The terminal stays
   after it ends, an earlier terminal of the same name is replaced, and from Lua
   `on_exit(code)` reports the exit code: `run({ "make" }, { direct = true, on_exit = fn })`.
   The words after `--direct` are the argv.
