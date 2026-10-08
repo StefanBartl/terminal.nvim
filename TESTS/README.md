@@ -72,4 +72,6 @@ check and end in `RESULT ok` / `RESULT failed`.
 Neovim 0.12 on Windows can die with `0xC0000005` when a terminal is closed within a few
 hundred milliseconds of a resize or of another terminal job ending. `support/jobs.lua`
 `settle()` puts 400 ms in between wherever a spec does that; 300–500 ms of distance never
-crashed. It is a Neovim/ConPTY timing issue, not something the plugin can fix.
+crashed. It is a Neovim/ConPTY timing issue; the plugin keeps clear of it where it can (a terminal
+is stopped before its windows are closed, see `docs/architecture.md`), and `native_spec.lua` has a
+case for the one order that does crash (a running terminal in two windows).

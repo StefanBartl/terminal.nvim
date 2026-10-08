@@ -483,11 +483,77 @@ describe("terminal.backends.native", function()
         assert.equals(h, registry:get(h.id))
         assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
         assert.is_falsy(h.disposed, "not removed, so not marked as removed")
+        -- And nothing was stopped on the way: the answer "false" means the command still runs.
+        assert.is_falsy(h.exited, "the job was not stopped")
+        assert.equals(-1, vim.fn.jobwait({ h.job }, 0)[1], "the command was not killed")
         jobs.settle()
         assert.is_true(backend.close(h), "it works again once the lock is gone")
         assert.equals(0, registry:count())
         assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
       end)
+
+      -- The last window cannot be closed, so a buffer is made to show in it; under the lock that
+      -- buffer could not be taken away again and stayed behind, listed.
+      it("hide of the terminal in the last window leaves no empty buffer behind", function()
+        local h = backend.spawn(spec({ layout = "tab" }))
+        vim.cmd("1tabclose")
+        assert.equals(1, #vim.api.nvim_list_tabpages())
+        jobs.settle()
+        -- No other listed buffer: showing something else would need a new empty one.
+        local unlisted = {}
+        for _, b in ipairs(vim.api.nvim_list_bufs()) do
+          if b ~= h.bufnr and vim.bo[b].buflisted then
+            vim.bo[b].buflisted = false
+            unlisted[#unlisted + 1] = b
+          end
+        end
+        -- Listed buffers: the scratch buffer the backend asks the lock with is unlisted, invisible
+        -- and reused by the next question, so it does not count as something left behind.
+        local function listed_count()
+          return #vim.fn.getbufinfo({ buflisted = 1 })
+        end
+        local before = listed_count()
+        local ok, hidden, err
+        under_textlock(function()
+          ok, hidden, err = pcall(backend.hide, h)
+        end)
+        local after = listed_count()
+        for _, b in ipairs(unlisted) do
+          if vim.api.nvim_buf_is_valid(b) then
+            vim.bo[b].buflisted = true
+          end
+        end
+        assert.is_true(ok, tostring(hidden))
+        assert.is_false(hidden)
+        mentions(err, "E565")
+        assert.equals(before, after, "no listed buffer was made for the refused hide")
+        assert.is_true(backend.visible(h))
+      end)
+    end)
+
+    -- Closing the windows of a RUNNING terminal and stopping its job right after killed Neovim on
+    -- Windows (0xC0000005) when the terminal was shown in more than one window. The runner reports
+    -- a crash as a failure, so this case is the guard for the order of the two.
+    describe("a running terminal shown in two windows", function()
+      for _, how in ipairs({ "split", "vsplit" }) do
+        it(("close ends the job and removes the terminal (%s)"):format(how), function()
+          local h = backend.spawn(spec({ layout = "split" }))
+          jobs.settle()
+          local win = vim.fn.win_findbuf(h.bufnr)[1]
+          vim.api.nvim_win_call(win, function()
+            vim.cmd(how)
+          end)
+          assert.equals(2, #vim.fn.win_findbuf(h.bufnr))
+          jobs.settle()
+          local pid = h.job and vim.fn.jobpid(h.job)
+          local ok, closed = pcall(backend.close, h)
+          assert.is_true(ok, tostring(closed))
+          assert.is_true(closed)
+          assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
+          assert.equals(0, registry:count())
+          assert.is_false(jobs.process_alive(pid), "the command is gone")
+        end)
+      end
     end)
   end)
 

@@ -54,6 +54,59 @@ local function replacement(exclude, win)
 end
 
 ---@internal
+--- How many normal (not floating) windows a tab page has.
+---@param tab integer
+---@return integer
+local function normal_windows(tab)
+  return #vim.tbl_filter(function(w)
+    return api.nvim_win_get_config(w).relative == ""
+  end, api.nvim_tabpage_list_wins(tab))
+end
+
+---@internal
+--- Whether closing `win` is not possible because it is the last normal window of the last tab
+--- (`true`: it has to show another buffer instead). A floating window is never that: floats are not
+--- "windows left to look at". `leave_window` acts on this answer, `replaced_windows` asks it ahead of
+--- time.
+---@param win integer
+---@param normal_left integer Normal windows in the window's tab right now
+---@param tabs_left integer Tab pages right now
+---@return boolean replaced
+local function is_replaced(win, normal_left, tabs_left)
+  if api.nvim_win_get_config(win).relative ~= "" then
+    return false
+  end
+  return normal_left <= 1 and tabs_left <= 1
+end
+
+---@internal
+--- The windows of the terminal buffer that closing will not close but give another buffer, worked
+--- out in the order they are taken (closing one window can make the next one the last). At most one:
+--- the last normal window of the last tab.
+---@param bufnr integer
+---@return integer[] wins
+local function replaced_windows(bufnr)
+  local out = {}
+  local left = {}
+  local tabs = #api.nvim_list_tabpages()
+  for _, win in ipairs(fn.win_findbuf(bufnr)) do
+    if api.nvim_win_get_config(win).relative == "" then
+      local tab = api.nvim_win_get_tabpage(win)
+      left[tab] = left[tab] or normal_windows(tab)
+      if is_replaced(win, left[tab], tabs) then
+        out[#out + 1] = win
+      else
+        left[tab] = left[tab] - 1
+        if left[tab] == 0 then
+          tabs = tabs - 1
+        end
+      end
+    end
+  end
+  return out
+end
+
+---@internal
 --- `nvim_win_close` that answers instead of raising.
 ---@param win integer
 ---@return boolean ok
@@ -76,14 +129,8 @@ local function leave_window(win, bufnr)
   if not api.nvim_win_is_valid(win) then
     return true, nil
   end
-  if api.nvim_win_get_config(win).relative ~= "" then
-    return try_close(win)
-  end
-  local tab = api.nvim_win_get_tabpage(win)
-  local normal = vim.tbl_filter(function(w)
-    return api.nvim_win_get_config(w).relative == ""
-  end, api.nvim_tabpage_list_wins(tab))
-  if #normal > 1 or #api.nvim_list_tabpages() > 1 then
+  local normal_left = normal_windows(api.nvim_win_get_tabpage(win))
+  if not is_replaced(win, normal_left, #api.nvim_list_tabpages()) then
     return try_close(win)
   end
   local repl, created = replacement(bufnr, win)
@@ -214,6 +261,65 @@ function M.new(registry)
     desc = "terminal.nvim: forget a wiped terminal buffer",
   })
 
+  -- A scratch buffer that could not be deleted (see `editing_blocked`); kept so the next probe
+  -- reuses it instead of leaving another one behind.
+  local probe_buf = nil
+
+  ---@internal
+  --- Why Neovim refuses, right now, to close windows or delete buffers; nil when it does not. It
+  --- refuses both under a text lock (an `<expr>` mapping, E565) and in the command-line window
+  --- (E11), and the only way to know is to ask with a buffer nobody cares about: a terminal must
+  --- not be stopped first and found undeletable afterwards.
+  ---@return string|nil reason Neovim's own words
+  local function editing_blocked()
+    if not (probe_buf and api.nvim_buf_is_valid(probe_buf)) then
+      local made, buf = pcall(api.nvim_create_buf, false, true)
+      if not made then
+        return tostring(buf)
+      end
+      probe_buf = buf
+    end
+    local deleted, err = pcall(api.nvim_buf_delete, probe_buf, { force = true })
+    if deleted then
+      probe_buf = nil
+      return nil
+    end
+    return tostring(err)
+  end
+
+  ---@internal
+  --- Whether taking the terminal's windows away (and its buffer after them) would be refused, found
+  --- out BEFORE anything is stopped or changed: a refusal that only shows afterwards leaves a dead
+  --- job in a window that stays, an empty buffer nobody asked for, or a terminal that is gone from the
+  --- screen but not from the registry. Three things refuse: a text lock or the command-line window
+  --- (see `editing_blocked`) and a window with 'winfixbuf' that would have to show another buffer.
+  ---@param handle Terminal.Handle
+  ---@param windows_only? boolean `hide` leaves the buffer alone: a hidden terminal has nothing to ask
+  ---@return string|nil reason Ready to be returned to the caller
+  local function closing_refusal(handle, windows_only)
+    local bufnr = handle.bufnr
+    if not bufnr or not api.nvim_buf_is_valid(bufnr) then
+      return nil
+    end
+    local shown = #fn.win_findbuf(bufnr) > 0
+    if windows_only and not shown then
+      return nil
+    end
+    local blocked = editing_blocked()
+    if blocked then
+      return ("%s: %s"):format(
+        shown and "cannot close the window" or "cannot delete the buffer",
+        blocked
+      )
+    end
+    for _, win in ipairs(replaced_windows(bufnr)) do
+      if vim.wo[win].winfixbuf then
+        return "cannot close the window: E1513: Cannot switch buffer. 'winfixbuf' is enabled"
+      end
+    end
+    return nil
+  end
+
   ---@internal
   --- Close every window that shows the terminal. Answers instead of raising: Neovim refuses in
   --- places the plugin does not control (textlock, the command-line window, 'winfixbuf').
@@ -261,6 +367,10 @@ function M.new(registry)
   ---@return boolean ok
   ---@return string|nil err
   local function dispose(handle)
+    local refusal = closing_refusal(handle)
+    if refusal then
+      return false, refusal
+    end
     -- Set first: from here on the exit of the job must not run the `on_exit` mode.
     handle.disposed = true
     local ok, err = close_windows(handle)
@@ -433,6 +543,10 @@ function M.new(registry)
     if not handle.bufnr or not api.nvim_buf_is_valid(handle.bufnr) then
       return false, "the terminal buffer is gone"
     end
+    local refusal = closing_refusal(handle, true)
+    if refusal then
+      return false, refusal
+    end
     return close_windows(handle)
   end
 
@@ -455,15 +569,18 @@ function M.new(registry)
   ---@return boolean ok
   ---@return string|nil err
   function backend.close(handle)
+    -- Whether Neovim will let the windows and the buffer go is asked FIRST, before the job is
+    -- touched: a refusal leaves the terminal exactly as it was, running and registered (a pin or a
+    -- replacement must not kill a command it cannot replace). The windows are NOT closed before the
+    -- job is stopped: a running terminal that is shown in two windows crashed Neovim on Windows
+    -- (0xC0000005, every time, however long the pause) when `jobstop` followed the closing of its
+    -- windows within one call; stopping the job first does not.
+    local refusal = closing_refusal(handle)
+    if refusal then
+      return false, refusal
+    end
     -- Set first: from here on the exit of the job is the answer to this call, not an `on_exit` event.
     handle.disposed = true
-    -- The windows first: when one cannot be closed nothing has been stopped yet and the terminal
-    -- is exactly as it was (a pin or a replacement must not kill a command it cannot replace).
-    local ok, err = close_windows(handle)
-    if not ok then
-      handle.disposed = nil
-      return false, err
-    end
     -- Is the process still alive? Asked of the process, not of the exit flag: inside a `TermClose`
     -- handler the job is reaped but its `on_exit` is queued behind the handler. Asked BEFORE
     -- `jobstop`, because after it `jobwait` ignores its timeout.
@@ -496,7 +613,13 @@ function M.new(registry)
         pcall(fn.jobwait, { handle.job }, JOB_KILL_WAIT_MS)
       end
     end
-    ok, err = remove_buffer(handle)
+    -- The windows, now that nothing runs in them. The refusals that can be known were asked about
+    -- above; one that could not (the editor changed while the job was stopping) leaves a finished
+    -- terminal that is still registered, so the next `close` finishes the job.
+    local ok, err = close_windows(handle)
+    if ok then
+      ok, err = remove_buffer(handle)
+    end
     if not ok then
       handle.disposed = nil
       return false, err

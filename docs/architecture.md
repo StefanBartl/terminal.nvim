@@ -55,7 +55,11 @@ multiple setups cannot leak into each other.
 - **Quoting is its own pure module.** `run` with an argv never builds a line from an
   unquoted string; `core/quote.lua` is tested against hostile words for each shell family.
 - **`send` types, it does not execute**, unless asked (`newline = true` / `--exec`).
-- **Teardown order:** closing a terminal first closes its windows (when one refuses — `winfixbuf`,
-  a text lock — nothing has been stopped and the terminal is exactly as it was), then stops the
-  job and waits for it to end, then deletes the buffer — Neovim 0.12 on Windows can crash when a
-  terminal buffer disappears while its ConPTY is still shutting down.
+- **Teardown order:** closing a terminal first asks whether Neovim will let its windows and its
+  buffer go (a text lock, the command-line window, `winfixbuf` on the window that would have to
+  show another buffer); a refusal there leaves the terminal exactly as it was — running, registered,
+  no buffer made. Only then it stops the job and waits for it to end, closes the windows and deletes
+  the buffer. The job goes first on purpose: Neovim 0.12 on Windows dies (`0xC0000005`, every time) when
+  the windows of a running terminal that is shown in two windows are closed and the job is stopped
+  right after, however long the pause; and it can crash when a terminal buffer disappears while its
+  ConPTY is still shutting down.
