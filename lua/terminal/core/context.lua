@@ -90,8 +90,8 @@ end
 --- The name a terminal gets when the caller gave none: the configured default for no count,
 --- the count itself otherwise (`3<A-h>` -> terminal "3"). "No count" is `nil` or `0` (what
 --- `vim.v.count` is without one); anything else that is not a number from 1 up is a mistake of
---- the caller and is reported, not read as "no count".
----@param count integer|nil
+--- the caller and is reported, not read as "no count". A fraction is cut off (`3.9` -> "3").
+---@param count number|nil
 ---@param default_name string
 ---@return string|nil name
 ---@return string|nil err

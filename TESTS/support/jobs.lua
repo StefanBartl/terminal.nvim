@@ -49,6 +49,15 @@ function M.shows(bufnr, text)
   return table.concat(lines, "\n"):find(text, 1, true) ~= nil
 end
 
+--- Whether the operating system still runs the process `pid`. Ask the process itself: `jobwait`
+--- on the channel of a terminal that was closed answers the same whether the process lives or
+--- not, so it cannot show that a job was really stopped.
+---@param pid integer
+---@return boolean
+function M.process_alive(pid)
+  return vim.uv.kill(pid, 0) == 0
+end
+
 --- Wait until `pred()` is true (up to `ms`).
 ---@param pred fun(): boolean
 ---@param ms? integer

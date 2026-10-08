@@ -28,13 +28,16 @@ local M = {}
 --- alternate buffer, else the most recently used listed one -- and a fresh empty buffer only when
 --- the editor has no other.
 ---@param exclude integer The terminal buffer that is going away
+---@param win integer The window that shows it (its alternate buffer counts, not the current window's)
 ---@return integer bufnr
 ---@return boolean created True when the buffer is a new empty one (the caller owns it)
-local function replacement(exclude)
+local function replacement(exclude, win)
   local function usable(b)
     return b > 0 and b ~= exclude and api.nvim_buf_is_valid(b) and vim.bo[b].buflisted
   end
-  local alt = fn.bufnr("#")
+  local alt = api.nvim_win_call(win, function()
+    return fn.bufnr("#")
+  end)
   if usable(alt) then
     return alt, false
   end
@@ -83,7 +86,7 @@ local function leave_window(win, bufnr)
   if #normal > 1 or #api.nvim_list_tabpages() > 1 then
     return try_close(win)
   end
-  local repl, created = replacement(bufnr)
+  local repl, created = replacement(bufnr, win)
   local shown, serr = pcall(api.nvim_win_set_buf, win, repl)
   if not shown then
     -- 'winfixbuf' (E1513) or a locked window: the empty buffer made for it must not stay behind.
@@ -212,9 +215,47 @@ function M.new(registry)
   })
 
   ---@internal
-  --- Remove a terminal's window(s) first, then forget it and delete its buffer. When a window
-  --- cannot be closed the terminal stays as it is -- registered, buffer alive -- so that it is
-  --- still reachable and `close` can be tried again; nothing is left behind that the registry
+  --- Close every window that shows the terminal. Answers instead of raising: Neovim refuses in
+  --- places the plugin does not control (textlock, the command-line window, 'winfixbuf').
+  ---@param handle Terminal.Handle
+  ---@return boolean ok
+  ---@return string|nil err
+  local function close_windows(handle)
+    local bufnr = handle.bufnr
+    if not bufnr or not api.nvim_buf_is_valid(bufnr) then
+      return true, nil
+    end
+    for _, win in ipairs(fn.win_findbuf(bufnr)) do
+      local ok, err = close_window(win, bufnr)
+      if not ok then
+        return false, ("cannot close the window: %s"):format(err)
+      end
+    end
+    return true, nil
+  end
+
+  ---@internal
+  --- Delete the terminal's buffer and forget the handle -- in that order, and only when the buffer
+  --- is really gone: a buffer that cannot be deleted (textlock) must stay reachable.
+  ---@param handle Terminal.Handle
+  ---@return boolean ok
+  ---@return string|nil err
+  local function remove_buffer(handle)
+    local bufnr = handle.bufnr
+    if bufnr and api.nvim_buf_is_valid(bufnr) then
+      local deleted, derr = pcall(api.nvim_buf_delete, bufnr, { force = true })
+      if not deleted and api.nvim_buf_is_valid(bufnr) then
+        return false, ("cannot delete the buffer: %s"):format(tostring(derr))
+      end
+    end
+    forget(handle)
+    return true, nil
+  end
+
+  ---@internal
+  --- Remove a terminal that has no running job: its window(s) first, then the buffer. When a
+  --- window cannot be closed the terminal stays as it is -- registered, buffer alive -- so that it
+  --- is still reachable and `close` can be tried again; nothing is left behind that the registry
   --- does not know about.
   ---@param handle Terminal.Handle
   ---@return boolean ok
@@ -222,19 +263,15 @@ function M.new(registry)
   local function dispose(handle)
     -- Set first: from here on the exit of the job must not run the `on_exit` mode.
     handle.disposed = true
-    local bufnr = handle.bufnr
-    if bufnr and api.nvim_buf_is_valid(bufnr) then
-      for _, win in ipairs(fn.win_findbuf(bufnr)) do
-        local ok, err = close_window(win, bufnr)
-        if not ok then
-          handle.disposed = nil
-          return false, ("cannot close the window: %s"):format(err)
-        end
-      end
+    local ok, err = close_windows(handle)
+    if not ok then
+      handle.disposed = nil
+      return false, err
     end
-    forget(handle)
-    if bufnr and api.nvim_buf_is_valid(bufnr) then
-      pcall(api.nvim_buf_delete, bufnr, { force = true })
+    ok, err = remove_buffer(handle)
+    if not ok then
+      handle.disposed = nil
+      return false, err
     end
     return true, nil
   end
@@ -396,13 +433,7 @@ function M.new(registry)
     if not handle.bufnr or not api.nvim_buf_is_valid(handle.bufnr) then
       return false, "the terminal buffer is gone"
     end
-    for _, win in ipairs(fn.win_findbuf(handle.bufnr)) do
-      local ok, err = close_window(win, handle.bufnr)
-      if not ok then
-        return false, ("cannot close the window: %s"):format(err)
-      end
-    end
-    return true, nil
+    return close_windows(handle)
   end
 
   ---@return Terminal.Handle[]
@@ -424,9 +455,22 @@ function M.new(registry)
   ---@return boolean ok
   ---@return string|nil err
   function backend.close(handle)
-    if handle.job and not handle.exited then
-      -- From here on the exit of the job is the answer to this call, not an `on_exit` event.
-      handle.disposed = true
+    -- Set first: from here on the exit of the job is the answer to this call, not an `on_exit` event.
+    handle.disposed = true
+    -- The windows first: when one cannot be closed nothing has been stopped yet and the terminal
+    -- is exactly as it was (a pin or a replacement must not kill a command it cannot replace).
+    local ok, err = close_windows(handle)
+    if not ok then
+      handle.disposed = nil
+      return false, err
+    end
+    -- Is the process still alive? Asked of the process, not of the exit flag: inside a `TermClose`
+    -- handler the job is reaped but its `on_exit` is queued behind the handler. Asked BEFORE
+    -- `jobstop`, because after it `jobwait` ignores its timeout.
+    local running = handle.job ~= nil
+      and not handle.exited
+      and fn.jobwait({ handle.job }, 0)[1] == -1
+    if running then
       pcall(fn.jobstop, handle.job)
       -- Let the job actually end before its buffer goes away: deleting the buffer of a job that
       -- is still shutting down crashed Neovim 0.12 on Windows (0xC0000005, headless, splits).
@@ -452,7 +496,12 @@ function M.new(registry)
         pcall(fn.jobwait, { handle.job }, JOB_KILL_WAIT_MS)
       end
     end
-    return dispose(handle)
+    ok, err = remove_buffer(handle)
+    if not ok then
+      handle.disposed = nil
+      return false, err
+    end
+    return true, nil
   end
 
   return backend

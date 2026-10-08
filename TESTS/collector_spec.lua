@@ -230,6 +230,34 @@ describe("terminal.status.collector branch", function()
       assert.equals("main", branch())
     end)
 
+    it("a buffer named like a URI (scp://..., empty 'buftype') follows :cd as well", function()
+      -- netrw-style buffers keep an empty 'buftype': the NAME is what says it is not a path
+      local other = scratch_dir("ref: refs/heads/other")
+      label_buffer("scp://host//etc/hosts", "")
+      vim.api.nvim_set_current_dir(root)
+      assert.equals("main", branch())
+      vim.api.nvim_set_current_dir(other)
+      assert.equals("other", branch())
+    end)
+
+    it("the memo is bounded: more directories than it keeps, the oldest are asked again", function()
+      vim.cmd("enew")
+      extra_bufs[#extra_bufs + 1] = vim.api.nvim_get_current_buf()
+      local first = scratch_dir()
+      vim.api.nvim_set_current_dir(first)
+      assert.is_nil(branch()) -- remembered (a negative answer is remembered too)
+      for _ = 1, 70 do
+        vim.api.nvim_set_current_dir(scratch_dir())
+        assert.is_nil(branch())
+      end
+      vim.api.nvim_set_current_dir(first)
+      -- still within the memo window, yet walked again: the table was cut back, not grown
+      local walks = count_root_walks(function()
+        assert.is_nil(branch())
+      end)
+      assert.equals(1, walks)
+    end)
+
     it("a buffer with a 'buftype' is looked up from the working directory too", function()
       -- an absolute name, but not a file (acwrite: the plugin that owns it writes it elsewhere)
       local other = scratch_dir("ref: refs/heads/other")

@@ -290,10 +290,29 @@ describe("terminal.health", function()
 
       local asked = {}
       local real_require = require
-      -- Test double: records every lib.* module asked for, then loads it for real; restored below.
+
+      --- Is the code that called `require` health.lua itself (not a lib module loading its own
+      --- dependencies the first time)? The first Lua frame above the double decides; C frames
+      --- (`pcall(require, ...)`) are skipped.
+      ---@return boolean
+      local function asked_by_health()
+        for level = 3, 8 do
+          local info = debug.getinfo(level, "S")
+          if not info then
+            return false
+          end
+          if info.what ~= "C" then
+            return info.source:find("terminal[/\\]health%.lua$") ~= nil
+          end
+        end
+        return false
+      end
+
+      -- Test double: records every lib.* module health.lua asks for, then loads it for real;
+      -- restored below.
       ---@diagnostic disable-next-line: duplicate-set-field
       _G.require = function(name)
-        if type(name) == "string" and name:find("^lib%.") then
+        if type(name) == "string" and name:find("^lib%.") and asked_by_health() then
           asked[name] = true
         end
         return real_require(name)

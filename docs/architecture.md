@@ -46,13 +46,16 @@ A backend is a table satisfying `Terminal.Backend`: `available`, `spawn`, `send`
 interface is documented in `lua/terminal/@types/init.lua`. `backends.resolve` picks one from
 the configured name and the environment; a backend that is not available falls back to
 `native` with a notice. A backend keeps its handles in the registry it is given; nothing is
-stored at module level, so specs and multiple setups cannot leak into each other.
+stored at module level (the one exception: the `BufWipeout` watcher of the native backend is a
+named autocommand group, bound to the registry of the backend created last), so specs and
+multiple setups cannot leak into each other.
 
 ## Design notes
 
 - **Quoting is its own pure module.** `run` with an argv never builds a line from an
   unquoted string; `core/quote.lua` is tested against hostile words for each shell family.
 - **`send` types, it does not execute**, unless asked (`newline = true` / `--exec`).
-- **Teardown order:** closing a terminal stops the job, waits for it to end, then removes
-  windows and buffer — Neovim 0.12 on Windows can crash when a terminal buffer disappears
-  while its ConPTY is still shutting down.
+- **Teardown order:** closing a terminal first closes its windows (when one refuses — `winfixbuf`,
+  a text lock — nothing has been stopped and the terminal is exactly as it was), then stops the
+  job and waits for it to end, then deletes the buffer — Neovim 0.12 on Windows can crash when a
+  terminal buffer disappears while its ConPTY is still shutting down.

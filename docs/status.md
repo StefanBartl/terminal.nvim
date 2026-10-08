@@ -15,7 +15,7 @@ receiving side):
 | `pid` | the Neovim process |
 | `mode` | `nvim_get_mode().mode` (`n`, `i`, `v`, `V`, `t`, ...); the two control-character modes are spelled out: `^V` (blockwise Visual, `no^V` operator-pending) and `^S` (Select block) |
 | `file`, `ft` | file name (last path component; `terminal` for terminal buffers) and filetype |
-| `cwd`, `branch` | working directory and git branch (from gitsigns, else `.git/HEAD`). The search starts at the directory of the buffer's file, or at the working directory for a buffer that is not a file (a terminal, `oil://`), so the branch follows `:cd`. Where the repository was found is remembered for 2 s, so a `git init` below a known repository shows up within that time; a branch switch is seen at once, because the `HEAD` file is checked on every update |
+| `cwd`, `branch` | working directory and git branch (from gitsigns, else `.git/HEAD`). The search starts at the directory of the buffer's file, or at the working directory for a buffer that is not a file (a terminal, `oil://`), so the branch follows `:cd`. Where the repository was found is remembered for 2 s, so a `git init` below a known repository shows up within that time; a branch switch is seen at once, because the `HEAD` file is checked on every update. In a git worktree or a submodule (`.git` is a file there) there is no branch unless gitsigns supplies one |
 | `e`, `w`, `i`, `h` | diagnostic counts: error, warning, info, hint |
 | `rec` | register being recorded into, `""` when none |
 | `mod` | the buffer is modified |

@@ -166,7 +166,7 @@
 --- Who a call is about: the project root plus a name identify a terminal.
 ---@class Terminal.Target
 ---@field name? string Terminal name; wins over `count`
----@field count? integer `3` -> terminal "3"; 0/nil -> the default name
+---@field count? number `3` -> terminal "3" (fractions are cut off); 0/nil -> the default name (`send` and `run`: the `run.name` terminal)
 ---@field layout? Terminal.Layout Overrides the configured layout for this call
 ---@field focus? boolean Take focus (default true)
 

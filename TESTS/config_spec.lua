@@ -207,18 +207,21 @@ describe("terminal.config", function()
         assert.equals(1, #problems, vim.inspect(bad))
         assert.equals("rounded", config.get("float.border"))
       end
-      for _, good in ipairs({
+      local good_borders = {
         "none",
         "single",
         "double",
         "rounded",
         "solid",
         "shadow",
-        "bold",
         "",
         { "a", "b" },
         { "1", "2", "3", "4", "5", "6", "7", "8" },
-      }) do
+      }
+      if vim.fn.has("nvim-0.11.1") == 1 then
+        good_borders[#good_borders + 1] = "bold" -- 0.11.0 refuses it in nvim_open_win
+      end
+      for _, good in ipairs(good_borders) do
         assert.same({}, config.setup({ float = { border = good } }), vim.inspect(good))
       end
     end)

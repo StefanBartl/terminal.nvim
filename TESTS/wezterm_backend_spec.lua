@@ -298,6 +298,11 @@ describe("terminal.backends.wezterm", function()
         "[[]]",
         "[{}]",
         '[{"pane_id":null}]',
+        '[{"a":1}]',
+        '[{"error":"no mux"}]',
+        '[{"pane_id":null,"x":1}]',
+        '[{"paneId":8}]',
+        '[1,{"x":2}]',
       }) do
         registry = registry_mod.new()
         local runner

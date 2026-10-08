@@ -138,6 +138,11 @@ function M.new(registry, runner, own_pane)
         by_id[tostring(p.pane_id)] = p
       end
     end
+    if #data > 0 and next(by_id) == nil then
+      -- Objects, but none that names a pane (a renamed field, an error object in a list): not an
+      -- answer, and certainly not "WezTerm has no panes" -- that would declare every pane gone.
+      return nil, "wezterm cli list returned objects without a pane_id"
+    end
     return by_id, nil
   end
 

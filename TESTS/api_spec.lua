@@ -252,6 +252,77 @@ describe("terminal (facade)", function()
       assert.not_equals(first.bufnr, second.bufnr)
       assert.is_false(second.exited == true)
     end)
+
+    -- 'winfixbuf' (Neovim 0.10+) forbids showing another buffer in the last window of the editor,
+    -- which is what closing it needs. Registered only where the option exists.
+    if vim.fn.exists("+winfixbuf") == 1 then
+      describe("an earlier terminal under the same name that cannot be closed", function()
+        local pinned
+
+        after_each(function()
+          if pinned and vim.api.nvim_win_is_valid(pinned) then
+            vim.wo[pinned].winfixbuf = false
+          end
+          pinned = nil
+        end)
+
+        it("makes open fail with the reason and leaves it registered", function()
+          terminal.setup({
+            shell = jobs.exit_with(0),
+            on_exit = "keep",
+            commands = false,
+            keymaps = { preset = false },
+            start_insert = false,
+          })
+          local first = terminal.open({ layout = "tab" })
+          assert.is_true(jobs.wait(function()
+            return first.exited == true
+          end))
+          -- The exited terminal alone in the only window of the editor, pinned to its buffer.
+          vim.cmd("1tabclose")
+          assert.equals(1, #vim.api.nvim_list_tabpages())
+          pinned = vim.fn.win_findbuf(first.bufnr)[1]
+          vim.wo[pinned].winfixbuf = true
+          jobs.settle()
+
+          local second, err = terminal.open({ layout = "tab" })
+          assert.is_nil(second)
+          assert.truthy(
+            tostring(err):find("cannot replace the earlier one", 1, true),
+            tostring(err)
+          )
+          assert.truthy(tostring(err):find("E1513", 1, true), tostring(err))
+          vim.wait(100) -- the report is scheduled
+          local reported = false
+          for _, n in ipairs(notices) do
+            reported = reported or n.msg:find(err, 1, true) ~= nil
+          end
+          assert.is_true(reported, "the failure is shown to the user")
+          -- Not orphaned: the registry still holds that one terminal, with its buffer and window.
+          local all = terminal.list(true)
+          assert.equals(1, #all)
+          assert.equals(first, all[1])
+          assert.is_true(vim.api.nvim_buf_is_valid(first.bufnr))
+          assert.equals(1, #vim.fn.win_findbuf(first.bufnr))
+
+          -- Once the obstacle is gone the same call replaces it.
+          vim.wo[pinned].winfixbuf = false
+          terminal.setup({
+            shell = jobs.sleeper(),
+            commands = false,
+            keymaps = { preset = false },
+            start_insert = false,
+          })
+          local third = terminal.open({ layout = "tab" })
+          assert.is_not_nil(third)
+          assert.not_equals(first.bufnr, third.bufnr)
+          assert.is_false(vim.api.nvim_buf_is_valid(first.bufnr))
+          all = terminal.list(true)
+          assert.equals(1, #all)
+          assert.equals(third, all[1])
+        end)
+      end)
+    end
   end)
 
   describe("send", function()
@@ -557,6 +628,18 @@ describe("terminal (facade)", function()
       ok, err = terminal.run({ "a\0b" }, { direct = true })
       assert.is_false(ok)
       assert.truthy(err:find("argument 1", 1, true), tostring(err))
+    end)
+
+    it('run direct: an empty ARGUMENT is data (rg "" file), an empty program is not', function()
+      local argv = jobs.exit_with(0)
+      table.insert(argv, "")
+      local ok, err = terminal.run(argv, { direct = true, name = "empty-arg" })
+      assert.is_true(ok, tostring(err))
+      assert.equals(1, #terminal.list())
+      ok, err = terminal.run({ "" }, { direct = true, name = "empty-program" })
+      assert.is_false(ok)
+      assert.truthy(err:find("argument 1", 1, true), tostring(err))
+      assert.equals(1, #terminal.list(), "the empty program started nothing")
     end)
 
     it("run reports its failures with the same 'run:' prefix it shows", function()

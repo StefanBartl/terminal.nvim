@@ -347,7 +347,17 @@ local function open_impl(target, known, at)
   else
     local stale = state.registry:find(root, name)
     if stale then
-      backend_of(stale).close(stale)
+      local closed, cerr = backend_of(stale).close(stale)
+      if not closed then
+        -- Still registered (its window will not close): a new terminal under the same id would
+        -- replace its entry and orphan it.
+        local msg = ("terminal '%s': cannot replace the earlier one: %s"):format(
+          name,
+          cerr or "cannot close"
+        )
+        fail(msg)
+        return nil, msg
+      end
     end
     local spec =
       build_spec(name, cwd, root, { layout = layout, start_insert = start_insert, focus = focus })
@@ -735,8 +745,12 @@ function M.run(cmd, opts)
       return false, err
     end
     for i, word in ipairs(cmd) do
-      if type(word) ~= "string" or word == "" or word:find("\0", 1, true) then
-        local err = ("run: argument %d must be a non-empty string without a NUL byte"):format(i)
+      -- The program (word 1) needs a name; an argument may be empty (`rg "" file`).
+      if type(word) ~= "string" or (i == 1 and word == "") or word:find("\0", 1, true) then
+        local err = (
+          i == 1 and "run: the program (argument 1) must be a non-empty string without a NUL byte"
+          or "run: argument %d must be a string without a NUL byte"
+        ):format(i)
         fail(err)
         return false, err
       end

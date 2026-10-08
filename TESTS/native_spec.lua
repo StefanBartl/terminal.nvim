@@ -25,10 +25,13 @@ describe("terminal.backends.native", function()
 
   --- Neovim's error codes are not translated; the words around them are.
   ---@param reason any The reason a call gave
-  ---@param code string Neovim's error code, e.g. "E565"
-  local function mentions(reason, code)
+  ---@param fragment string Neovim's error code, e.g. "E565", or a phrase of the plugin's own
+  local function mentions(reason, fragment)
     local text = tostring(reason)
-    assert.is_true(text:find(code, 1, true) ~= nil, ("expected %s in: %s"):format(code, text))
+    assert.is_true(
+      text:find(fragment, 1, true) ~= nil,
+      ("expected %s in: %s"):format(fragment, text)
+    )
   end
 
   ---@param over? table
@@ -151,6 +154,7 @@ describe("terminal.backends.native", function()
 
     describe("the terminal is the only normal window of the editor", function()
       local file, file_buf, float
+      local extra = {} -- listed buffers a spec made; wiped in after_each
 
       before_each(function()
         file = vim.fn.tempname()
@@ -170,8 +174,60 @@ describe("terminal.backends.native", function()
         pcall(function()
           vim.cmd("bwipeout! " .. file_buf)
         end)
+        for _, b in ipairs(extra) do
+          pcall(vim.api.nvim_buf_delete, b, { force = true })
+        end
+        extra = {}
         vim.fn.delete(file)
       end)
+
+      --- A listed buffer of its own; it is wiped after the spec.
+      ---@return integer
+      local function listed_buffer()
+        local b = vim.api.nvim_create_buf(true, false)
+        extra[#extra + 1] = b
+        return b
+      end
+
+      --- Show `bufnr` in `win` and then `back` again: `bufnr` is `win`'s alternate buffer after it.
+      ---@param win integer
+      ---@param bufnr integer
+      ---@param back integer
+      local function make_alternate(win, bufnr, back)
+        vim.api.nvim_win_call(win, function()
+          vim.cmd("buffer " .. bufnr)
+          vim.cmd("buffer " .. back)
+        end)
+      end
+
+      --- Use `bufnr` the way an editor does -- enter it in a window -- without changing the
+      --- alternate buffer of a normal window: a float, closed again at once.
+      ---@param bufnr integer
+      local function use_in_float(bufnr)
+        local w = vim.api.nvim_open_win(bufnr, true, {
+          relative = "editor",
+          row = 1,
+          col = 1,
+          width = 10,
+          height = 3,
+        })
+        vim.api.nvim_win_close(w, true)
+      end
+
+      --- The alternate buffer of `win` (`#` evaluated in it), -1 or a gone buffer when it has none.
+      ---@param win integer
+      ---@return integer
+      local function alternate_of(win)
+        return vim.api.nvim_win_call(win, function()
+          return vim.fn.bufnr("#")
+        end)
+      end
+
+      ---@param bufnr integer
+      ---@return integer seconds
+      local function last_used(bufnr)
+        return vim.fn.getbufinfo(bufnr)[1].lastused
+      end
 
       --- The terminal alone in its tab, the file's tab closed.
       local function terminal_alone()
@@ -187,6 +243,77 @@ describe("terminal.backends.native", function()
         local win = vim.fn.win_findbuf(h.bufnr)[1]
         assert.is_true(backend.hide(h))
         assert.equals(file_buf, vim.api.nvim_win_get_buf(win))
+      end)
+
+      it("hide shows the alternate buffer, not the most recently used one", function()
+        local h = terminal_alone()
+        local win = vim.fn.win_findbuf(h.bufnr)[1]
+        local alt, recent = listed_buffer(), listed_buffer()
+        make_alternate(win, alt, h.bufnr)
+        -- 'lastused' counts whole seconds: let `recent` be strictly newer than `alt`
+        vim.wait(1100)
+        use_in_float(recent)
+        -- the scenario has to be the one the title names, or the case proves nothing
+        assert.equals(alt, alternate_of(win))
+        assert.is_true(last_used(recent) > last_used(alt))
+        assert.is_true(backend.hide(h))
+        assert.equals(alt, vim.api.nvim_win_get_buf(win))
+      end)
+
+      it("hide shows the most recently used listed buffer when there is no alternate", function()
+        local h = terminal_alone()
+        local win = vim.fn.win_findbuf(h.bufnr)[1]
+        local recent = listed_buffer()
+        vim.wait(1100) -- as above: `recent` is strictly newer than the file buffer
+        use_in_float(recent)
+        local alt = alternate_of(win)
+        assert.is_false(
+          alt > 0 and vim.api.nvim_buf_is_valid(alt) and vim.bo[alt].buflisted,
+          "the terminal's window has no alternate buffer to fall back on"
+        )
+        assert.is_true(last_used(recent) > last_used(file_buf))
+        assert.is_true(backend.hide(h))
+        assert.equals(recent, vim.api.nvim_win_get_buf(win))
+      end)
+
+      it("hide shows the terminal window's own alternate buffer, not the current's", function()
+        local h = terminal_alone()
+        local win = vim.fn.win_findbuf(h.bufnr)[1]
+        local own_alt, other, other_alt = listed_buffer(), listed_buffer(), listed_buffer()
+        make_alternate(win, own_alt, h.bufnr)
+        -- A float is the current window, with an alternate buffer of its own.
+        float = vim.api.nvim_open_win(other, true, {
+          relative = "editor",
+          row = 1,
+          col = 1,
+          width = 10,
+          height = 3,
+        })
+        make_alternate(float, other_alt, other)
+        assert.equals(float, vim.api.nvim_get_current_win())
+        assert.equals(other_alt, vim.fn.bufnr("#"))
+        assert.equals(own_alt, alternate_of(win))
+        assert.is_true(backend.hide(h))
+        assert.equals(own_alt, vim.api.nvim_win_get_buf(win))
+        assert.equals(float, vim.api.nvim_get_current_win(), "the float is left as it was")
+      end)
+
+      it("hide closes a terminal tab together with its tab while other tabs are open", function()
+        local file_win = vim.api.nvim_get_current_win()
+        local h = backend.spawn(spec({ layout = "tab" }))
+        assert.equals(2, #vim.api.nvim_list_tabpages())
+        jobs.settle()
+        assert.is_true(backend.hide(h))
+        assert.equals(
+          1,
+          #vim.api.nvim_list_tabpages(),
+          "the tab goes with its terminal window; it is not turned into another buffer"
+        )
+        assert.same({ file_win }, vim.api.nvim_list_wins())
+        assert.equals(file_buf, vim.api.nvim_win_get_buf(file_win))
+        assert.is_false(backend.visible(h))
+        assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
+        assert.equals(-1, vim.fn.jobwait({ h.job }, 0)[1], "hide keeps the job")
       end)
 
       it("an unrelated float does not count as a window to fall back on", function()
@@ -258,11 +385,14 @@ describe("terminal.backends.native", function()
           assert.is_true(ok, tostring(closed))
           assert.is_false(closed)
           mentions(err, "E1513")
-          -- Not orphaned: still registered, buffer and window still there, the job stopped.
+          -- Not orphaned and not half-done: still registered, buffer and window still there,
+          -- and the job still running (the windows are dealt with first, nothing is stopped
+          -- until they are gone).
           assert.equals(h, registry:get(h.id))
           assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
           assert.is_true(backend.visible(h))
-          assert.is_true(h.exited)
+          assert.is_falsy(h.exited)
+          assert.equals(-1, vim.fn.jobwait({ h.job }, 0)[1], "the command was not killed")
           assert.is_falsy(h.disposed, "not removed, so not marked as removed")
           -- Once the obstacle is gone the same call finishes the job.
           vim.wo[win].winfixbuf = false
@@ -325,13 +455,39 @@ describe("terminal.backends.native", function()
           assert.equals(h, registry:get(h.id))
           assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
           assert.is_true(backend.visible(h))
-          assert.is_true(h.exited, "the job is stopped already")
+          assert.is_falsy(h.exited, "the job was not stopped")
+          assert.equals(-1, vim.fn.jobwait({ h.job }, 0)[1], "the command was not killed")
           assert.is_falsy(h.disposed, "not removed, so not marked as removed")
           assert.is_true(backend.close(h))
           assert.equals(0, registry:count())
           assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
         end)
       end
+
+      -- No window to fail on here: the buffer is what Neovim refuses to delete.
+      it("close keeps a hidden terminal registered when its buffer cannot be deleted", function()
+        local h = backend.spawn(spec())
+        jobs.settle()
+        assert.is_true(backend.hide(h))
+        assert.is_false(backend.visible(h))
+        jobs.settle()
+        local ok, closed, err
+        under_textlock(function()
+          ok, closed, err = pcall(backend.close, h)
+        end)
+        assert.is_true(ok, tostring(closed))
+        assert.is_false(closed)
+        mentions(err, "E565")
+        mentions(err, "cannot delete the buffer")
+        -- Not left behind unknown to the registry, and not marked as removed.
+        assert.equals(h, registry:get(h.id))
+        assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
+        assert.is_falsy(h.disposed, "not removed, so not marked as removed")
+        jobs.settle()
+        assert.is_true(backend.close(h), "it works again once the lock is gone")
+        assert.equals(0, registry:count())
+        assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
+      end)
     end)
   end)
 
@@ -408,26 +564,77 @@ describe("terminal.backends.native", function()
     it("a late exit handler of the old terminal does not take the new one with it", function()
       local old = backend.spawn(spec({ name = "same", on_exit = "close" }))
       jobs.settle()
-      backend.close(old)
+      -- Not closed first: the new terminal takes the old one's place in the registry while the
+      -- old job is still running, so the old exit handler really comes late.
       local new = backend.spawn(spec({ name = "same", on_exit = "close" }))
       assert.equals(old.id, new.id)
-      -- let the old job's deferred on_exit run
-      vim.wait(300)
+      assert.equals(new, registry:get(new.id))
+      jobs.settle()
+      local old_bufnr = old.bufnr
+      vim.fn.jobstop(old.job)
+      -- The old terminal's `on_exit = "close"` removes the OLD terminal (its buffer goes), and
+      -- that must not take the registry entry of the new one with it.
+      assert.is_true(
+        jobs.wait(function()
+          return not vim.api.nvim_buf_is_valid(old_bufnr)
+        end),
+        "the old exit handler did not run"
+      )
+      assert.is_true(old.exited)
       assert.equals(new, registry:get(new.id))
       assert.is_true(vim.api.nvim_buf_is_valid(new.bufnr))
+      assert.equals(-1, vim.fn.jobwait({ new.job }, 0)[1], "the new job still runs")
     end)
   end)
 
   describe("close and list", function()
     it("close stops the job and removes the terminal; closing again is harmless", function()
       local h = backend.spawn(spec())
-      local job, bufnr = h.job, h.bufnr
+      local bufnr = h.bufnr
+      local pid = vim.fn.jobpid(h.job)
       jobs.settle()
+      assert.is_true(jobs.process_alive(pid), "the command runs before it is closed")
       assert.is_true(backend.close(h))
       assert.is_false(vim.api.nvim_buf_is_valid(bufnr))
       assert.equals(0, registry:count())
       assert.is_true(backend.close(h))
-      assert.not_equals(-1, vim.fn.jobwait({ job }, 2000)[1])
+      -- Asked of the operating system: the channel of a deleted terminal answers "gone" whether
+      -- or not its process lives.
+      assert.is_false(jobs.process_alive(pid), "the command is stopped, not just forgotten")
+    end)
+
+    -- Inside `TermClose` the job is reaped, but its `on_exit` -- the only thing that sets
+    -- `exited` -- is queued behind the handler: the process has to be asked, not the flag.
+    it("close from a TermClose handler returns at once and says nothing", function()
+      local h = backend.spawn(spec({ cmd = jobs.exit_with(0), on_exit = "keep" }))
+      local bufnr = h.bufnr
+      local seen = {}
+      vim.api.nvim_create_autocmd("TermClose", {
+        buffer = bufnr,
+        once = true,
+        callback = function()
+          seen.exited = h.exited
+          local started = vim.uv.hrtime()
+          seen.ok, seen.closed = pcall(backend.close, h)
+          seen.took = (vim.uv.hrtime() - started) / 1e6
+        end,
+      })
+      local messages = jobs.capture_notify(function()
+        assert.is_true(
+          jobs.wait(function()
+            return seen.took ~= nil
+          end),
+          "TermClose did not fire"
+        )
+        vim.wait(100) -- a warning would be scheduled: let it come
+      end)
+      assert.is_falsy(seen.exited, "the scenario: the exit flag is not set yet inside TermClose")
+      assert.is_true(seen.ok, tostring(seen.closed))
+      assert.is_true(seen.closed)
+      assert.is_true(seen.took < 500, ("close blocked %d ms"):format(seen.took))
+      assert.same({}, messages)
+      assert.equals(0, registry:count())
+      assert.is_false(vim.api.nvim_buf_is_valid(bufnr))
     end)
 
     it("list returns live handles and forgets a buffer wiped behind its back", function()
@@ -535,12 +742,14 @@ describe("terminal.backends.native", function()
       it("close warns about a job that survives its stop, and removes it after the kill", function()
         local h = backend.spawn(spec({ cmd = jobs.stubborn() }))
         local bufnr = h.bufnr
+        local pid = vim.fn.jobpid(h.job)
         assert.is_true(
           jobs.wait(function()
             return jobs.shows(bufnr, "ready")
           end),
           "the job did not start"
         )
+        assert.is_true(jobs.process_alive(pid))
         local closed, took
         local messages = jobs.capture_notify(function(shown)
           local started = vim.uv.hrtime()
@@ -556,6 +765,9 @@ describe("terminal.backends.native", function()
         assert.truthy((messages[1] or ""):find("did not stop", 1, true))
         assert.equals(0, registry:count())
         assert.is_false(vim.api.nvim_buf_is_valid(bufnr))
+        -- Asked of the operating system: without the wait for Neovim's own kill the buffer of a
+        -- live job is deleted and the process is still there when close returns.
+        assert.is_false(jobs.process_alive(pid), "the process is gone when close returns")
       end)
     end
 
