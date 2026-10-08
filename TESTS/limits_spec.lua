@@ -1,5 +1,5 @@
----@diagnostic disable: need-check-nil, undefined-field
--- need-check-nil and undefined-field are off for the whole file: a nil in a spec body fails the next assertion anyway, and luassert's assert.* and the stubbed vim.* fields are not in the annotations.
+---@diagnostic disable: need-check-nil, undefined-field, redundant-parameter
+-- need-check-nil, undefined-field and redundant-parameter are off for the whole file: a nil in a spec body fails the next assertion anyway, luassert's assert.* and the stubbed vim.* fields are not in the annotations, and luassert takes a failure message as its last argument, which its type stub does not declare.
 -- TESTS/limits_spec.lua -- unbounded input: no pattern work that is quadratic in the input, and the
 -- linear replacements say exactly what the quadratic patterns did.
 
@@ -133,11 +133,38 @@ describe("quote: cmd.exe words", function()
 
   it("the other shells take a long word in linear time too", function()
     local word = ("a'b\\c\" "):rep(30000)
-    for _, kind in ipairs({ "posix", "fish", "powershell" }) do
+    for _, kind in ipairs({ "posix", "fish" }) do
       local took = seconds(function()
         quote.word(word, kind)
       end)
       assert.is_true(took < 1, ("%s took %.2f s"):format(kind, took))
+    end
+  end)
+
+  it("powershell takes a long word in linear time, quoted or refused", function()
+    -- `word` above holds a double quote, which PowerShell refuses at the first scan: the quoting
+    -- path and each of the two refusals get a long word of their own. `backslash_no_white_space`
+    -- is the worst case of the white-space rule: it ends in a backslash, so every white-space
+    -- pattern has to scan the whole word and finds nothing.
+    local long = {
+      accepted = ("a'b\\c "):rep(30000),
+      double_quote = ("a'b\\c\" "):rep(30000),
+      blank_and_backslash = ("a b"):rep(70000) .. "\\",
+      backslash_no_white_space = ("a"):rep(200000) .. "\\",
+    }
+    for name, word in pairs(long) do
+      local got, err
+      local took = seconds(function()
+        got, err = quote.word(word, "powershell")
+      end)
+      assert.is_true(took < 1, ("%s took %.2f s"):format(name, took))
+      -- the verdicts, so the timing is not of a different code path than the one named
+      if name == "accepted" or name == "backslash_no_white_space" then
+        assert.is_string(got, name)
+      else
+        assert.is_nil(got, name)
+        assert.is_string(err, name)
+      end
     end
   end)
 end)

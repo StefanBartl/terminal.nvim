@@ -214,6 +214,7 @@ describe("terminal.config", function()
         "rounded",
         "solid",
         "shadow",
+        "bold",
         "",
         { "a", "b" },
         { "1", "2", "3", "4", "5", "6", "7", "8" },
@@ -222,15 +223,101 @@ describe("terminal.config", function()
       end
     end)
 
+    it("float.border agrees with nvim_open_win on every style name", function()
+      -- The expected values come from Neovim, not from a list copied out of the code under test:
+      -- a style Neovim opens a window with must not be reported as a config error ("bold" was).
+      local buf = vim.api.nvim_create_buf(false, true)
+      for _, name in ipairs({
+        "none",
+        "single",
+        "double",
+        "rounded",
+        "solid",
+        "shadow",
+        "bold",
+        "foo",
+        "Rounded",
+        "Bold",
+        "thick",
+      }) do
+        local opened, win = pcall(vim.api.nvim_open_win, buf, false, {
+          relative = "editor",
+          row = 1,
+          col = 1,
+          width = 5,
+          height = 2,
+          border = name,
+        })
+        if opened then
+          vim.api.nvim_win_close(win, true)
+        end
+        local problems = config.validate(DEFAULTS, { float = { border = name } })
+        assert.equals(
+          opened,
+          #problems == 0,
+          ("%s: nvim_open_win %s"):format(name, tostring(opened))
+        )
+      end
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
     it("checks window_options.signcolumn: the values 'signcolumn' takes", function()
-      for _, bad in ipairs({ "bogus", "yes:0", "no:2", "number:3", "auto:1-", "", "yes:" }) do
+      for _, bad in ipairs({
+        "bogus",
+        "yes:0",
+        "no:2",
+        "number:3",
+        "auto:1-",
+        "",
+        "yes:",
+        "yes:3-4",
+        "auto:3-2", -- a minimum above the maximum: E474
+        "auto:2-2", -- and one equal to it
+        "auto:9-1",
+        "auto:0-3",
+        "auto:1-10",
+      }) do
         local problems = config.setup({ window_options = { signcolumn = bad } })
         assert.equals(1, #problems, bad)
         assert.equals("no", config.get("window_options.signcolumn"))
       end
-      for _, good in ipairs({ "yes", "no", "auto", "number", "yes:2", "auto:1-3" }) do
+      for _, good in ipairs({ "yes", "no", "auto", "number", "yes:2", "auto:1-3", "auto:1-2" }) do
         assert.same({}, config.setup({ window_options = { signcolumn = good } }), good)
       end
+    end)
+
+    it("window_options.signcolumn agrees with what 'signcolumn' accepts", function()
+      -- Neovim is the reference (an accepted value that the option refuses aborts the TermOpen
+      -- autocommand half way through the window options): every shape the validation could
+      -- mistake, compared with the option itself.
+      local candidates = {}
+      for _, kind in ipairs({ "yes", "no", "auto", "number" }) do
+        for _, rest in ipairs({ "", ":0", ":1", ":9", ":10", ":1-", "-2", ":1-2", ":3-4", ":1-9" }) do
+          candidates[#candidates + 1] = kind .. rest
+        end
+      end
+      for low = 0, 9 do
+        for high = 0, 9 do
+          candidates[#candidates + 1] = ("auto:%d-%d"):format(low, high)
+        end
+      end
+      local win = vim.api.nvim_get_current_win()
+      local before = vim.wo[win].signcolumn
+      local mismatches = {}
+      for _, value in ipairs(candidates) do
+        local accepted = pcall(function()
+          vim.wo[win].signcolumn = value
+        end)
+        local problems = config.validate(DEFAULTS, { window_options = { signcolumn = value } })
+        if accepted ~= (#problems == 0) then
+          mismatches[#mismatches + 1] = ("%s (signcolumn %s)"):format(
+            value,
+            accepted and "accepts it" or "refuses it"
+          )
+        end
+      end
+      vim.wo[win].signcolumn = before
+      assert.same({}, mismatches)
     end)
 
     it("wants a name for default_name and run.name that is not empty", function()

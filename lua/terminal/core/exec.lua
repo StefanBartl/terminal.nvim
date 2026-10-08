@@ -1,16 +1,15 @@
 ---@module 'terminal.core.exec'
---- Run an external command to completion and get what it did back as data. The one place in the
---- plugin that calls `vim.system(...):wait()`: the multiplexer backends, the tmux status exporter
---- and `:checkhealth` all need the same "start it, wait with a timeout, never raise" wrapper, so
---- it exists once.
+--- Run an external command to completion and get what it did back as data. The runner of the
+--- multiplexer backends, the tmux status exporter and `:checkhealth`: they all need the same
+--- "start it, wait with a timeout, never raise" wrapper, so it exists once.
 ---
 --- Nothing here is asynchronous: the caller is blocked for at most `timeout`. Fire-and-forget
---- processes (`navigate`, Kitty padding) use `vim.system` with a callback directly.
+--- processes (`navigate`) and the Kitty padding restore at exit use `vim.system` directly.
 
 local M = {}
 
 ---@class Terminal.ExecResult
----@field code integer Exit code; 127 when the command could not be started, 124 on a timeout
+---@field code integer Exit code; 127 when the command could not be started, 124 on a timeout, 128 + the signal when a signal ended it
 ---@field stdout string
 ---@field stderr string The program's stderr, or why it could not be started (code 127)
 
@@ -40,7 +39,17 @@ function M.run(argv, opts)
   if not ok then
     return { code = 127, stdout = "", stderr = tostring(res) }
   end
-  return { code = res.code, stdout = res.stdout or "", stderr = res.stderr or "" }
+  if res == nil then
+    -- `wait()` gives nothing when the process was not reaped in time after the kill (a very
+    -- short timeout, or a child that survives SIGKILL for the whole timeout again).
+    return { code = 124, stdout = "", stderr = "timed out" }
+  end
+  local code = res.code
+  if code == 0 and (res.signal or 0) ~= 0 then
+    -- A program that a signal ended (the OOM killer, SIGHUP at logout) did not succeed.
+    code = 128 + res.signal
+  end
+  return { code = code, stdout = res.stdout or "", stderr = res.stderr or "" }
 end
 
 return M

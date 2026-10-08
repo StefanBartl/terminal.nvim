@@ -23,6 +23,14 @@ describe("terminal.backends.native", function()
     jobs.cleanup(backend, registry)
   end)
 
+  --- Neovim's error codes are not translated; the words around them are.
+  ---@param reason any The reason a call gave
+  ---@param code string Neovim's error code, e.g. "E565"
+  local function mentions(reason, code)
+    local text = tostring(reason)
+    assert.is_true(text:find(code, 1, true) ~= nil, ("expected %s in: %s"):format(code, text))
+  end
+
   ---@param over? table
   ---@return Terminal.SpawnSpec
   local function spec(over)
@@ -201,6 +209,129 @@ describe("terminal.backends.native", function()
         assert.equals(0, registry:count())
         assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
       end)
+
+      -- 'winfixbuf' (Neovim 0.10+) forbids showing another buffer in the window, so the fallback
+      -- of the last window is refused. Registered only where the option exists.
+      if vim.fn.exists("+winfixbuf") == 1 then
+        it("hide answers false and raises nothing when 'winfixbuf' pins the terminal", function()
+          local h = terminal_alone()
+          local win = vim.fn.win_findbuf(h.bufnr)[1]
+          vim.wo[win].winfixbuf = true
+          local ok, hidden, err = pcall(backend.hide, h)
+          assert.is_true(ok, tostring(hidden))
+          assert.is_false(hidden)
+          mentions(err, "E1513")
+          assert.is_true(backend.visible(h))
+          assert.equals(h, registry:get(h.id))
+        end)
+
+        it("a refused hide leaves no empty buffer behind", function()
+          local h = terminal_alone()
+          local win = vim.fn.win_findbuf(h.bufnr)[1]
+          -- No other listed buffer: the fallback has to make an empty one, then fails to show it.
+          local unlisted = {}
+          for _, b in ipairs(vim.api.nvim_list_bufs()) do
+            if b ~= h.bufnr and vim.bo[b].buflisted then
+              vim.bo[b].buflisted = false
+              unlisted[#unlisted + 1] = b
+            end
+          end
+          vim.wo[win].winfixbuf = true
+          local before = #vim.api.nvim_list_bufs()
+          local ok, hidden = pcall(backend.hide, h)
+          local after = #vim.api.nvim_list_bufs()
+          for _, b in ipairs(unlisted) do
+            if vim.api.nvim_buf_is_valid(b) then
+              vim.bo[b].buflisted = true
+            end
+          end
+          assert.is_true(ok, tostring(hidden))
+          assert.is_false(hidden)
+          assert.equals(before, after)
+        end)
+
+        it("close answers false, keeps the terminal registered and can be retried", function()
+          local h = terminal_alone()
+          local win = vim.fn.win_findbuf(h.bufnr)[1]
+          vim.wo[win].winfixbuf = true
+          local ok, closed, err = pcall(backend.close, h)
+          assert.is_true(ok, tostring(closed))
+          assert.is_false(closed)
+          mentions(err, "E1513")
+          -- Not orphaned: still registered, buffer and window still there, the job stopped.
+          assert.equals(h, registry:get(h.id))
+          assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
+          assert.is_true(backend.visible(h))
+          assert.is_true(h.exited)
+          assert.is_falsy(h.disposed, "not removed, so not marked as removed")
+          -- Once the obstacle is gone the same call finishes the job.
+          vim.wo[win].winfixbuf = false
+          assert.is_true(backend.close(h))
+          assert.equals(0, registry:count())
+          assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
+          assert.equals(file_buf, vim.api.nvim_win_get_buf(win))
+        end)
+      end
+    end)
+
+    -- Neovim refuses to change windows under textlock -- inside an `<expr>` mapping, say -- and in
+    -- the command-line window. The two are answered, not raised, and nothing is half-removed.
+    describe("Neovim refuses to close the window", function()
+      --- Run `fn` under textlock: an `<expr>` mapping is evaluated with it set.
+      ---@param fn fun()
+      local function under_textlock(fn)
+        local lhs = "<Plug>(terminal-spec-textlock)"
+        local failure
+        vim.keymap.set("n", lhs, function()
+          local ok, err = pcall(fn)
+          if not ok then
+            failure = err
+          end
+          return ""
+        end, { expr = true })
+        vim.api.nvim_feedkeys(vim.keycode(lhs), "x", false)
+        pcall(vim.keymap.del, "n", lhs)
+        if failure then
+          error(failure, 0)
+        end
+      end
+
+      for _, layout in ipairs({ "float", "vsplit" }) do
+        it(("hide answers false for the %s window"):format(layout), function()
+          local h = backend.spawn(spec({ layout = layout }))
+          jobs.settle()
+          local ok, hidden, err
+          under_textlock(function()
+            ok, hidden, err = pcall(backend.hide, h)
+          end)
+          assert.is_true(ok, tostring(hidden))
+          assert.is_false(hidden)
+          mentions(err, "E565")
+          assert.is_true(backend.visible(h))
+          assert.is_true(backend.hide(h), "it works again once the lock is gone")
+          assert.is_false(backend.visible(h))
+        end)
+
+        it(("close keeps the %s terminal, answers false"):format(layout), function()
+          local h = backend.spawn(spec({ layout = layout }))
+          jobs.settle()
+          local ok, closed, err
+          under_textlock(function()
+            ok, closed, err = pcall(backend.close, h)
+          end)
+          assert.is_true(ok, tostring(closed))
+          assert.is_false(closed)
+          mentions(err, "E565")
+          assert.equals(h, registry:get(h.id))
+          assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
+          assert.is_true(backend.visible(h))
+          assert.is_true(h.exited, "the job is stopped already")
+          assert.is_falsy(h.disposed, "not removed, so not marked as removed")
+          assert.is_true(backend.close(h))
+          assert.equals(0, registry:count())
+          assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
+        end)
+      end
     end)
   end)
 
@@ -313,34 +444,120 @@ describe("terminal.backends.native", function()
       assert.is_not_nil(registry:get(b.id))
     end)
 
-    it("close says so when the job is still running after the wait", function()
+    -- Checked on the registry itself, never through list(): list() prunes a handle whose buffer
+    -- is invalid too, so it would hide a missing BufWipeout handler.
+    it("forgets a terminal whose buffer is wiped behind its back, without anyone asking", function()
+      local a = backend.spawn(spec({ name = "a" }))
+      local b = backend.spawn(spec({ name = "b" }))
+      jobs.settle()
+      vim.cmd("bwipeout! " .. a.bufnr)
+      assert.is_nil(registry:get(a.id))
+      assert.equals(b, registry:get(b.id))
+      assert.equals(1, registry:count())
+    end)
+
+    it("a terminal replaced under the same id survives the wipe of the old one's buffer", function()
+      local old = backend.spawn(spec({ name = "same" }))
+      jobs.settle()
+      -- Not closed first: the new terminal takes the old one's place in the registry while the
+      -- old job and its buffer live on.
+      local new = backend.spawn(spec({ name = "same" }))
+      assert.equals(old.id, new.id)
+      assert.equals(new, registry:get(new.id))
+      jobs.settle()
+      vim.cmd("bwipeout! " .. old.bufnr)
+      -- the old job's exit handler runs late too: neither may take the new terminal along
+      vim.wait(300)
+      assert.equals(new, registry:get(new.id))
+      assert.is_true(vim.api.nvim_buf_is_valid(new.bufnr))
+    end)
+
+    it("close of a healthy job returns once it reported its exit, and says nothing", function()
       local h = backend.spawn(spec())
       jobs.settle()
-      local jobwait = vim.fn.jobwait
-      -- Test double: the job never reports as stopped; restored below.
+      local closed, exited_on_return
+      local messages = jobs.capture_notify(function()
+        closed = backend.close(h)
+        exited_on_return = h.exited
+        vim.wait(100) -- a warning would be scheduled: let it come
+      end)
+      assert.is_true(closed)
+      assert.is_true(
+        exited_on_return,
+        "close waits for the exit flag, it does not return before it"
+      )
+      assert.same({}, messages)
+      assert.equals(0, registry:count())
+    end)
+
+    it("close warns when the job does not report its exit in time, and still removes it", function()
+      local h = backend.spawn(spec())
+      jobs.settle()
+      local real_wait = vim.wait
+      local waits = {}
+      -- Test double: the first wait runs out, as it does for a job that survives its stop; the
+      -- real wait is back before the message is awaited (restored in every case below).
       ---@diagnostic disable-next-line: duplicate-set-field
-      vim.fn.jobwait = function()
-        return { -1 }
+      vim.wait = function(ms, pred, interval)
+        if #waits == 0 then
+          waits[1] = { ms = ms, pred = pred, exited_at_call = pred and pred() }
+          return false, -1
+        end
+        return real_wait(ms, pred, interval)
       end
-      local messages = {}
-      local original = vim.notify
-      -- Test double: capture what would be shown to the user; restored below.
-      ---@diagnostic disable-next-line: duplicate-set-field
-      vim.notify = function(msg)
-        messages[#messages + 1] = msg
-      end
-      local ok = backend.close(h)
-      vim.wait(100)
-      -- Restore the originals.
-      ---@diagnostic disable-next-line: duplicate-set-field
-      vim.notify = original
-      ---@diagnostic disable-next-line: duplicate-set-field
-      vim.fn.jobwait = jobwait
-      assert.is_true(ok)
+      local ok, closed
+      local messages = jobs.capture_notify(function(shown)
+        ok, closed = pcall(backend.close, h)
+        vim.wait = real_wait
+        jobs.wait(function()
+          return #shown > 0
+        end, 1000)
+      end)
+      vim.wait = real_wait
+      assert.is_true(ok, tostring(closed))
+      assert.equals(1, #waits, "close waits for the job's exit with vim.wait")
+      local first = waits[1] or {}
+      assert.is_true((first.ms or 0) > 0)
+      assert.is_false(first.exited_at_call, "the wait is on the exit flag, still unset here")
+      assert.is_true(closed)
       assert.equals(0, registry:count(), "the terminal is removed anyway")
       assert.equals(1, #messages, vim.inspect(messages))
-      assert.truthy(messages[1]:find("did not stop", 1, true))
+      assert.truthy((messages[1] or ""):find("did not stop", 1, true))
+      assert.is_true(jobs.wait(function()
+        return h.exited == true
+      end))
+      assert.is_true(first.pred ~= nil and first.pred(), "the wait ends with the exit flag")
     end)
+
+    -- A real job that ignores TERM and HUP: Neovim has to kill it itself, which takes seconds.
+    -- Registered only where such a job can be run (POSIX with sh); the case never skips itself.
+    if jobs.stubborn() then
+      it("close warns about a job that survives its stop, and removes it after the kill", function()
+        local h = backend.spawn(spec({ cmd = jobs.stubborn() }))
+        local bufnr = h.bufnr
+        assert.is_true(
+          jobs.wait(function()
+            return jobs.shows(bufnr, "ready")
+          end),
+          "the job did not start"
+        )
+        local closed, took
+        local messages = jobs.capture_notify(function(shown)
+          local started = vim.uv.hrtime()
+          closed = backend.close(h)
+          took = (vim.uv.hrtime() - started) / 1e6
+          jobs.wait(function()
+            return #shown > 0
+          end, 1000)
+        end)
+        assert.is_true(closed)
+        assert.is_true(took < 7000, ("close blocked %d ms"):format(took))
+        assert.equals(1, #messages, vim.inspect(messages))
+        assert.truthy((messages[1] or ""):find("did not stop", 1, true))
+        assert.equals(0, registry:count())
+        assert.is_false(vim.api.nvim_buf_is_valid(bufnr))
+      end)
+    end
 
     it("watches wiped buffers with ONE named autocommand, however many terminals", function()
       backend.spawn(spec({ name = "a" }))

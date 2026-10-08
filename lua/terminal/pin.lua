@@ -65,6 +65,10 @@ local function check(host, target, opts)
   elseif handle.backend ~= "native" then
     return nil, ("pin: terminal '%s' already lives in %s"):format(name, handle.backend)
   end
+  if opts.layout ~= nil and not vim.list_contains(backends.LAYOUTS, opts.layout) then
+    return nil,
+      ("pin: unknown layout %s (use float, split, vsplit or tab)"):format(vim.inspect(opts.layout))
+  end
   local backend, why = pick_backend(host, opts.backend)
   if not backend then
     if why then
@@ -122,7 +126,17 @@ end
 ---@return Terminal.Handle|nil pane
 ---@return string|nil err
 local function swap(host, plan)
-  host.backend_of(plan.handle).close(plan.handle)
+  local closed, cerr = host.backend_of(plan.handle).close(plan.handle)
+  if not closed then
+    -- The native terminal is still registered (its window refused to close): a pane under the
+    -- same name would replace its entry and orphan it. The pin does not happen.
+    local msg = ("pin: terminal '%s': cannot end the native terminal: %s"):format(
+      plan.name,
+      cerr or "cannot close"
+    )
+    host.fail(msg)
+    return nil, msg
+  end
   local pane, perr = plan.backend.spawn(plan.spec)
   if pane then
     return pane, nil

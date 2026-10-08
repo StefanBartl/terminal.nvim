@@ -547,8 +547,9 @@ end
 ---@param opts Terminal.Target
 ---@return Terminal.Target
 local function with_run_name(opts)
-  if opts.name == nil and opts.count == nil then
-    return vim.tbl_extend("keep", { name = config.get("run.name") }, opts)
+  if opts.name == nil and (opts.count == nil or opts.count == 0) then
+    -- 0 is what `vim.v.count` is without a count: the run terminal, like no count at all
+    return vim.tbl_extend("force", opts, { name = config.get("run.name") })
   end
   return opts
 end
@@ -561,7 +562,9 @@ end
 ---@return string|nil err
 function M.send(text, opts)
   if type(text) ~= "string" then
-    return false, "text must be a string"
+    local msg = "send: text must be a string"
+    fail(msg)
+    return false, msg
   end
   if opts ~= nil and type(opts) ~= "table" then
     local msg = ("send: opts must be a table, got %s"):format(type(opts))
@@ -686,8 +689,8 @@ local function run_line(b, cmd, opts, at)
     local qerr
     line, qerr = require("terminal.core.quote").argv_to_line(cmd, line_shell_kind(at, b))
     if not line then
-      local err = qerr or "cannot quote the command"
-      fail("run: " .. err)
+      local err = "run: " .. (qerr or "cannot quote the command")
+      fail(err)
       return false, err
     end
   elseif type(cmd) == "string" and cmd ~= "" then
@@ -730,6 +733,13 @@ function M.run(cmd, opts)
       local err = "run: `direct` needs a non-empty argv list"
       fail(err)
       return false, err
+    end
+    for i, word in ipairs(cmd) do
+      if type(word) ~= "string" or word == "" or word:find("\0", 1, true) then
+        local err = ("run: argument %d must be a non-empty string without a NUL byte"):format(i)
+        fail(err)
+        return false, err
+      end
     end
     return run_direct(b, cmd, opts, at)
   end

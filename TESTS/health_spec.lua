@@ -105,7 +105,17 @@ describe("terminal.health", function()
       vim.api.nvim_ui_send = ui_send
     end)
 
-    it("a missing wezterm binary: warn with the wezterm backend or the auto hand-off", function()
+    --- No hand-off and no export: what is left in `patch` is the only thing that can name a
+    --- multiplexer, so a warning (or its absence) is that option's doing.
+    ---@param patch table
+    local function alone(patch)
+      return cfg(vim.tbl_deep_extend("force", {
+        navigate = { handoff = false },
+        status = { export = false },
+      }, patch))
+    end
+
+    it("a missing wezterm binary: each cause that relies on it warns on its own", function()
       -- Test double: no executable is on $PATH; restored in after_each.
       ---@diagnostic disable-next-line: duplicate-set-field
       vim.fn.executable = function()
@@ -114,11 +124,42 @@ describe("terminal.health", function()
       for _, patch in ipairs({
         { backend = "wezterm" },
         { navigate = { handoff = "wezterm" } },
+        { navigate = { handoff = { "wezterm" } } },
         { navigate = { handoff = "auto" } },
       }) do
         local r, log = recorder()
-        health.check_wezterm(r, { WEZTERM_PANE = "3" }, cfg(patch))
+        health.check_wezterm(r, { WEZTERM_PANE = "3" }, alone(patch))
         assert.truthy(first(log, "warn", "`wezterm` is not on $PATH"), vim.inspect(patch))
+      end
+    end)
+
+    it("a missing multiplexer binary: only the backend option names it", function()
+      -- The backend alone makes the plugin rely on the multiplexer's command line: with the
+      -- hand-off and the export off nothing else does, so `native` and `auto` only inform.
+      -- Test double: no executable is on $PATH; restored in after_each.
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.fn.executable = function()
+        return 0
+      end
+      local envs = {
+        wezterm = { WEZTERM_PANE = "3" },
+        tmux = { TMUX = "/tmp/tmux-1/default,1,0" },
+      }
+      local checks = { wezterm = health.check_wezterm, tmux = health.check_tmux }
+      for _, name in ipairs({ "wezterm", "tmux" }) do
+        local fragment = ("`%s` is not on $PATH"):format(name)
+        local r, log = recorder()
+        checks[name](r, envs[name], alone({ backend = name }))
+        assert.truthy(first(log, "warn", fragment), name .. ": " .. table.concat(log, "\n"))
+        for _, other in ipairs({ "native", "auto", name == "tmux" and "wezterm" or "tmux" }) do
+          r, log = recorder()
+          checks[name](r, envs[name], alone({ backend = other }))
+          assert.truthy(
+            first(log, "info", fragment),
+            name .. " with backend " .. other .. ": " .. table.concat(log, "\n")
+          )
+          assert.is_nil(first(log, "warn", fragment), name .. " with backend " .. other)
+        end
       end
     end)
 
@@ -229,6 +270,53 @@ describe("terminal.health", function()
       _G.require = real_require
       assert.is_true(ok, tostring(err))
       assert.truthy(first(log, "error", "lib.nvim.debounce not found"), table.concat(log, "\n"))
+    end)
+
+    it("the full check asks for exactly the lib modules the plugin requires", function()
+      -- Both directions: a required module the check forgets would pass on a lib.nvim without
+      -- it, a listed module nothing requires would fail the check for a feature that does not
+      -- exist (it was `lib.nvim.system.env`, "keymap environment").
+      local root = (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/.."
+      local wanted = {}
+      for _, file in ipairs(vim.fn.globpath(root .. "/lua/terminal", "**/*.lua", false, true)) do
+        local handle = assert(io.open(file, "rb"))
+        local text = handle:read("*a")
+        handle:close()
+        for name in text:gmatch("require%(%s*[\"'](lib%.[%w_%.]+)[\"']%s*%)") do
+          wanted[name] = true
+        end
+      end
+      assert.is_true(next(wanted) ~= nil, "found no lib.nvim require under lua/terminal")
+
+      local asked = {}
+      local real_require = require
+      -- Test double: records every lib.* module asked for, then loads it for real; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
+      _G.require = function(name)
+        if type(name) == "string" and name:find("^lib%.") then
+          asked[name] = true
+        end
+        return real_require(name)
+      end
+      local real = vim.health
+      local r = recorder()
+      -- Test double: a health reporter that records what was said; restored below.
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.health = r
+      local ok, err = pcall(health.check)
+      -- Restore the originals.
+      ---@diagnostic disable-next-line: duplicate-set-field
+      vim.health = real
+      ---@diagnostic disable-next-line: duplicate-set-field
+      _G.require = real_require
+      assert.is_true(ok, tostring(err))
+
+      local function sorted(set)
+        local names = vim.tbl_keys(set)
+        table.sort(names)
+        return names
+      end
+      assert.same(sorted(wanted), sorted(asked))
     end)
 
     it("a quoted 'shell' with a path with spaces and arguments counts as executable", function()

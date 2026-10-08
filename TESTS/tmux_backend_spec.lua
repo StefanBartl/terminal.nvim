@@ -160,6 +160,74 @@ describe("terminal.backends.tmux", function()
       assert.equals("/proj/odd;", ran()[1][at + 1])
     end)
 
+    it("preflight refuses an unknown layout without asking tmux, so pin can ask first", function()
+      -- `pin` ends the native terminal only after preflight said yes: a layout that spawn would
+      -- refuse has to be found out here, with no side effect.
+      for _, bad in ipairs({ "diagonal", "", "Float", "horizontal" }) do
+        local ok, why = backend.preflight(spec({ layout = bad }))
+        assert.is_false(ok, bad)
+        assert.is_string(why, bad)
+        assert.truthy(tostring(why):find("unknown layout", 1, true), bad)
+        assert.truthy(tostring(why):find(bad, 1, true), bad)
+      end
+      local no_layout = spec()
+      no_layout.layout = nil
+      local ok, why = backend.preflight(no_layout)
+      assert.is_false(ok)
+      assert.is_string(why)
+      assert.truthy(tostring(why):find("unknown layout", 1, true))
+      for _, good in ipairs({ "float", "split", "vsplit", "tab" }) do
+        assert.same({ true }, { backend.preflight(spec({ layout = good })) }, good)
+      end
+      assert.same({}, state.calls, "preflight never starts a tmux process")
+      assert.equals(0, registry:count())
+      -- spawn answers with the same refusal, and still starts nothing.
+      local h, err = backend.spawn(spec({ layout = "diagonal" }))
+      assert.is_nil(h)
+      assert.equals("unknown layout 'diagonal'", err)
+      assert.same({}, state.calls)
+    end)
+
+    --- The value after `-c` in a recorded tmux command.
+    ---@param argv string[]
+    ---@return string|nil
+    local function start_dir(argv)
+      for i, a in ipairs(argv) do
+        if a == "-c" then
+          return argv[i + 1]
+        end
+      end
+    end
+
+    it("a directory is escaped for the FORMAT tmux expands -c as: every '#' is doubled", function()
+      -- tmux reads `#S`, `#{...}`, `#(...)` in the start directory as a format and `##` as `#`:
+      -- a directory called `C#` otherwise opens the pane in $HOME without a word. (Checked against
+      -- a real tmux 3.7c by TESTS/live/tmux.lua.)
+      local cases = {
+        { "/p/C#", "/p/C##" },
+        { "/p/a##b", "/p/a####b" },
+        { "/p/#S", "/p/##S" },
+        { "/p/#{pane_id}", "/p/##{pane_id}" },
+        { "/p/x#(echo hi)", "/p/x##(echo hi)" },
+        { "/p/plain", "/p/plain" },
+        -- both escapes at once: the format's, then the command parser's
+        { "/p/x#;", "/p/x##\\;" },
+      }
+      for _, layout in ipairs({ "vsplit", "tab" }) do
+        for n, case in ipairs(cases) do
+          local dir, sent = case[1], case[2]
+          state.calls = {}
+          state.executed = {}
+          local h = backend.spawn(spec({ name = "d" .. n, cwd = dir, layout = layout }))
+          assert.is_not_nil(h, dir)
+          assert.equals(sent, start_dir(calls()[1]), layout .. " " .. dir)
+          -- What tmux makes of it: `##` is read as `#` (and `\;` as `;`), the directory again.
+          local seen = start_dir(ran()[1]):gsub("##", "#")
+          assert.equals(dir, seen, layout .. " " .. dir)
+        end
+      end
+    end)
+
     it("an old tmux (before 3.1) gets -p <percent>, a new or unknown one -l <percent>%", function()
       local function size_args(version)
         local runner

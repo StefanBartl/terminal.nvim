@@ -86,6 +86,27 @@ local function random_word(rand, max)
   return table.concat(parts)
 end
 
+-- Every quoting family there is.
+local KINDS = { "posix", "fish", "powershell", "cmd", "portable" }
+
+--- The words the powershell family refuses, written down independently of quote.lua: a double
+--- quote, or white space together with a trailing backslash. (The generator's only white space is
+--- the ASCII blank, so this is exact for its words.)
+---@param word string
+---@return boolean
+local function powershell_refuses(word)
+  return word:find('"', 1, true) ~= nil or (word:sub(-1) == "\\" and word:find(" ", 1, true) ~= nil)
+end
+
+--- A random word of raw bytes (0..255): control characters and invalid UTF-8 included.
+local function random_bytes(rand, max)
+  local raw = {}
+  for i = 1, rand(max) do
+    raw[i] = string.char(rand(256) - 1)
+  end
+  return table.concat(raw)
+end
+
 --- Undo POSIX single-quote quoting the way a POSIX shell parses it: returns the words.
 local function posix_parse(line)
   local words, i, n = {}, 1, #line
@@ -154,7 +175,7 @@ describe("quoting for the other shells (property)", function()
   end)
 
   it("a TAB anywhere is refused for every shell", function()
-    for _, kind in ipairs({ "posix", "fish", "powershell", "cmd", "portable" }) do
+    for _, kind in ipairs(KINDS) do
       assert.is_nil((quote.argv_to_line({ "echo", "a\tb" }, kind)), kind)
     end
   end)
@@ -192,15 +213,29 @@ describe("terminal.core.quote (property)", function()
     end
   end)
 
+  it("posix: a word that starts with '=' is always quoted (zsh makes a path of =word)", function()
+    local rand = xorshift(19)
+    for _ = 1, 200 do
+      local word = "=" .. random_word(rand, 8)
+      assert.equals("'", quote.word(word, "posix"):sub(1, 1), word)
+    end
+  end)
+
   it(
     "powershell: every quote character inside a quoted word is doubled, so none ends it",
     function()
       local rand = xorshift(7)
       local quotes = { "'", "\226\128\152", "\226\128\153", "\226\128\154", "\226\128\155" }
+      local refused = 0
       for _ = 1, 400 do
         local word = random_word(rand, 14)
         local q = quote.word(word, "powershell")
-        if q:sub(1, 1) == "'" then
+        -- refused exactly when the documented rule says so: nothing else is turned away, and
+        -- nothing it names is let through
+        assert.equals(powershell_refuses(word), q == nil, word)
+        if q == nil then
+          refused = refused + 1
+        elseif q:sub(1, 1) == "'" then
           local inner = q:sub(2, -2)
           for _, quote_char in ipairs(quotes) do
             -- Remove every doubled pair; what is left must contain no quote character.
@@ -211,6 +246,8 @@ describe("terminal.core.quote (property)", function()
           assert.is_truthy(q:find("^[%w%._/:\\-]+$"), q)
         end
       end
+      -- the draw must reach the refusals, or the rule above is never exercised
+      assert.is_true(refused > 20, ("only %d refused words"):format(refused))
     end
   )
 
@@ -218,7 +255,7 @@ describe("terminal.core.quote (property)", function()
     local rand = xorshift(11)
     for _ = 1, 400 do
       local q = quote.word(random_word(rand, 10), "powershell")
-      if q:sub(1, 1) ~= "'" then
+      if q and q:sub(1, 1) ~= "'" then
         assert.is_nil(q:find('[;&|<>(){}@,%%+=$`#!"]'), q)
       end
     end
@@ -239,17 +276,184 @@ describe("terminal.core.quote (property)", function()
     end
   end)
 
-  it("no family ever returns a line with a control character", function()
-    local rand = xorshift(17)
-    for _, kind in ipairs({ "posix", "powershell", "cmd" }) do
-      for _ = 1, 200 do
-        local line = quote.argv_to_line({ "echo", random_word(rand, 10) }, kind)
-        if line then
-          assert.is_nil(line:find("[%z\1-\8\10-\31\127]"), kind)
+  it(
+    "no family accepts a word with a control character, whichever one and wherever it sits",
+    function()
+      local rand = xorshift(17)
+      -- NUL, 1..31 (line breaks, TAB, ESC, ...) and DEL: the whole range, one byte at a time
+      local controls = { "\0" }
+      for byte = 1, 31 do
+        controls[#controls + 1] = string.char(byte)
+      end
+      controls[#controls + 1] = "\127"
+      local tried = 0
+      for _, kind in ipairs(KINDS) do
+        for _, control in ipairs(controls) do
+          local base = random_word(rand, 6)
+          -- in front, behind and in the middle of a word; as an argument and as the program word
+          for _, word in ipairs({ control .. base, base .. control, base .. control .. base }) do
+            for _, argv in ipairs({ { "echo", word }, { word, "x" } }) do
+              local line, err = quote.argv_to_line(argv, kind)
+              local where = ("%s / %q"):format(kind, word)
+              assert.is_nil(line, where)
+              -- the control refusal itself, not another family's rule that happens to apply
+              assert.truthy(err and err:find("control character", 1, true), where)
+              tried = tried + 1
+            end
+          end
+        end
+      end
+      assert.equals(#KINDS * #controls * 3 * 2, tried)
+    end
+  )
+
+  it("a line is returned only for words without control bytes, and it carries none", function()
+    local rand = xorshift(18)
+    local with_control, without = 0, 0
+    for _, kind in ipairs(KINDS) do
+      for _ = 1, 300 do
+        local word = random_bytes(rand, 12)
+        local line, err = quote.argv_to_line({ "echo", word }, kind)
+        if word:find("[%z\1-\31\127]") then
+          with_control = with_control + 1
+          assert.is_nil(line, ("%s / %q"):format(kind, word))
+          assert.truthy(err and err:find("control character", 1, true), kind)
+        elseif line then
+          without = without + 1
+          assert.is_nil(line:find("[%z\1-\31\127]"), ("%s / %q"):format(kind, line))
         end
       end
     end
+    -- both branches must have been drawn, or this is a loop that checks nothing
+    assert.is_true(with_control > 200, ("%d words with a control byte"):format(with_control))
+    assert.is_true(without > 50, ("%d accepted words"):format(without))
   end)
+end)
+
+-- The words the powershell family accepts, against the PowerShell that is installed on this
+-- machine: a native program must receive each of them as it was given. PowerShell's own
+-- single quotes are gone before the program sees the word, and what the program gets for a double
+-- quote or a trailing backslash differs between Windows PowerShell 5.1, pwsh before 7.3 and later:
+-- a model of that would prove nothing, so this runs the real shells. Registered only for the shells
+-- that exist (a skipped case would count as not green).
+--
+-- Left out on purpose, and known: the EMPTY word (Windows PowerShell 5.1 and pwsh's legacy passing
+-- drop it, quoted or not) and the word `--%` (PowerShell removes it even when it is quoted).
+local POWERSHELL_WORDS = {
+  "plain",
+  "a b",
+  "it's",
+  "'",
+  "x'; Write-Output INJECTED; '",
+  "x\226\128\152;Write-Output INJECTED;\226\128\153y",
+  "$(whoami)",
+  "`id`",
+  "$HOME",
+  "a;b",
+  "a&b",
+  "a|b",
+  "a>b",
+  "a<b",
+  "(a)",
+  "{a}",
+  "#a",
+  "!a",
+  "^a",
+  "~",
+  "*",
+  "?",
+  "%PATH%",
+  "@args",
+  "a,b",
+  "a+b",
+  "=ls",
+  "-rf",
+  "--flag=x",
+  "--flag=a b",
+  "\195\188n\195\175c\195\182d\195\169",
+  "\240\159\152\128",
+  "back\\slash",
+  "C:\\dir\\",
+  "C:\\dir\\\\",
+  "C:\\my dir\\file",
+  "a\\ b",
+  "a b\\c",
+  "a\226\128\156b c\226\128\157",
+  "\195\160\\",
+  "a\226\128\139b\\",
+}
+
+describe("terminal.core.quote against the real PowerShell (property)", function()
+  local to_line = function(argv)
+    return quote.argv_to_line(argv, "powershell")
+  end
+
+  --- The fixed words plus a seeded draw of the generator's words, minus what the family refuses.
+  ---@return string[] accepted
+  ---@return integer refused How many of the drawn words the family turned away
+  local function words_to_send()
+    local words = vim.deepcopy(POWERSHELL_WORDS)
+    for _, word in ipairs(words) do
+      assert.is_not_nil(
+        quote.word(word, "powershell"),
+        "the fixed list holds accepted words: " .. word
+      )
+    end
+    local rand = xorshift(53)
+    local refused = 0
+    for _ = 1, 120 do
+      local word = random_word(rand, 10)
+      if quote.word(word, "powershell") then
+        words[#words + 1] = word
+      else
+        refused = refused + 1
+      end
+    end
+    return words, refused
+  end
+
+  -- Windows PowerShell is a Windows program: WSL puts powershell.exe on the Linux PATH too, but it
+  -- cannot start the Linux Neovim by a Linux path, so it counts only on a Windows Neovim.
+  local shells_here = {
+    {
+      exe = "powershell.exe",
+      windows_only = true,
+      command = { "powershell.exe", "-NoProfile", "-NonInteractive", "-Command" },
+    },
+    { exe = "pwsh", command = { "pwsh", "-NoProfile", "-NonInteractive", "-NoLogo", "-Command" } },
+  }
+  for _, shell in ipairs(shells_here) do
+    if
+      vim.fn.executable(shell.exe) == 1 and (not shell.windows_only or vim.fn.has("win32") == 1)
+    then
+      -- pwsh 7.3+ has a preference for how a native program gets its arguments, and its default
+      -- gets everything right; the older behaviour (`Legacy`) is what Windows PowerShell 5.1
+      -- always has and what pwsh 7.0-7.2 had. Setting the variable in an older pwsh does nothing.
+      local modes = { { prefix = "", name = "default" } }
+      if shell.exe == "pwsh" then
+        modes[#modes + 1] = {
+          prefix = "$PSNativeCommandArgumentPassing = 'Legacy'; ",
+          name = "legacy argument passing",
+        }
+      end
+      for _, mode in ipairs(modes) do
+        it(
+          ("%s (%s): every word the powershell family accepts reaches a program as itself"):format(
+            shell.exe,
+            mode.name
+          ),
+          function()
+            local words, refused = words_to_send()
+            assert.is_true(refused > 5, "the draw must include refused words")
+            local received, diagnostics =
+              shells.received_args(shell.command, to_line, words, mode.prefix)
+            assert.is_not_nil(received, diagnostics)
+            assert.same(words, received, diagnostics)
+          end
+        )
+      end
+    end
+  end
 end)
 
 describe("terminal.core.osc and status (property)", function()

@@ -75,9 +75,16 @@ function M.publish(json)
 end
 
 --- Tell WezTerm this pane no longer hosts a Neovim (empty values).
+---
+--- Without an attached UI there is no terminal to write to, so nothing is shown and nothing was
+--- left behind: that is success, not a failure to report (a headless script in a WezTerm pane
+--- leaves through here on every exit). A UI that has gone away cannot be written to either.
 ---@return boolean ok
 ---@return string|nil err
 function M.clear()
+  if #vim.api.nvim_list_uis() == 0 then
+    return true, nil
+  end
   return send({ { "MUX_NVIM", "" }, { "MUX_PIPE", "" }, { "MUX_STATUS", "" } })
 end
 

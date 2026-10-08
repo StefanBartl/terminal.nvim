@@ -216,6 +216,46 @@ local ok, err = pcall(function()
   end
   run({ "rm", "-rf", odd_dir })
 
+  -- tmux expands the value of `-c` as a FORMAT (`#S`, `#{...}`, `#(...)`, `##` for a `#`): a
+  -- directory called `C#` used to open the pane in $HOME without a word. Real directories with
+  -- such names, and what tmux itself says the pane's directory is.
+  local fmt_root = "/tmp/terminal-nvim-live-fmt"
+  run({ "rm", "-rf", fmt_root })
+  for n, case in ipairs({
+    { name = "C#", layout = "split" },
+    { name = "a##b", layout = "split" },
+    { name = "#S", layout = "split" },
+    { name = "#{pane_id}", layout = "split" },
+    { name = "x#(echo hi)", layout = "split" },
+    { name = "C#", layout = "tab" },
+  }) do
+    local dir = ("%s/%s"):format(fmt_root, case.name)
+    local made = run({ "mkdir", "-p", dir })
+    check("a directory named " .. case.name .. " was created", made.code == 0, made)
+    local fmt = backend.spawn({
+      name = "fmt" .. n,
+      root = "/live",
+      cwd = dir,
+      layout = case.layout,
+      split = { size = 0.3 },
+      cmd = { "sleep", "20" },
+      focus = false,
+    })
+    check(("a %s pane in %s spawned"):format(case.layout, dir), fmt ~= nil, fmt)
+    if fmt then
+      local where
+      -- #{pane_current_path} follows the process, which needs a moment to start in the pane.
+      vim.wait(3000, function()
+        where =
+          vim.trim(tmux("display-message", "-p", "-t", fmt.pane, "#{pane_current_path}").stdout)
+        return where == dir
+      end, 100)
+      check(("it started in %s (tmux says %s)"):format(dir, where), where == dir, where)
+      backend.close(fmt)
+    end
+  end
+  run({ "rm", "-rf", fmt_root })
+
   -- Navigation hand-off at the edge: `select-pane -R` alone wraps around, the guarded form must not.
   local handoff = require("terminal.navigate.handoff").all.tmux
   local function hand_off(dir)

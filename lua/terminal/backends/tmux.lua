@@ -23,6 +23,9 @@ local M = {}
 --- -> `a\;` (read as `a;`), `a\;` -> `a\\;` (read as `a\;`). Without it a bare word like
 --- `select 1;` would lose its `;`, and a word like `notes;` followed by `run-shell` would start
 --- another tmux command.
+---
+--- That is the escape for the *command parser*. The value of `-c` (the start directory) is also a
+--- tmux *format*, which `M.word` does not know about: see `start_directory`.
 ---@param s string
 ---@return string
 function M.word(s)
@@ -30,6 +33,18 @@ function M.word(s)
     return s:sub(1, -2) .. "\\;"
   end
   return s
+end
+
+---@internal
+--- A start directory as the value of `-c`. tmux expands that value as a format (`#S`, `#{...}`,
+--- `#(...)`; `##` is a literal `#`), so a directory called `C#`, `a##b` or `#S` would arrive as
+--- something else and the pane would silently open in `$HOME`. Every `#` is doubled, then the
+--- value is a data word like any other (`M.word`). Typed text (`send-keys`), the words of a
+--- command and option values are not expanded: only `-c` is.
+---@param dir string
+---@return string
+local function start_directory(dir)
+  return M.word((dir:gsub("#", "##")))
 end
 
 --- The `[major, minor]` of a `tmux -V` line (`tmux 3.4`, `tmux 3.0a`, `tmux next-3.5`); nil for
@@ -189,13 +204,17 @@ function M.new(registry, runner, own_pane, opts)
   end
 
   --- What this backend refuses to start, found out without side effects (`pin` asks before it
-  --- touches the terminal it is about to replace).
+  --- touches the terminal it is about to replace): environment variables, and a layout it does
+  --- not know (guessing a right split would hide the typo).
   ---@param spec Terminal.SpawnSpec
   ---@return boolean ok
   ---@return string|nil refused
   function backend.preflight(spec)
     if spec.env and next(spec.env) ~= nil then
       return false, "the tmux backend cannot set environment variables for a pane"
+    end
+    if not vim.list_contains(require("terminal.backends").LAYOUTS, spec.layout) then
+      return false, ("unknown layout '%s'"):format(tostring(spec.layout))
     end
     return true, nil
   end
@@ -216,9 +235,6 @@ function M.new(registry, runner, own_pane, opts)
     local ok, refused = backend.preflight(spec)
     if not ok then
       return nil, refused
-    end
-    if not vim.list_contains(require("terminal.backends").LAYOUTS, spec.layout) then
-      return nil, ("unknown layout '%s'"):format(tostring(spec.layout))
     end
     local args
     if spec.layout == "tab" then
@@ -241,7 +257,7 @@ function M.new(registry, runner, own_pane, opts)
       args[#args + 1] = "-d"
     end
     if spec.cwd and spec.cwd ~= "" then
-      vim.list_extend(args, { "-c", M.word(spec.cwd) })
+      vim.list_extend(args, { "-c", start_directory(spec.cwd) })
     end
     local cmd = spec.cmd
     if type(cmd) == "string" and cmd ~= "" then

@@ -139,10 +139,45 @@ describe("terminal.core.context", function()
     end
   end)
 
-  it("canonicalizes the working directory and root the editor reports", function()
-    local cwd, root = context.resolve("cwd", deps("C:\\Work\\Repo\\", "", nil))
-    assert.equals(cwd, cwd:gsub("\\", "/"))
-    assert.equals(root, root:gsub("\\", "/"))
+  describe("the key is canonical, the start directory is the user's own spelling", function()
+    -- A link to /real/proj: the user is in /link/proj, the registry has to see /real/proj.
+    local function linked(cwd, bufname, root)
+      local d = deps(cwd, bufname, root)
+      d.key = function(path)
+        return (path:gsub("^/link/", "/real/"))
+      end
+      return d
+    end
+
+    it("project mode starts in the project root as the user reaches it", function()
+      local cwd, root = context.resolve("project", linked("/link/proj", "", "/link/proj"))
+      assert.equals("/link/proj", cwd)
+      assert.equals("/real/proj", root)
+    end)
+
+    it("cwd mode starts in the cwd as spelled and keys it canonically", function()
+      local cwd, root = context.resolve("cwd", linked("/link/proj/src", "", "/link/proj"))
+      assert.equals("/link/proj/src", cwd)
+      assert.equals("/real/proj", root)
+    end)
+
+    it("buffer mode starts in the buffer's directory as spelled", function()
+      local cwd, root =
+        context.resolve("buffer", linked("/link/proj", "/link/proj/src/a.lua", "/link/proj"))
+      assert.equals("/link/proj/src", cwd)
+      assert.equals("/real/proj", root)
+    end)
+
+    it("two spellings of one project share one key", function()
+      local _, via_link = context.resolve("project", linked("/link/proj", "", "/link/proj"))
+      local _, via_real = context.resolve("project", linked("/real/proj", "", "/real/proj"))
+      assert.equals(via_real, via_link)
+    end)
+
+    it("without a key function the root is the directory as given", function()
+      local _, root = context.resolve("project", deps("/w/proj", "", "/w/proj"))
+      assert.equals("/w/proj", root)
+    end)
   end)
 end)
 

@@ -11,11 +11,30 @@ local M = {}
 local MAX_REMEMBERED = 64
 
 ---@internal
---- Directory -> its repository's `.git/HEAD`. The root walk is the part of a lookup that costs
---- something; the answer only changes when a repository appears or disappears, which the `HEAD`
---- stat below notices.
----@type table<string, string>
+--- How long an answer of the root walk is believed, in milliseconds. The walk is the part of a
+--- lookup that costs something (it climbs to the filesystem root when there is no repository);
+--- the answer changes when a repository appears *between* a directory and the one that was
+--- found before (a `git init` or clone below a repository that is already known), which no stat
+--- of the old `HEAD` can notice -- so it is asked again after this long.
+local MEMO_MS = 2000
+
+---@class Terminal.HeadMemo
+---@field path string|false The `.git/HEAD` of the repository that contains the directory; false: there is none (no repository, or its `.git` is a file)
+---@field at number `now_ms()` when the walk was made
+
+---@internal
+--- Directory -> the answer of its last root walk, positive or negative: a directory outside any
+--- repository would otherwise be walked on every status event.
+---@type table<string, Terminal.HeadMemo>
 local head_paths = {}
+
+---@internal
+--- A monotonic clock in milliseconds. `vim.uv.now()` is only refreshed once per event-loop turn,
+--- which a script that never yields would see standing still.
+---@return number
+local function now_ms()
+  return vim.uv.hrtime() / 1e6
+end
 
 ---@class Terminal.HeadRead
 ---@field sec integer mtime of the file when it was read
@@ -51,23 +70,23 @@ end
 ---@internal
 --- The `HEAD` file of the repository that contains `dir`, nil outside one. A worktree or
 --- submodule has a `.git` *file*, not a directory: its HEAD is not here, the branch is unknown.
+--- The answer, "none" included, is reused for `MEMO_MS`; what the file holds is read fresh (and
+--- cheaply) by `branch_of` on every call.
 ---@param dir string
 ---@return string|nil
 local function head_path(dir)
+  local now = now_ms()
   local known = head_paths[dir]
-  if known then
-    return known
+  if known and now - known.at < MEMO_MS then
+    return known.path or nil
   end
   local root = vim.fs.root(dir ~= "" and dir or vim.fn.getcwd(), ".git")
-  if not root then
-    return nil
-  end
-  if vim.tbl_count(head_paths) >= MAX_REMEMBERED then
+  if known == nil and vim.tbl_count(head_paths) >= MAX_REMEMBERED then
     head_paths = {}
     heads = {}
   end
-  head_paths[dir] = root .. "/.git/HEAD"
-  return head_paths[dir]
+  head_paths[dir] = { path = root and (root .. "/.git/HEAD") or false, at = now }
+  return head_paths[dir].path or nil
 end
 
 ---@internal
@@ -93,7 +112,8 @@ local function branch_of(dir)
   end
   local st = vim.uv.fs_stat(path)
   if not st then
-    head_paths[dir] = nil -- the repository is gone, or `.git` is a file (worktree)
+    -- the repository is gone, or `.git` is a file (worktree): "none" until the walk is redone
+    head_paths[dir].path = false
     heads[path] = nil
     return nil
   end
@@ -119,12 +139,29 @@ local function diagnostics()
   }
 end
 
+---@internal
+--- The directory the branch is looked up from: the directory of the buffer's file, or the working
+--- directory for a buffer that is not a file on disk. The name of a terminal, `oil://` or
+--- `fugitive://` buffer is a label, not a path: it would be resolved against whatever directory
+--- Neovim is in *at the time of the walk*, while the memo files the answer under the name alone --
+--- after a `:cd` the old repository's branch would stay. The working directory is the key that
+--- follows the `:cd` (the same reading `terminal.core.context` makes).
+---@param buf integer
+---@param name string The buffer's name
+---@return string
+local function lookup_dir(buf, name)
+  if name == "" or name:find("^%a[%w+.-]*://") or vim.bo[buf].buftype ~= "" then
+    return vim.fn.getcwd()
+  end
+  return vim.fs.dirname(name)
+end
+
 --- The current state of the editor.
 ---@return Terminal.StatusSnapshot
 function M.snapshot()
   local buf = vim.api.nvim_get_current_buf()
   local name = vim.api.nvim_buf_get_name(buf)
-  local dir = name ~= "" and vim.fs.dirname(name) or vim.fn.getcwd()
+  local dir = lookup_dir(buf, name)
   return {
     mode = vim.api.nvim_get_mode().mode,
     file = name,

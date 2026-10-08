@@ -193,8 +193,10 @@ describe("terminal.status (publishing)", function()
   end)
 
   after_each(function()
-    publisher.clear()
+    -- The stubs go first: clear() asks the editor, not the double, whether a UI is attached, and
+    -- a clear that runs against a UI-less double would print a notice nobody checks for.
     vim.api.nvim_ui_send, vim.api.nvim_list_uis = original_send, original_uis
+    publisher.clear()
     pcall(vim.api.nvim_del_augroup_by_name, "terminal.status")
   end)
 
@@ -349,6 +351,53 @@ describe("terminal.status (publishing)", function()
     assert.same({}, notices)
   end)
 
+  it("a clear without a UI succeeds and warns about nothing (a headless run in a pane)", function()
+    local notices = {}
+    local original_notify = vim.notify
+    -- Test double: collects the notifications instead of showing them.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.notify = function(msg)
+      notices[#notices + 1] = msg
+    end
+    -- Test double: no UI is attached.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.api.nvim_list_uis = function()
+      return {}
+    end
+    local exporter = require("terminal.status.exporters.wezterm")
+    local ok, err = exporter.clear()
+    publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+    publisher.clear() -- what Neovim does on every exit, with or without a UI
+    vim.wait(100)
+    vim.notify = original_notify
+    assert.is_true(ok, tostring(err))
+    assert.is_nil(err)
+    assert.same({}, writes, "no UI, nothing to write to")
+    assert.same({}, notices, "nothing was left behind, so there is nothing to complain about")
+  end)
+
+  it("a clear that fails with a UI attached is still reported", function()
+    local notices = {}
+    local original_notify = vim.notify
+    -- Test double: collects the notifications instead of showing them.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.notify = function(msg)
+      notices[#notices + 1] = msg
+    end
+    -- Test double: the terminal channel breaks.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.api.nvim_ui_send = function()
+      error("channel closed")
+    end
+    publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+    publisher.clear()
+    vim.wait(100)
+    vim.notify = original_notify
+    assert.equals(1, #notices, vim.inspect(notices))
+    assert.truthy(notices[1]:find("could not clear", 1, true), notices[1])
+    assert.truthy(notices[1]:find("channel closed", 1, true), notices[1])
+  end)
+
   it("what could not be sent without a UI goes out once one attaches", function()
     local attached = false
     -- Test double: a UI that is attached only once `attached` is set.
@@ -457,8 +506,10 @@ describe("terminal.status (publishing)", function()
     end)
 
     it("a clear that reports failure is not dropped silently", function()
+      ---@type string|nil
+      local failure = "nope"
       failing.clear = function()
-        return false, "nope"
+        return failure == nil, failure
       end
       publisher.setup(cfg(), { WEZTERM_PANE = "3" })
       local messages = {}
@@ -471,6 +522,8 @@ describe("terminal.status (publishing)", function()
       publisher.clear()
       vim.wait(100)
       vim.notify = original
+      -- the clear in after_each must not report the same failure a second time
+      failure = nil
       assert.equals(1, #messages, vim.inspect(messages))
       assert.truthy(messages[1]:find("could not clear: nope", 1, true))
     end)

@@ -7,6 +7,9 @@ dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/sup
 
 local exec = require("terminal.core.exec")
 
+--- Starting a child Neovim takes much longer than the 3 s default on a loaded machine.
+local SLOW = { timeout = 20000 }
+
 --- A child Neovim that runs `ex` and quits: a program that exists on every platform.
 ---@param ex string
 ---@return string[]
@@ -17,14 +20,14 @@ end
 describe("terminal.core.exec", function()
   it("returns the exit code, stdout and stderr of a command that ran", function()
     local res =
-      exec.run(nvim("lua io.stdout:write('out'); io.stderr:write('err'); vim.cmd('cquit 3')"))
+      exec.run(nvim("lua io.stdout:write('out'); io.stderr:write('err'); vim.cmd('cquit 3')"), SLOW)
     assert.equals(3, res.code)
     assert.truthy(res.stdout:find("out", 1, true), vim.inspect(res))
     assert.truthy(res.stderr:find("err", 1, true), vim.inspect(res))
   end)
 
   it("reports success as code 0", function()
-    assert.equals(0, exec.run(nvim("qa!")).code)
+    assert.equals(0, exec.run(nvim("qa!"), SLOW).code)
   end)
 
   it("a program that does not exist is code 127 with the reason, never an error", function()
@@ -43,6 +46,30 @@ describe("terminal.core.exec", function()
     assert.is_true(res.code ~= 0, vim.inspect(res))
   end)
 
+  it("a timeout too short to reap the process still returns a result, never raises", function()
+    -- `wait()` returns nothing when the killed child is not reaped within the timeout again;
+    -- with 0 and 1 ms that happens on every run on Windows
+    for _, timeout in ipairs({ 0, 1, 5 }) do
+      for _ = 1, 3 do
+        local ok, res = pcall(exec.run, nvim("sleep 20"), { timeout = timeout })
+        assert.is_true(ok, ("timeout %d: %s"):format(timeout, tostring(res)))
+        assert.is_table(res)
+        assert.is_true(res.code ~= 0, vim.inspect(res))
+        assert.is_string(res.stdout)
+        assert.is_string(res.stderr)
+      end
+    end
+  end)
+
+  -- Signals exist on POSIX only; the case is not registered elsewhere.
+  if vim.fn.has("win32") == 0 and vim.fn.executable("sh") == 1 then
+    it("a program that a signal ended is a failure, not a success", function()
+      assert.equals(137, exec.run({ "sh", "-c", "kill -9 $$" }).code) -- 128 + SIGKILL
+      assert.equals(143, exec.run({ "sh", "-c", "kill -15 $$" }).code) -- 128 + SIGTERM
+      assert.equals(0, exec.run({ "sh", "-c", "exit 0" }).code)
+    end)
+  end
+
   it("passes stdin on", function()
     local res = exec.run({ "sort" }, { stdin = "b\na\n" })
     assert.equals(0, res.code)
@@ -53,7 +80,7 @@ describe("terminal.core.exec", function()
     local word = "a b;c & d $HOME `x`"
     local argv = nvim("lua io.stdout:write(vim.v.argv[#vim.v.argv]); vim.cmd('qa!')")
     vim.list_extend(argv, { "--", word })
-    local res = exec.run(argv)
+    local res = exec.run(argv, SLOW)
     assert.equals(0, res.code, vim.inspect(res))
     assert.equals(word, res.stdout)
   end)

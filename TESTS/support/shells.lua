@@ -7,6 +7,10 @@
 --                 2n backslashes + quote -> n backslashes and the quote toggles,
 --                 2n+1 backslashes + quote -> n backslashes and a literal quote,
 --                 inside quotes `""` is a literal quote, white space outside quotes splits
+--   received_args(shell, to_line, words, prefix)
+--                 not a model: the REAL thing. Types a quoted line into a real shell and returns the
+--                 arguments a real program received (PowerShell's native argument passing differs
+--                 between versions, so no model of it would be trusted)
 
 local M = {}
 
@@ -136,6 +140,52 @@ function M.msvcrt(line)
     args[#args + 1] = table.concat(current)
   end
   return args
+end
+
+--- The program `received_args` starts: it writes the arguments it got after the output path as
+--- JSON to that path.
+local DUMP_SCRIPT = {
+  "local out = arg[1]",
+  "local rest = {}",
+  "for i = 2, #arg do",
+  "  rest[#rest + 1] = arg[i]",
+  "end",
+  "vim.fn.writefile({ vim.json.encode(rest) }, out)",
+}
+
+--- The arguments a real program receives when a real shell runs a quoted command line.
+---
+--- The program is this very Neovim, started as `nvim -l <script> <out> <words...>`: it is always
+--- there, it reads its command line the way any Windows program does (C runtime), and it writes
+--- what it got to a file. One shell process serves all `words`.
+---@param shell string[] The shell command; the command line is appended as its last element
+---@param to_line fun(argv: string[]): string|nil Quotes an argv for that shell
+---@param words string[] The words to hand to the program
+---@param prefix? string Typed in front of the line (a PowerShell preference variable)
+---@return string[]|nil received nil when the program wrote nothing
+---@return string diagnostics What the line was and what the shell printed, for a failure message
+function M.received_args(shell, to_line, words, prefix)
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local script, out = dir .. "/dump.lua", dir .. "/args.json"
+  vim.fn.writefile(DUMP_SCRIPT, script)
+  local argv = { vim.v.progpath, "--headless", "--clean", "-i", "NONE", "-l", script, out }
+  vim.list_extend(argv, words)
+  local line = (prefix or "") .. assert(to_line(argv))
+  local command = vim.list_extend(vim.deepcopy(shell), { line })
+  local res = vim.system(command, {}):wait(60000)
+  local received
+  if vim.fn.filereadable(out) == 1 then
+    received = vim.json.decode(table.concat(vim.fn.readfile(out), "\n"))
+  end
+  vim.fn.delete(dir, "rf")
+  local diagnostics = ("line: %s\nexit %s\nstdout: %s\nstderr: %s"):format(
+    line,
+    tostring(res.code),
+    res.stdout or "",
+    res.stderr or ""
+  )
+  return received, diagnostics
 end
 
 return M

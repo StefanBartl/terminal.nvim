@@ -72,8 +72,9 @@ local function whole(v)
 end
 
 ---@internal
---- The border styles `nvim_open_win` knows by name.
-local BORDER_NAMES = { "none", "single", "double", "rounded", "solid", "shadow" }
+--- The border styles `nvim_open_win` and 'winborder' know by name (`:h nvim_open_win()`; `bold`
+--- is not in every version of that list, but both accept it).
+local BORDER_NAMES = { "none", "single", "double", "rounded", "solid", "shadow", "bold" }
 
 ---@internal
 --- Keys whose value, once it has the right type, must also be in a range. A value that only
@@ -157,11 +158,18 @@ DOMAINS["window_options.signcolumn"] = {
     elseif kind == "yes" then
       return rest == "" or rest:find("^:[1-9]$") ~= nil
     elseif kind == "auto" then
-      return rest == "" or rest:find("^:[1-9]$") ~= nil or rest:find("^:[1-9]%-[1-9]$") ~= nil
+      if rest == "" or rest:find("^:[1-9]$") ~= nil then
+        return true
+      end
+      -- `auto:N-M` takes a minimum below its maximum: 'signcolumn' answers E474 to `auto:3-2`
+      -- and to `auto:2-2`, and the TermOpen autocommand that sets it would abort with it.
+      -- (One digit each, so the strings compare like the numbers.)
+      local low, high = rest:match("^:([1-9])%-([1-9])$")
+      return low ~= nil and low < high
     end
     return false
   end,
-  want = "yes, no, auto, number, yes:N, auto:N or auto:N-M",
+  want = "yes, no, auto, number, yes:N, auto:N or auto:N-M (N below M; digits 1 to 9)",
 }
 for _, key in ipairs({ "enter_padding", "enter_margin", "leave_padding", "leave_margin" }) do
   DOMAINS["kitty." .. key] = {

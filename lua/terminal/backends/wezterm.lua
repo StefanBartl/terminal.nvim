@@ -26,21 +26,45 @@ function M.default_runner(argv, opts)
 end
 
 ---@internal
+--- Whether a decoded JSON value is an object with at least one field (`{"a":1}`): not a list
+--- (`[1]`), not a scalar. An object of nothing but nulls decodes to an empty table, which cannot
+--- be told from `[]`, so it does not count either.
+---@param v any
+---@return boolean
+local function is_object(v)
+  return type(v) == "table" and next(v) ~= nil and not vim.islist(v)
+end
+
+---@internal
 --- The objects in the JSON list a `wezterm cli` command printed. That output is a foreign API's
---- answer: whatever is not an object (a number, a JSON null) is dropped, and a null inside an
---- object is an absent field -- never `vim.NIL`, which is truthy and not equal to nil.
+--- answer: whatever is not an object (a number, a JSON null, a nested list) is dropped, and a
+--- null inside an object is an absent field -- never `vim.NIL`, which is truthy and not equal to
+--- nil.
+---
+--- Anything that does not look like the answer to the question is *unknown* (nil), never "no
+--- objects": `{"error":"no mux"}` or `[1]` must not read as "WezTerm has no panes", which would
+--- declare every pane gone. Only an empty answer (`[]`, `{}`) is an empty list.
 ---@param stdout string
----@return table[]|nil objects # nil when the text is not JSON or not a list
+---@return table[]|nil objects # nil when the text is not JSON, is no list, or a list without an object
 local function decode_objects(stdout)
   local ok, data = pcall(vim.json.decode, stdout, { luanil = { object = true } })
   if not ok or type(data) ~= "table" then
     return nil
   end
+  if next(data) == nil then
+    return {}
+  end
+  if not vim.islist(data) then
+    return nil
+  end
   local objects = {}
   for _, entry in ipairs(data) do
-    if type(entry) == "table" then
+    if is_object(entry) then
       objects[#objects + 1] = entry
     end
+  end
+  if #objects == 0 then
+    return nil
   end
   return objects
 end
@@ -106,7 +130,7 @@ function M.new(registry, runner, own_pane)
     end
     local data = decode_objects(res.stdout)
     if not data then
-      return nil, "wezterm cli list returned something that is not JSON"
+      return nil, "wezterm cli list returned something that is not a JSON list of panes"
     end
     local by_id = {}
     for _, p in ipairs(data) do
@@ -127,13 +151,17 @@ function M.new(registry, runner, own_pane)
   end
 
   --- What this backend refuses to start, found out without side effects (`pin` asks before it
-  --- touches the terminal it is about to replace).
+  --- touches the terminal it is about to replace): environment variables, and a layout it does
+  --- not know (guessing a right split would hide the typo).
   ---@param spec Terminal.SpawnSpec
   ---@return boolean ok
   ---@return string|nil refused
   function backend.preflight(spec)
     if spec.env and next(spec.env) ~= nil then
       return false, "the wezterm backend cannot set environment variables for a pane"
+    end
+    if not vim.list_contains(require("terminal.backends").LAYOUTS, spec.layout) then
+      return false, ("unknown layout '%s'"):format(tostring(spec.layout))
     end
     return true, nil
   end
@@ -154,9 +182,6 @@ function M.new(registry, runner, own_pane)
     local ok, refused = backend.preflight(spec)
     if not ok then
       return nil, refused
-    end
-    if not vim.list_contains(require("terminal.backends").LAYOUTS, spec.layout) then
-      return nil, ("unknown layout '%s'"):format(tostring(spec.layout))
     end
     local args
     if spec.layout == "tab" then

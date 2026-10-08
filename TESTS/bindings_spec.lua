@@ -63,6 +63,7 @@ describe("terminal bindings", function()
       pcall(vim.keymap.del, "t", lhs)
     end
     pcall(vim.api.nvim_del_user_command, "Terminal")
+    pcall(vim.api.nvim_del_augroup_by_name, "terminal.usrcmds")
   end
 
   before_each(function()
@@ -379,6 +380,29 @@ describe("terminal bindings", function()
         return vim.fn.has("win32") == 1 and "\r" or "\n"
       end
 
+      --- Type `keys` the way a user does: through the typeahead, so that a command line really
+      --- opens, is left and runs (`:` in Visual mode fills in `'<,'>` itself). The first key
+      --- leaves whatever mode an earlier spec left pending (the `startinsert` of a terminal that
+      --- was opened with `start_insert` on would turn the keys into text).
+      ---@param keys string
+      local function type_keys(keys)
+        local termcodes = vim.api.nvim_replace_termcodes("<C-\\><C-n>" .. keys, true, false, true)
+        vim.api.nvim_feedkeys(termcodes, "xt", false)
+      end
+
+      --- The text `send selection` typed into the terminal, for one run of `keys`.
+      ---@param keys string
+      ---@return string
+      local function sent_by(keys)
+        local sent = jobs.record_sends(function()
+          type_keys(keys)
+        end)
+        -- a plain assert: one send per run is what the helper is built on, and a soft failure
+        -- would only run on into an index error
+        assert(#sent == 1, "expected one send, got " .. vim.inspect(sent))
+        return sent[1].text
+      end
+
       before_each(function()
         terminal.setup({ shell = jobs.sleeper(), start_insert = false })
         vim.cmd("enew")
@@ -386,43 +410,87 @@ describe("terminal bindings", function()
       end)
 
       it("characterwise: only the selected characters", function()
-        vim.cmd("normal! gg0wviw\27") -- "hello"
-        local sent = jobs.record_sends(function()
-          vim.cmd("'<,'>Terminal send selection")
-        end)
-        assert.equals("hello", sent[1].text)
+        assert.equals("hello", sent_by("gg0wviw:Terminal send selection<CR>"))
       end)
 
       it("characterwise over several lines: from the first character to the last", function()
-        vim.cmd("normal! gg0wvj0\27") -- "hello world", then the "g" at the start of line 2
-        local sent = jobs.record_sends(function()
-          vim.cmd("'<,'>Terminal send selection --exec")
-        end)
-        assert.equals("hello world\ng" .. eol(), sent[1].text)
+        -- "hello world", then the "g" at the start of line 2
+        local text = sent_by("gg0wvj0:Terminal send selection --exec<CR>")
+        assert.equals("hello world\ng" .. eol(), text)
       end)
 
       it("blockwise: the block, one line per row", function()
-        vim.cmd("normal! gg0l\22jl\27") -- columns 2-3 of lines 1-2
-        local sent = jobs.record_sends(function()
-          vim.cmd("'<,'>Terminal send selection --exec")
-        end)
-        assert.equals("ch\nhi" .. eol(), sent[1].text)
+        -- columns 2-3 of lines 1-2
+        local text = sent_by("gg0l<C-v>jl:Terminal send selection --exec<CR>")
+        assert.equals("ch\nhi" .. eol(), text)
       end)
 
       it("linewise: whole lines", function()
-        vim.cmd("normal! ggVj\27")
-        local sent = jobs.record_sends(function()
-          vim.cmd("'<,'>Terminal send selection --exec")
-        end)
-        assert.equals("echo hello world\nghijkl" .. eol(), sent[1].text)
+        local text = sent_by("ggVj:Terminal send selection --exec<CR>")
+        assert.equals("echo hello world\nghijkl" .. eol(), text)
       end)
 
-      it("a plain range after an older selection is whole lines, not that selection", function()
+      it("a command-line modifier in front of the range changes nothing", function()
+        assert.equals("hello", sent_by("gg0wviw:silent Terminal send selection<CR>"))
+        assert.equals("hello", sent_by("gg0wviw:keepjumps Terminal send selection<CR>"))
+      end)
+
+      it("a mapping that starts with ':' from Visual mode sends the selection", function()
+        vim.keymap.set("x", "<F9>", ":Terminal send selection --exec<CR>")
+        local ok, text = pcall(sent_by, "gg0wviw<F9>")
+        vim.keymap.del("x", "<F9>")
+        assert.is_true(ok, tostring(text))
+        assert.equals("hello" .. eol(), text)
+      end)
+
+      it("a typed range is whole lines, also over the lines of an older selection", function()
+        -- the marks and 'visualmode()' still describe the "hello" of line 1
+        vim.cmd("normal! gg0wviw\27")
+        local one = sent_by(":1Terminal send selection --exec<CR>")
+        assert.equals("echo hello world" .. eol(), one, "line 1, typed by hand, is the line")
+        -- a characterwise selection over lines 2-3, then exactly those lines as a plain range
+        vim.cmd("normal! 2Gllvj$\27")
+        local two = sent_by(":2,3Terminal send selection --exec<CR>")
+        assert.equals("ghijkl\nmnopqr" .. eol(), two, "lines 2,3, typed by hand, are the lines")
+      end)
+
+      it("a plain range on other lines than the older selection is whole lines", function()
         vim.cmd("normal! gg0wviw\27") -- leaves charwise marks on line 1
+        local text = sent_by(":2,3Terminal send selection --exec<CR>")
+        assert.equals("ghijkl\nmnopqr" .. eol(), text)
+      end)
+
+      it("a call without a command line (Lua, <Cmd>) sends whole lines", function()
+        vim.cmd("normal! gg0wviw\27") -- charwise marks on line 1, 'visualmode()' is "v"
         local sent = jobs.record_sends(function()
-          vim.cmd("2,3Terminal send selection --exec")
+          vim.cmd("'<,'>Terminal send selection")
         end)
-        assert.equals("ghijkl\nmnopqr" .. eol(), sent[1].text)
+        assert.equals("echo hello world", sent[1].text)
+      end)
+
+      it("a cancelled command line is not remembered", function()
+        type_keys("gg0wviw:<Esc>")
+        local sent = jobs.record_sends(function()
+          vim.cmd("'<,'>Terminal send selection")
+        end)
+        assert.equals("echo hello world", sent[1].text)
+      end)
+
+      it("a command line is read once: the next call from Lua is not that line", function()
+        assert.equals("hello", sent_by("gg0wviw:Terminal send selection<CR>"))
+        local sent = jobs.record_sends(function()
+          vim.cmd("'<,'>Terminal send selection")
+        end)
+        assert.equals("echo hello world", sent[1].text)
+      end)
+
+      it("a line that ran another command does not reach a later call from Lua", function()
+        type_keys("gg0wviw:normal! l<CR>") -- runs as `:'<,'>normal! l`, never asks for the marks
+        vim.wait(50) -- the event-loop turn ends
+        local sent = jobs.record_sends(function()
+          vim.cmd("'<,'>Terminal send selection")
+        end)
+        assert.equals("echo hello world", sent[1].text)
       end)
     end)
 

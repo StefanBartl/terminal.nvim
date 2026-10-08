@@ -138,17 +138,59 @@ local function target_of(ctx)
 end
 
 ---@internal
+--- Whether the command line that is running right now has the Visual marks as its range
+--- (`'<,'>...`, with modifiers such as `silent` in front of it).
+---
+--- The command cannot tell by itself: `range.mode` and the `'<`/`'>` marks only say which
+--- selection was made *last*, and a range typed by hand after it (`:2,3Terminal ...`) arrives
+--- looking the same. Neovim writes `'<,'>` into the command line when `:` is pressed in Visual mode,
+--- so the finished line is what shows that the range was meant as the selection. It is read at
+--- `CmdlineLeave`, just before the line runs; it is the line that counts, not the command history,
+--- which a mapped `:` line never reaches. `<Cmd>` mappings and Lua calls have no command line and
+--- so never name the marks.
+---
+--- The flag is taken by the first command that asks (one line, one answer) and dropped at the end
+--- of the event-loop turn, so a Lua call made later cannot pick up an earlier line.
+local line_names_marks = false
+
+---@internal
+--- Modifiers (`silent`, `keepjumps`, `2verbose` ...) are lower case, a user command is not; so
+--- everything in front of the range being lower case, digits, blanks, `:` and `!` means that
+--- nothing but modifiers comes first. Neovim files `:silent` typed in Visual mode as
+--- `silent:'<,'>cmd`.
+---@param line string
+---@return boolean
+local function names_marks(line)
+  return line:find("^[%l%d%s:!]*'<,'>") ~= nil
+end
+
+---@internal
+--- `CmdlineLeave` handler: remember whether the line that is about to run named the marks.
+---@return nil
+local function note_command_line()
+  line_names_marks = not vim.v.event.abort and names_marks(vim.fn.getcmdline())
+  if line_names_marks then
+    vim.schedule(function()
+      line_names_marks = false
+    end)
+  end
+end
+
+---@internal
 --- The text of a Visual selection that is exactly the range the command was given: the characters
 --- of a characterwise selection, the block of a blockwise one. nil when the range does not come
---- from a characterwise / blockwise selection (a linewise one, `:2,3`, or a stale selection).
+--- from a characterwise / blockwise selection: a linewise one, a range typed by hand (`:2,3`, also
+--- when it covers the lines of an older selection), or a call without a command line.
 ---@param range Lib.UserCmd.Composer.RangeInfo
 ---@return string[]|nil
 local function visual_text(range)
-  if range.mode ~= "v" and range.mode ~= "\22" then
+  local named = line_names_marks
+  line_names_marks = false
+  if not named or (range.mode ~= "v" and range.mode ~= "\22") then
     return nil
   end
   local from, to = vim.fn.getpos("'<"), vim.fn.getpos("'>")
-  -- The marks outlive the selection: only trust them when they describe this very range.
+  -- `'<,'>` can be followed by an offset (`'<,'>+1`): only trust the marks for the range they give.
   if from[2] ~= range.line1 or to[2] ~= range.line2 then
     return nil
   end
@@ -256,6 +298,13 @@ function M.setup()
   local composer = require("lib.nvim.bindings.usercmd.composer")
   local terminal = require("terminal")
   register_name_types(composer)
+  line_names_marks = false
+  vim.api.nvim_create_autocmd("CmdlineLeave", {
+    group = vim.api.nvim_create_augroup("terminal.usrcmds", { clear = true }),
+    pattern = ":",
+    callback = note_command_line,
+    desc = "terminal.nvim: note whether :Terminal send selection was given the '<,'> range",
+  })
 
   composer.verb("Terminal", {
     desc = "Named terminals of this project",

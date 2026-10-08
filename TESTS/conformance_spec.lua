@@ -104,15 +104,13 @@ local function contract(name, make)
     end)
 
     it("refuses a layout it does not know without registering anything", function()
+      -- Every backend refuses: guessing a split for a typo would hide it. No branch accepts a
+      -- spawned handle, or a backend that starts guessing again would stay green.
       local h, err = ctx.backend.spawn(ctx.spec({ layout = "sideways" }))
-      -- Multiplexer backends map unknown layouts to a split; native refuses. Either way: no
-      -- half-registered terminal for an error.
-      if h == nil then
-        assert.is_string(err)
-        assert.equals(0, ctx.registry:count())
-      else
-        assert.equals(h, ctx.registry:get(h.id))
-      end
+      assert.is_nil(h)
+      assert.is_string(err)
+      assert.truthy(tostring(err):find("layout", 1, true))
+      assert.equals(0, ctx.registry:count())
     end)
   end)
 end

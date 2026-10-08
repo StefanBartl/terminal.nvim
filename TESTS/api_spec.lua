@@ -516,6 +516,58 @@ describe("terminal (facade)", function()
       assert.is_true((terminal.toggle()))
     end)
 
+    it("send of something that is not text fails, says so, and starts nothing", function()
+      -- Deliberately wrong type: the case checks the guard.
+      ---@diagnostic disable-next-line: param-type-mismatch
+      local ok, err = terminal.send(5)
+      assert.is_false(ok)
+      assert.equals("send: text must be a string", err)
+      assert.is_true(said("send: text must be a string"))
+      assert.equals(0, #terminal.list(true))
+    end)
+
+    it("count 0 (no count typed) sends and runs in the run terminal, like no count", function()
+      local sent = jobs.record_sends(function()
+        assert.is_true((terminal.send("a", { count = 0 })))
+      end)
+      assert.equals(1, #sent)
+      local names = vim.tbl_map(function(h)
+        return h.name
+      end, terminal.list())
+      assert.same({ "run" }, names)
+      -- a real count still picks its own terminal
+      jobs.record_sends(function()
+        assert.is_true((terminal.send("a", { count = 2 })))
+      end)
+      names = vim.tbl_map(function(h)
+        return h.name
+      end, terminal.list())
+      table.sort(names)
+      assert.same({ "2", "run" }, names)
+    end)
+
+    it("run direct needs strings: a number among the words fails with a reason", function()
+      -- Deliberately wrong type: the case checks the guard.
+      ---@diagnostic disable-next-line: assign-type-mismatch
+      local ok, err = terminal.run({ "sleep", 5 }, { direct = true })
+      assert.is_false(ok)
+      assert.truthy(err:find("argument 2", 1, true), tostring(err))
+      assert.is_true(said("argument 2"))
+      assert.equals(0, #terminal.list(true))
+      ok, err = terminal.run({ "a\0b" }, { direct = true })
+      assert.is_false(ok)
+      assert.truthy(err:find("argument 1", 1, true), tostring(err))
+    end)
+
+    it("run reports its failures with the same 'run:' prefix it shows", function()
+      local ok, err = terminal.run({})
+      assert.is_false(ok)
+      assert.truthy(err:find("^run: "), tostring(err))
+      ok, err = terminal.run({ "echo", "a\nb" })
+      assert.is_false(ok)
+      assert.truthy(err:find("^run: "), tostring(err))
+    end)
+
     it("send and run with options of the wrong type fail instead of raising", function()
       local ok, err = terminal.send("x", "y")
       assert.is_false(ok)

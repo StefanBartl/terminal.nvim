@@ -2,8 +2,9 @@
 --- The `native` backend: terminals are Neovim `:terminal` buffers in a float, split, vsplit or
 --- tab. Always available; every other backend falls back to it.
 ---
---- `new(registry)` returns a backend whose handles live in the given registry; nothing is kept
---- at module level.
+--- `new(registry)` returns a backend whose handles live in the given registry. The one thing
+--- that is not per backend is the `BufWipeout` watcher: it is a named autocommand group, so it
+--- is bound to the registry of the backend created last.
 
 local layout_math = require("terminal.core.layout")
 local registry_mod = require("terminal.core.registry")
@@ -11,9 +12,14 @@ local registry_mod = require("terminal.core.registry")
 local api = vim.api
 local fn = vim.fn
 
---- How long `close` waits for a stopped job to end: a shell reacts to the signal in milliseconds,
---- one that does not within a second is stuck.
+--- How long `close` waits for a stopped job to report its exit: a shell reacts to the signal in
+--- milliseconds, one that does not within a second is stuck.
 local JOB_STOP_WAIT_MS = 1000
+
+--- How long `close` keeps waiting for the process itself after that warning. Neovim ends a job
+--- that ignores its stop signal on its own after a few seconds, and `jobwait` ignores its timeout
+--- once `jobstop` was called, so this is an upper bound that is not expected to be reached.
+local JOB_KILL_WAIT_MS = 5000
 
 local M = {}
 
@@ -23,13 +29,14 @@ local M = {}
 --- the editor has no other.
 ---@param exclude integer The terminal buffer that is going away
 ---@return integer bufnr
+---@return boolean created True when the buffer is a new empty one (the caller owns it)
 local function replacement(exclude)
   local function usable(b)
     return b > 0 and b ~= exclude and api.nvim_buf_is_valid(b) and vim.bo[b].buflisted
   end
   local alt = fn.bufnr("#")
   if usable(alt) then
-    return alt
+    return alt, false
   end
   local listed = fn.getbufinfo({ buflisted = 1 })
   table.sort(listed, function(a, b)
@@ -37,36 +44,75 @@ local function replacement(exclude)
   end)
   for _, info in ipairs(listed) do
     if usable(info.bufnr) then
-      return info.bufnr
+      return info.bufnr, false
     end
   end
-  return api.nvim_create_buf(true, false)
+  return api.nvim_create_buf(true, false), true
 end
 
 ---@internal
---- Close one window without ever closing the last window of the editor. Floating windows are not
---- "windows left to look at": with the terminal in the only normal window and a float open,
---- closing it would raise E444, so that case shows another buffer instead.
+--- `nvim_win_close` that answers instead of raising.
 ---@param win integer
----@param bufnr integer The terminal buffer the window shows (it is not a valid replacement)
----@return nil
-local function close_window(win, bufnr)
+---@return boolean ok
+---@return string|nil err
+local function try_close(win)
+  local ok, err = pcall(api.nvim_win_close, win, true)
+  if ok then
+    return true, nil
+  end
+  return false, tostring(err)
+end
+
+---@internal
+--- The body of `close_window`; it may raise, `close_window` answers for it.
+---@param win integer
+---@param bufnr integer
+---@return boolean ok
+---@return string|nil err
+local function leave_window(win, bufnr)
   if not api.nvim_win_is_valid(win) then
-    return
+    return true, nil
   end
   if api.nvim_win_get_config(win).relative ~= "" then
-    pcall(api.nvim_win_close, win, true)
-    return
+    return try_close(win)
   end
   local tab = api.nvim_win_get_tabpage(win)
   local normal = vim.tbl_filter(function(w)
     return api.nvim_win_get_config(w).relative == ""
   end, api.nvim_tabpage_list_wins(tab))
   if #normal > 1 or #api.nvim_list_tabpages() > 1 then
-    pcall(api.nvim_win_close, win, true)
-    return
+    return try_close(win)
   end
-  api.nvim_win_set_buf(win, replacement(bufnr))
+  local repl, created = replacement(bufnr)
+  local shown, serr = pcall(api.nvim_win_set_buf, win, repl)
+  if not shown then
+    -- 'winfixbuf' (E1513) or a locked window: the empty buffer made for it must not stay behind.
+    if created then
+      pcall(api.nvim_buf_delete, repl, { force = true })
+    end
+    return false, tostring(serr)
+  end
+  return true, nil
+end
+
+---@internal
+--- Close one window without ever closing the last window of the editor. Floating windows are not
+--- "windows left to look at": with the terminal in the only normal window and a float open,
+--- closing it would raise E444, so that case shows another buffer instead.
+---
+--- Answers instead of raising: Neovim refuses to close or change a window in places the plugin
+--- does not control (textlock inside an `<expr>` mapping, the command-line window, a window with
+--- 'winfixbuf'), and `hide`/`close` must tell the caller about that.
+---@param win integer
+---@param bufnr integer The terminal buffer the window shows (it is not a valid replacement)
+---@return boolean ok False when the window still shows the terminal
+---@return string|nil err Neovim's reason
+local function close_window(win, bufnr)
+  local ok, res, err = pcall(leave_window, win, bufnr)
+  if not ok then
+    return false, tostring(res)
+  end
+  return res, err
 end
 
 ---@internal
@@ -166,18 +212,31 @@ function M.new(registry)
   })
 
   ---@internal
-  --- Forget a terminal and remove its window(s) and buffer.
+  --- Remove a terminal's window(s) first, then forget it and delete its buffer. When a window
+  --- cannot be closed the terminal stays as it is -- registered, buffer alive -- so that it is
+  --- still reachable and `close` can be tried again; nothing is left behind that the registry
+  --- does not know about.
   ---@param handle Terminal.Handle
+  ---@return boolean ok
+  ---@return string|nil err
   local function dispose(handle)
+    -- Set first: from here on the exit of the job must not run the `on_exit` mode.
     handle.disposed = true
-    forget(handle)
     local bufnr = handle.bufnr
     if bufnr and api.nvim_buf_is_valid(bufnr) then
       for _, win in ipairs(fn.win_findbuf(bufnr)) do
-        close_window(win, bufnr)
+        local ok, err = close_window(win, bufnr)
+        if not ok then
+          handle.disposed = nil
+          return false, ("cannot close the window: %s"):format(err)
+        end
       end
+    end
+    forget(handle)
+    if bufnr and api.nvim_buf_is_valid(bufnr) then
       pcall(api.nvim_buf_delete, bufnr, { force = true })
     end
+    return true, nil
   end
 
   --- Interface method (`Terminal.Backend`); native is always available, so the facade never asks.
@@ -234,6 +293,8 @@ function M.new(registry)
           end
           local mode = spec.on_exit or "close"
           if mode == "close" or (mode == "close_on_success" and code == 0) then
+            -- Nobody asked, so nobody is told: a window that cannot be closed right now leaves
+            -- the finished terminal registered, and `close` removes it later.
             dispose(handle)
           end
         end)
@@ -336,7 +397,10 @@ function M.new(registry)
       return false, "the terminal buffer is gone"
     end
     for _, win in ipairs(fn.win_findbuf(handle.bufnr)) do
-      close_window(win, handle.bufnr)
+      local ok, err = close_window(win, handle.bufnr)
+      if not ok then
+        return false, ("cannot close the window: %s"):format(err)
+      end
     end
     return true, nil
   end
@@ -361,11 +425,18 @@ function M.new(registry)
   ---@return string|nil err
   function backend.close(handle)
     if handle.job and not handle.exited then
+      -- From here on the exit of the job is the answer to this call, not an `on_exit` event.
+      handle.disposed = true
       pcall(fn.jobstop, handle.job)
       -- Let the job actually end before its buffer goes away: deleting the buffer of a job that
       -- is still shutting down crashed Neovim 0.12 on Windows (0xC0000005, headless, splits).
-      local ok, waited = pcall(fn.jobwait, { handle.job }, JOB_STOP_WAIT_MS)
-      if ok and waited[1] == -1 then
+      -- The wait is on the exit flag, which `on_exit` sets from a scheduled callback (`vim.wait`
+      -- runs those). `jobwait` cannot time this: once `jobstop` was called it ignores its timeout
+      -- and returns -3 after Neovim's own kill, never -1 for a job that is still alive.
+      local stopped = vim.wait(JOB_STOP_WAIT_MS, function()
+        return handle.exited == true
+      end, 10)
+      if not stopped then
         -- Still running after the wait: the terminal is removed anyway (the user asked for it),
         -- but a job that survives its own `jobstop` is worth a line.
         vim.schedule(function()
@@ -376,10 +447,12 @@ function M.new(registry)
             )
           )
         end)
+        -- Neovim ends such a job itself after a few seconds; the buffer must not be deleted
+        -- before that (the ConPTY crash above).
+        pcall(fn.jobwait, { handle.job }, JOB_KILL_WAIT_MS)
       end
     end
-    dispose(handle)
-    return true, nil
+    return dispose(handle)
   end
 
   return backend

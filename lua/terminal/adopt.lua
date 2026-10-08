@@ -72,6 +72,24 @@ function M.run(host, target)
     ("terminal://%s/%s/%s"):format(handle.backend, handle.pane, name)
   )
 
+  -- Show the buffer first: "no room for a split" (E36) must not leave a buffer and a timer behind.
+  local origin = vim.api.nvim_get_current_win()
+  local shown, serr = pcall(function()
+    vim.cmd("botright split")
+    vim.api.nvim_win_set_buf(0, buf)
+  end)
+  if not shown then
+    if vim.api.nvim_get_current_win() ~= origin then
+      pcall(function()
+        vim.cmd("close")
+      end)
+    end
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    local err = ("adopt: cannot open a window for the view: %s"):format(tostring(serr))
+    host.fail(err)
+    return nil, err
+  end
+
   --- One refresh; false when the view is over (buffer gone, or the pane cannot be captured).
   local function refresh()
     if not vim.api.nvim_buf_is_valid(buf) then
@@ -125,8 +143,6 @@ function M.run(host, target)
   end
   -- Without a timer (libuv out of handles) the view still shows the screen as of now.
 
-  vim.cmd("botright split")
-  vim.api.nvim_win_set_buf(0, buf)
   return buf, nil
 end
 

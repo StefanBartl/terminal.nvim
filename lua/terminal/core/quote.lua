@@ -11,7 +11,16 @@
 --- `argv_to_line` and `shell_kind` are the entries the rest of the plugin uses (`word`, the quoting
 --- of a single word, is only reached through `argv_to_line`); the plugin never builds a line from
 --- an unquoted string. A word that cannot be represented safely for the shell is **refused**
---- (`nil, err`), never guessed at.
+--- (`nil, err`), never guessed at. What is refused, by family:
+---
+---   - every family: a control character (line break, TAB, NUL, ESC, ...);
+---   - cmd.exe: a `%` (it has no way to quote it);
+---   - PowerShell: a word with a double quote, and a word with white space that ends in a
+---     backslash. How a program started from PowerShell receives these differs between Windows
+---     PowerShell 5.1, pwsh before 7.3 (legacy argument passing) and later (5.1 splits a word at
+---     the quote, drops it, or lets the trailing backslash swallow the NEXT argument), so no single
+---     quoting is right; `direct = true` passes the argument without a shell;
+---   - "portable" (a multiplexer's unknown shell): anything beyond letters, digits and `. _ / : -`.
 
 local M = {}
 
@@ -49,7 +58,10 @@ local function posix(s)
   -- Safe characters need no quotes; keeps simple commands readable in the terminal. A leading
   -- dash stays bare on purpose: quoting cannot stop a program from reading a word as an option
   -- (that needs `--`, the caller's business) and `-m` is how an option is written.
-  if s:find("^[%w%._/:=@%%+,-]+$") then
+  -- `=` is safe everywhere EXCEPT as the first character: zsh (the macOS default shell, same
+  -- family here) replaces a word `=ls` by the path of that command, or aborts the line when there
+  -- is none. bash and fish read it literally, but the quoted form means the same to all of them.
+  if s:find("^[%w%._/:@%%+,-][%w%._/:=@%%+,-]*$") then
     return s
   end
   return "'" .. s:gsub("'", [['\'']]) .. "'"
@@ -59,7 +71,8 @@ end
 --- fish: inside '...' a backslash escapes `\` and `'` (anything else after a backslash stays
 --- literal), so both are escaped; the POSIX form `'\''` would leave a lone backslash in front of
 --- the next character. Bare words: a deliberately small set (`%` starts a process expansion at the
---- front of a word in fish, `~` expands, `{}` and `*` glob).
+--- front of a word in fish, `~` expands, `{}` and `*` glob). A leading `=` is literal in fish
+--- (unlike zsh, see `posix`), so `=` stays in the set at every position.
 ---@param s string
 ---@return string
 local function fish(s)
@@ -79,23 +92,77 @@ end
 local CURLY = { "\226\128\152", "\226\128\153", "\226\128\154", "\226\128\155" }
 
 ---@internal
+--- The white space Windows PowerShell 5.1 looks for (.NET `char.IsWhiteSpace`) when it decides
+--- whether a native argument gets wrapped in double quotes: the ASCII blanks, NEXT LINE, NBSP and
+--- the Unicode space separators, as UTF-8 patterns. Spelled out because Lua's `%s` knows only the
+--- ASCII ones (and depends on the locale for bytes above 127).
+local WHITE_SPACE = {
+  "[ \t\n\v\f\r]",
+  "\194[\133\160]", -- U+0085, U+00A0
+  "\225\154\128", -- U+1680
+  "\226\128[\128-\138\168\169\175]", -- U+2000..U+200A, U+2028, U+2029, U+202F
+  "\226\129\159", -- U+205F
+  "\227\128\128", -- U+3000
+}
+
+---@internal
 ---@param s string
----@return string
+---@return boolean
+local function has_white_space(s)
+  for _, pattern in ipairs(WHITE_SPACE) do
+    if s:find(pattern) then
+      return true
+    end
+  end
+  return false
+end
+
+---@internal
+--- The way out the refusals of `powershell` name: `direct` hands the argument to the program
+--- itself, so no shell reads it.
+local POWERSHELL_HINT =
+  "; run it with `direct = true` (the argument is then passed without a shell)"
+
+---@internal
+--- PowerShell's single quotes are its own: they are gone before a program sees the word. What the
+--- program receives then depends on the PowerShell version. Windows PowerShell 5.1 and pwsh before
+--- 7.3 (legacy argument passing) wrap a word in double quotes WITHOUT escaping what is inside: a
+--- `"` ends the argument early (`x" --evil "y` becomes three arguments, `a"b` loses its quote),
+--- and `C:\my dir\` makes the last backslash escape the closing quote, which swallows the NEXT
+--- argument. pwsh 7.3+ gets both right for a program (not for a .bat / .cmd). No single quoting is
+--- right for all of them, so a word with a `"`, and a word with white space that ends in a
+--- backslash, are refused (same principle as `portable`).
+---@param s string
+---@return string|nil
+---@return string|nil err
 local function powershell(s)
   if s == "" then
-    return "''"
+    return "''", nil
+  end
+  if s:find('"', 1, true) then
+    return nil,
+      "PowerShell hands a word with a double quote to a program differently in every version "
+        .. "(Windows PowerShell 5.1 splits or drops it), so no quoting is right for it"
+        .. POWERSHELL_HINT
+  end
+  if s:sub(-1) == "\\" and has_white_space(s) then
+    return nil,
+      "PowerShell hands a word with white space that ends in a backslash to a program "
+        .. "differently in every version (Windows PowerShell 5.1 lets the backslash swallow the "
+        .. "next argument), so no quoting is right for it"
+        .. POWERSHELL_HINT
   end
   -- A deliberately small bare-word set: `@` starts splatting, `,` builds an array, `%` and `+`
   -- can read as an alias or operator, `=` and `$` have meaning. A leading dash stays bare (an
   -- option is written that way).
   if s:find("^[%w%._/:\\-]+$") then
-    return s
+    return s, nil
   end
   local out = s:gsub("'", "''")
   for _, q in ipairs(CURLY) do
     out = out:gsub(q, q .. q)
   end
-  return "'" .. out .. "'"
+  return "'" .. out .. "'", nil
 end
 
 ---@internal
@@ -162,7 +229,7 @@ end
 ---@return string|nil err # Set when the word cannot be represented safely for this shell
 function M.word(s, kind)
   if kind == "powershell" then
-    return powershell(s), nil
+    return powershell(s)
   elseif kind == "cmd" then
     return cmd(s)
   elseif kind == "portable" then

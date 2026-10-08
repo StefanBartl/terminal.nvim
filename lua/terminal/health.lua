@@ -104,7 +104,9 @@ function M.check()
   end
 
   -- Every lib.nvim module the plugin requires without a fallback: an outdated lib.nvim that lacks
-  -- one must not pass the check.
+  -- one must not pass the check -- and a module nothing requires must not be listed (an old lib
+  -- without it would fail the check for a feature that does not exist). The health spec compares
+  -- the modules this check asks for with the lib modules lua/terminal requires.
   local required = {
     { "lib.nvim.notify", "notifications" },
     { "lib.nvim.bindings.keymap", "keymaps" },
@@ -113,7 +115,6 @@ function M.check()
     { "lib.lua.config", "configuration" },
     { "lib.nvim.fs.normkey", "project paths" },
     { "lib.nvim.terminal", "kitty detection" },
-    { "lib.nvim.system.env", "keymap environment" },
     { "lib.nvim.debounce", "status debounce" },
   }
   for _, r in ipairs(required) do

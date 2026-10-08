@@ -7,14 +7,17 @@
 local M = {}
 
 ---@class Terminal.ContextDeps
----@field cwd fun(): string Current working directory
+---@field cwd fun(): string Current working directory, spelled the way the user is in it
 ---@field bufname fun(): string Name of the current buffer ("" when none)
----@field root fun(path: string): string|nil Project root for a path (nil = none found)
+---@field root fun(path: string): string|nil Project root for a path, spelled like the path (nil = none found)
+---@field key? fun(path: string): string The canonical form of a directory, for the registry id (default: as given)
 
 --- The canonical spelling of a directory, so that one project has ONE registry key: the real path
 --- (8.3 short names and symlinks resolved), forward slashes, an upper-case drive letter.
 --- `getcwd()` keeps the spelling it was changed with while a file buffer's name arrives in the long
 --- form; without this a terminal toggled from a terminal buffer would not find itself again.
+--- Only the KEY is canonical: the shell starts in the directory the user is in, spelled as the
+--- user spelled it (a junction or symlink stays what `:pwd` shows).
 ---@param path string
 ---@return string
 local function canonical(path)
@@ -27,16 +30,16 @@ end
 function M.from_editor()
   return {
     cwd = function()
-      return canonical(vim.fn.getcwd())
+      return vim.fn.getcwd()
     end,
     bufname = function()
       return vim.api.nvim_buf_get_name(0)
     end,
     root = function(path)
       local start = path ~= "" and path or vim.fn.getcwd()
-      local found = vim.fs.root(start, { ".git" })
-      return found and canonical(found) or nil
+      return vim.fs.root(start, { ".git" })
     end,
+    key = canonical,
   }
 end
 
@@ -57,7 +60,9 @@ end
 --- Directory a new terminal starts in, and the root that identifies its project.
 ---
 --- `mode`: "project" = the git root of the current buffer (else the cwd), "buffer" = the
---- directory of the current buffer (else the cwd), "cwd" = the cwd.
+--- directory of the current buffer (else the cwd), "cwd" = the cwd. The first result is where
+--- the shell starts (spelled as the user is in it); the second is the project's registry key
+--- (canonical, the same for every spelling of the directory).
 ---@param mode Terminal.CwdMode
 ---@param deps Terminal.ContextDeps
 ---@return string cwd
@@ -71,14 +76,15 @@ function M.resolve(mode, deps)
   end
 
   local project = deps.root(buf_dir or cwd)
-  local root = normalize(project or cwd)
+  local top = normalize(project or cwd)
+  local root = deps.key and normalize(deps.key(top)) or top
 
   if mode == "cwd" then
     return cwd, root
   elseif mode == "buffer" then
     return buf_dir or cwd, root
   end
-  return root, root
+  return top, root
 end
 
 --- The name a terminal gets when the caller gave none: the configured default for no count,

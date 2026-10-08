@@ -28,6 +28,27 @@ function M.exit_with(code)
   return { "sh", "-c", "exit " .. code }
 end
 
+--- A job that ignores TERM and HUP, so `jobstop` cannot end it and Neovim has to kill it after
+--- its own grace period. It prints `ready` once the signals are ignored: stopping it earlier
+--- would simply kill the shell. POSIX only -- `nil` where there is no `sh` or no signals, so a
+--- spec that needs it is registered only when this returns a command.
+---@return string[]|nil
+function M.stubborn()
+  if is_windows or vim.fn.executable("sh") ~= 1 then
+    return nil
+  end
+  return { "sh", "-c", 'trap "" TERM HUP; echo ready; while :; do sleep 1; done' }
+end
+
+--- Whether the terminal buffer `bufnr` shows `text` somewhere.
+---@param bufnr integer
+---@param text string
+---@return boolean
+function M.shows(bufnr, text)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  return table.concat(lines, "\n"):find(text, 1, true) ~= nil
+end
+
 --- Wait until `pred()` is true (up to `ms`).
 ---@param pred fun(): boolean
 ---@param ms? integer
@@ -71,14 +92,51 @@ function M.record_sends(fn)
   return sent
 end
 
---- Close every terminal of `registry` through `backend` and reset the window layout.
+--- Run `fn(messages)` with `vim.notify` replaced by a recorder and return what was shown. The
+--- recorder stays in place while `fn` runs, so `fn` can wait for a scheduled message; it is
+--- restored when `fn` ends, also when it raises.
+---@param fn fun(messages: string[])
+---@return string[] messages
+function M.capture_notify(fn)
+  local messages = {}
+  local original = vim.notify
+  -- Test double: captures what would be shown to the user; restored below.
+  ---@diagnostic disable-next-line: duplicate-set-field
+  vim.notify = function(msg)
+    messages[#messages + 1] = msg
+  end
+  local ok, err = pcall(fn, messages)
+  vim.notify = original
+  if not ok then
+    error(err, 0)
+  end
+  return messages
+end
+
+--- Close every terminal of `registry` through `backend` and reset the window layout. A terminal
+--- that `close` could not remove (a spec left 'winfixbuf' on its window, say) is dropped by force:
+--- nothing may leak into the next spec.
 ---@param backend Terminal.Backend
 ---@param registry Terminal.Registry
 ---@return nil
 function M.cleanup(backend, registry)
   for _, h in ipairs(registry:list()) do
     M.settle()
-    backend.close(h)
+    local bufnr = h.bufnr
+    if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+      for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+        -- pcall: Neovim before 0.10 has no such option
+        pcall(function()
+          vim.wo[win].winfixbuf = false
+        end)
+      end
+    end
+    if not backend.close(h) then
+      if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+        pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+      end
+      registry:remove(h.id)
+    end
   end
   vim.cmd("silent! tabonly")
   vim.cmd("silent! only")

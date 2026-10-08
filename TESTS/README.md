@@ -27,6 +27,10 @@ the plugin manager's folder) and exits non-zero when anything is missing or red.
 | `pin_adopt_spec.lua` | pin (order, preflight, ping, restore) and adopt |
 | `security_spec.lua` | seeded property specs (xorshift32): quoting, escapes, tmux arguments |
 | `health_spec.lua` | `:checkhealth terminal` |
+| `collector_spec.lua` | the branch lookup (`.git/HEAD` mtime cache, the root memo, buffers that have no directory) |
+| `context_spec.lua` | project root and registry key against the real editor (8.3 short names, symlinks) |
+| `exec_spec.lua` | the shared process runner: exit codes, stdin, timeouts, signals, no shell |
+| `limits_spec.lua` | input without a length of its own: the linear replacements against the old pattern code, timing bounds |
 
 `support/fakes.lua` is a fake `wezterm cli` (with tabs and `list-clients`) and a fake `tmux` that parses
 arguments the way tmux does (a trailing `;`). `support/jobs.lua` holds the non-interactive jobs,
@@ -40,8 +44,12 @@ second line of each header says why: a nil in a spec body fails the next asserti
 `assert.*` and the stubbed `vim.*` fields are not in the language server's annotations. A test double that
 replaces a `vim.*` function (or a plugin function such as `exporter.run`) carries a
 `---@diagnostic disable-next-line: duplicate-set-field` with a one-line reason above it.
-A case that cannot run on the current platform calls `pending("reason")` instead of returning early, so the
-run reports it as skipped rather than as passed.
+A case that depends on the platform is **registered only where it can run** (`if vim.fn.has("linux") == 1 then
+it(...) end`), and its platform-independent part is a pure function that is tested everywhere (the
+`/proc/<pid>/stat` line parser, for instance). The runner never counts a skipped case as green, and a case
+that returns early passes without checking anything, so neither `pending()` nor an early `return` is used for
+that. `pending("reason")` is left for what only the run can find out (a volume without 8.3 names, no
+privilege for a symlink, a `lib.nvim` that is too old for one check) and is reported as skipped.
 
 ## What the specs cannot do — and what covers it
 

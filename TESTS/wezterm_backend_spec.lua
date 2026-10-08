@@ -115,6 +115,37 @@ describe("terminal.backends.wezterm", function()
       assert.equals(0, registry:count())
     end)
 
+    it(
+      "preflight refuses an unknown layout without asking wezterm, so pin can ask first",
+      function()
+        -- `pin` ends the native terminal only after preflight said yes: a layout that spawn would
+        -- refuse has to be found out here, with no side effect.
+        for _, bad in ipairs({ "diagonal", "", "Float", "horizontal" }) do
+          local ok, why = backend.preflight(spec({ layout = bad }))
+          assert.is_false(ok, bad)
+          assert.is_string(why, bad)
+          assert.truthy(tostring(why):find("unknown layout", 1, true), bad)
+          assert.truthy(tostring(why):find(bad, 1, true), bad)
+        end
+        local no_layout = spec()
+        no_layout.layout = nil
+        local ok, why = backend.preflight(no_layout)
+        assert.is_false(ok)
+        assert.is_string(why)
+        assert.truthy(tostring(why):find("unknown layout", 1, true))
+        for _, good in ipairs({ "float", "split", "vsplit", "tab" }) do
+          assert.same({ true }, { backend.preflight(spec({ layout = good })) }, good)
+        end
+        assert.same({}, state.calls, "preflight never starts a wezterm process")
+        assert.equals(0, registry:count())
+        -- spawn answers with the same refusal, and still starts nothing.
+        local h, err = backend.spawn(spec({ layout = "diagonal" }))
+        assert.is_nil(h)
+        assert.equals("unknown layout 'diagonal'", err)
+        assert.same({}, state.calls)
+      end
+    )
+
     it("says so when it cannot give the focus back to Neovim's pane", function()
       local messages = {}
       local original = vim.notify
@@ -250,6 +281,57 @@ describe("terminal.backends.wezterm", function()
       end
       state.raw_list = "this is not json"
       assert.is_nil((backend.probe(h)))
+    end)
+
+    it("an answer that is no list of panes is 'unknown', not 'no panes'", function()
+      -- A foreign API answering with an error object or a list of something else says nothing
+      -- about the pane: reading it as "WezTerm has no panes" would declare every live pane gone
+      -- (and open() would start a second one next to it).
+      for _, raw in ipairs({
+        '{"error":"x"}',
+        '{"a":1}',
+        "[1]",
+        "[[1]]",
+        "[null]",
+        "[true]",
+        '["x"]',
+        "[[]]",
+        "[{}]",
+        '[{"pane_id":null}]',
+      }) do
+        registry = registry_mod.new()
+        local runner
+        runner, state = fake()
+        backend = wezterm.new(registry, runner, "7")
+        local h = assert(backend.spawn(spec()))
+        state.raw_list = raw
+        assert.is_nil((backend.probe(h)), raw)
+        assert.is_nil(backend.visible(h), raw)
+        assert.is_false((backend.ping()), raw)
+        assert.same({ h }, backend.list(), raw)
+        assert.equals(h, registry:get(h.id), raw .. ": the handle stays registered")
+      end
+    end)
+
+    it("an empty answer ([] or {}) still means 'no panes': the pane is gone", function()
+      for _, raw in ipairs({ "[]", "{}" }) do
+        registry = registry_mod.new()
+        local runner
+        runner, state = fake()
+        backend = wezterm.new(registry, runner, "7")
+        local h = assert(backend.spawn(spec()))
+        state.raw_list = raw
+        assert.same({ visible = false, focused = false }, backend.probe(h), raw)
+        assert.is_true((backend.ping()), raw)
+        assert.same({}, backend.list(), raw)
+        assert.is_nil(registry:get(h.id), raw .. ": list() forgot the handle")
+      end
+    end)
+
+    it("an object among other things in the list is still found", function()
+      local h = backend.spawn(spec())
+      state.raw_list = '[1,null,{"pane_id":' .. h.pane .. ',"is_active":true,"tab_id":1},"x"]'
+      assert.same({ visible = true, focused = true }, backend.probe(h))
     end)
 
     it("probe answers visible and focused with ONE list for a pane in Neovim's tab", function()
@@ -545,6 +627,25 @@ describe("terminal facade with the wezterm backend", function()
     end
     assert.equals(1, count("split-pane"))
     assert.equals(0, count("kill-pane"))
+  end)
+
+  it("an answer of an unexpected shape does not replace a live pane either", function()
+    for _, raw in ipairs({ '{"error":"unexpected shape"}', "[1]", "[[1]]", "[null]" }) do
+      local first = terminal.open()
+      state.raw_list = raw
+      terminal.toggle()
+      local again = terminal.open()
+      state.raw_list = nil
+      assert.is_not_nil(state.panes[first.pane], raw)
+      assert.equals(first, again, raw)
+      assert.equals(1, #terminal.list(), raw)
+      local splits = vim.tbl_filter(function(c)
+        return c.argv[1] == "split-pane"
+      end, state.calls)
+      assert.equals(1, #splits, raw .. ": one pane, not a second one next to it")
+      terminal.close()
+      state.calls = {}
+    end
   end)
 
   it(

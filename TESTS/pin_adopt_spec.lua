@@ -268,6 +268,25 @@ describe("terminal pin / adopt", function()
       assert.equals(1, #terminal.list(), "the native terminal is untouched")
     end)
 
+    it("refuses a layout the multiplexer would refuse BEFORE the native terminal ends", function()
+      boot(true)
+      local native = terminal.open({ name = "work" })
+      local bufnr, job = native.bufnr, native.job
+      jobs.settle()
+      for _, bad in ipairs({ "bogus", "", "Float" }) do
+        local ok, err = terminal.pin({ name = "work" }, { layout = bad })
+        assert.is_false(ok)
+        assert.truthy(err:find("unknown layout", 1, true), bad)
+      end
+      -- nothing was touched: the same buffer, the same running job, the same handle
+      assert.is_true(vim.api.nvim_buf_is_valid(bufnr))
+      assert.equals(-1, vim.fn.jobwait({ job }, 0)[1])
+      assert.equals(native, terminal.list()[1])
+      for _, c in ipairs(state.calls) do
+        assert.not_equals("split-pane", c.argv[1], "no pane was started")
+      end
+    end)
+
     it("says why when there is no multiplexer", function()
       boot(false)
       terminal.open({ name = "work" })
@@ -276,6 +295,28 @@ describe("terminal pin / adopt", function()
       assert.truthy(err:find("multiplexer", 1, true))
       assert.equals(1, #terminal.list(), "the native terminal is untouched")
     end)
+
+    -- needs a Neovim with 'winfixbuf' (0.10+); not registered on an older one
+    if vim.fn.exists("&winfixbuf") == 1 then
+      it("a native terminal whose window will not close is not replaced by a pane", function()
+        boot(true)
+        local native = terminal.open({ name = "work", layout = "tab" })
+        vim.cmd("1tabclose") -- the terminal is alone in the only window now
+        jobs.settle()
+        local win = vim.fn.win_findbuf(native.bufnr)[1]
+        vim.wo[win].winfixbuf = true
+        local called, ok, err = pcall(terminal.pin, { name = "work" })
+        vim.wo[win].winfixbuf = false
+        assert.is_true(called, tostring(ok))
+        assert.is_false(ok)
+        assert.truthy(tostring(err):find("cannot end the native terminal", 1, true), tostring(err))
+        assert.equals(native, terminal.list()[1], "the native terminal is still the registered one")
+        for _, c in ipairs(state.calls) do
+          assert.not_equals("split-pane", c.argv[1], "no pane was started")
+          assert.not_equals("spawn", c.argv[1], "no tab was started")
+        end
+      end)
+    end
 
     it("refuses a missing terminal and one that is pinned already", function()
       boot(true)
@@ -353,6 +394,32 @@ describe("terminal pin / adopt", function()
       assert.equals(1, deepest, "two captures ran at the same time")
       assert.equals(1, captures, "the view kept refreshing a pane that is gone")
       assert.equals("", vim.v.errmsg)
+    end)
+
+    it("no room for the view's window: nil, err, and no buffer or timer left behind", function()
+      boot(true)
+      terminal.open({ name = "work" })
+      jobs.settle()
+      terminal.pin({ name = "work" })
+      local views_before = #vim.tbl_filter(function(b)
+        return vim.api.nvim_buf_get_name(b):find("terminal://", 1, true) ~= nil
+      end, vim.api.nvim_list_bufs())
+      -- split until Neovim says "E36: Not enough room"
+      local splits = 0
+      while splits < 300 and pcall(function()
+        vim.cmd("split")
+      end) do
+        splits = splits + 1
+      end
+      local ok, buf, err = pcall(terminal.adopt, { name = "work" })
+      vim.cmd("silent! only")
+      assert.is_true(ok, tostring(buf))
+      assert.is_nil(buf)
+      assert.truthy(tostring(err):find("cannot open a window", 1, true), tostring(err))
+      local views_after = #vim.tbl_filter(function(b)
+        return vim.api.nvim_buf_get_name(b):find("terminal://", 1, true) ~= nil
+      end, vim.api.nvim_list_bufs())
+      assert.equals(views_before, views_after, "the half-made view buffer was deleted")
     end)
 
     it("refuses a native terminal: there is no pane to show", function()
