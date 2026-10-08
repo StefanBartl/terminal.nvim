@@ -117,20 +117,43 @@ local ok, err = pcall(function()
     "T6 'C-c Enter; kill-server'",
     "T7 a;b;",
   }
+  --- The pane's text once it contains `needle` (a plain string), or what it shows after 5 s. A pane
+  --- is read after it had time to print; a fixed pause is too short on a loaded machine.
+  ---@param pane string
+  ---@param needle string
+  ---@return string
+  local function pane_text_with(pane, needle)
+    local text = ""
+    vim.wait(5000, function()
+      text = tmux("capture-pane", "-p", "-t", pane).stdout
+      return text:find(needle, 1, true) ~= nil
+    end, 50)
+    return text
+  end
+
+  --- The pane's text with its scrollback (the pane is only a few rows high), as a line -> count map.
+  local function cat_lines()
+    local cap = tmux("capture-pane", "-p", "-S", "-100", "-t", cat.pane).stdout
+    local counts = {}
+    for line in cap:gmatch("[^\n]+") do
+      local trimmed = line:gsub("%s+$", "")
+      counts[trimmed] = (counts[trimmed] or 0) + 1
+    end
+    return counts, cap
+  end
   for _, text in ipairs(samples) do
     -- The text on its own, the Enter in a second call: the argument tmux gets must END in the
     -- ';' (with the newline appended it would not, and the escape would go untested).
     backend.send(cat, text)
     backend.send(cat, "\n")
+    -- Wait for cat to answer before the next line is typed: the tty echoes what is typed at once,
+    -- so a slow `cat` (a loaded machine) would print its answer behind the NEXT typed line and
+    -- the capture would show the two glued together.
+    vim.wait(5000, function()
+      return (cat_lines()[text] or 0) >= 2
+    end, 50)
   end
-  vim.wait(800)
-  -- Scrollback included: the pane is only a few rows high.
-  local cap = tmux("capture-pane", "-p", "-S", "-100", "-t", cat.pane).stdout
-  local seen_lines = {}
-  for line in cap:gmatch("[^\n]+") do
-    local trimmed = line:gsub("%s+$", "")
-    seen_lines[trimmed] = (seen_lines[trimmed] or 0) + 1
-  end
+  local seen_lines, cap = cat_lines()
   for _, text in ipairs(samples) do
     -- both the echo and cat's own output: the typed line, byte for byte
     check("typed literally: " .. text, (seen_lines[text] or 0) == 2, cap)
@@ -159,8 +182,7 @@ local ok, err = pcall(function()
     focus = false,
   })
   check("a command with ';' words spawned", words ~= nil, words)
-  vim.wait(800)
-  local wcap = words and tmux("capture-pane", "-p", "-t", words.pane).stdout or ""
+  local wcap = words and pane_text_with(words.pane, "word;") or ""
   check("the ';' word arrived whole", wcap:find("word;", 1, true) ~= nil, wcap)
   check("no tmux command was started from it", run({ "test", "-e", pwned }).code ~= 0)
   if words then
@@ -208,8 +230,7 @@ local ok, err = pcall(function()
     focus = false,
   })
   check("a pane in a ';'-named directory spawned", odd ~= nil, odd)
-  vim.wait(800)
-  local odd_cap = odd and tmux("capture-pane", "-p", "-t", odd.pane).stdout or ""
+  local odd_cap = odd and pane_text_with(odd.pane, odd_dir) or ""
   check("it started in that directory", odd_cap:find(odd_dir, 1, true) ~= nil, odd_cap)
   if odd then
     backend.close(odd)
