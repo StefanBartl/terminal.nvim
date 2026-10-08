@@ -127,6 +127,20 @@ describe("terminal.core.context", function()
     assert.equals("3", context.name_for_count(3, "main"))
     assert.equals("3", context.name_for_count(3.9, "main"))
   end)
+
+  it("refuses a count that is no number from 0 up, with a reason", function()
+    for _, bad in ipairs({ "3", -1, 0 / 0, math.huge, {}, true }) do
+      local name, err = context.name_for_count(bad, "main")
+      assert.is_nil(name, vim.inspect(bad))
+      assert.truthy(err:find("count must be a number from 1 up", 1, true), vim.inspect(bad))
+    end
+  end)
+
+  it("canonicalizes the working directory and root the editor reports", function()
+    local cwd, root = context.resolve("cwd", deps("C:\\Work\\Repo\\", "", nil))
+    assert.equals(cwd, cwd:gsub("\\", "/"))
+    assert.equals(root, root:gsub("\\", "/"))
+  end)
 end)
 
 describe("terminal.backends", function()

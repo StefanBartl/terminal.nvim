@@ -193,6 +193,23 @@ describe("terminal bindings", function()
       assert.equals(0, #terminal.list())
     end)
 
+    it("hide and close of an unknown terminal tell the user why (the API only answers)", function()
+      terminal.setup({ shell = jobs.sleeper(), start_insert = false })
+      local msgs = {}
+      local original = vim.notify
+      vim.notify = function(msg)
+        msgs[#msgs + 1] = msg
+      end
+      vim.cmd("Terminal hide ghost")
+      vim.cmd("Terminal close ghost")
+      vim.notify = original
+      assert.equals(2, #msgs, vim.inspect(msgs))
+      for _, msg in ipairs(msgs) do
+        assert.truthy(msg:find("[terminal]", 1, true), msg)
+        assert.truthy(msg:find("no terminal 'ghost' in this project", 1, true), msg)
+      end
+    end)
+
     it("the bare command toggles the default terminal", function()
       terminal.setup({ shell = jobs.sleeper(), start_insert = false })
       vim.cmd("Terminal")

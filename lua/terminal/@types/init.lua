@@ -1,4 +1,5 @@
 ---@meta
+---@module 'terminal.@types'
 --- Shared types of terminal.nvim.
 
 ---@alias Terminal.Layout "float"|"split"|"vsplit"|"tab"
@@ -83,6 +84,51 @@
 ---@field keymaps Terminal.KeymapsConfig
 ---@field commands boolean
 
+--- Who a call is about: the project root plus a name identify a terminal.
+---@class Terminal.Target
+---@field name? string Terminal name; wins over `count`
+---@field count? integer `3` -> terminal "3"; 0/nil -> the default name
+---@field layout? Terminal.Layout Overrides the configured layout for this call
+---@field focus? boolean Take focus (default true)
+
+--- Options of `send`.
+---@class Terminal.SendOpts: Terminal.Target
+---@field newline? boolean Append a line ending (execute the line)
+
+--- Options of `run`.
+---@class Terminal.RunOpts: Terminal.Target
+---@field direct? boolean Start the command as the terminal's job itself (needs an argv list)
+---@field on_exit? fun(code: integer) With `direct`: called once with the exit code
+---@field cwd? string With `direct`: working directory of the job (default: the project's)
+---@field title? string With `direct`: window title of a float (default: the terminal's name)
+---@field float? table With `direct`: overrides of the `float` config for this window
+---@field close? "always"|"success"|"never" With `direct`: remove the terminal when the job ends (default "never")
+---@field start_insert? boolean With `direct`: enter terminal mode when it has focus (default true)
+---@field env? table<string, string> With `direct`: extra environment for the job
+---@field on_open? fun(handle: Terminal.Handle) With `direct`: called once the window and job exist (set buffer keymaps here)
+
+--- The facade's mutable state.
+---@class Terminal.State
+---@field ready boolean
+---@field registry Terminal.Registry
+---@field backends table<string, Terminal.Backend>
+---@field backend Terminal.Backend|nil
+---@field env table<string, string|nil> The environment `setup()` looked at
+---@field unavailable table<string, string> Multiplexer backends found unusable, with the reason
+---@field deps Terminal.ContextDeps
+
+--- The facade's internals, handed to the modules it delegates to (`pin`, `adopt`) so they need not
+--- require the facade back.
+---@class Terminal.Host
+---@field fail fun(err: string) Report a problem to the user
+---@field resolve fun(target: Terminal.Target|nil): string|nil, string, string On failure `nil, err`; else name, cwd, root
+---@field find_live fun(root: string, name: string): Terminal.Handle|nil
+---@field backend_of fun(handle: Terminal.Handle): Terminal.Backend
+---@field multiplexer fun(name: string): Terminal.Backend|nil, string|nil
+---@field backend fun(): Terminal.Backend
+---@field build_spec fun(name: string, cwd: string, root: string, extra?: Terminal.SpawnExtra): Terminal.SpawnSpec
+---@field state Terminal.State
+
 --- What a backend needs to start a terminal.
 ---@class Terminal.SpawnSpec
 ---@field name string
@@ -96,10 +142,49 @@
 ---@field start_insert boolean|nil Enter terminal mode (native backend) once it is up.
 ---@field focus boolean|nil `false`: the user stays where they were (default: the terminal takes focus).
 ---@field on_exit Terminal.ExitMode|nil
----@field on_exit_cb fun(code: integer)|nil Called once with the job's exit code.
+---@field on_exit_cb? fun(code: integer) Called once with the job's exit code.
 ---@field title string|nil Window title of a float (default: `name`).
 
+--- The extras `build_spec` takes on top of the configuration.
+---@class Terminal.SpawnExtra
+---@field layout? Terminal.Layout
+---@field start_insert? boolean
+---@field focus? boolean
+---@field on_exit_cb? fun(code: integer)
+
+--- Where a terminal is and whether it has focus, from one query to its backend.
+---@class Terminal.Probe
+---@field visible boolean
+---@field focused boolean
+
+--- What the facade already learned about a terminal (`toggle` probed it) and hands to `open`.
+---@class Terminal.OpenKnown
+---@field handle Terminal.Handle
+---@field where? Terminal.Probe nil = the backend could not be asked
+
+--- Name, directory and project root of one call, resolved once.
+---@class Terminal.Resolved
+---@field name string
+---@field cwd string
+---@field root string
+
+--- How a backend is asked to close a terminal.
+---@class Terminal.CloseOpts
+---@field gone? boolean The caller has just seen that the pane does not exist (multiplexer backends skip their CLI)
+
+--- Diagnostic counts per severity.
+---@class Terminal.DiagCounts
+---@field error? integer
+---@field warn? integer
+---@field info? integer
+---@field hint? integer
+
 --- One terminal as the registry and the backends see it.
+---
+--- A handle is a **live reference** into the registry: the facade (`terminal.list()`, `open()`,
+--- `run{direct}`, `pin()`) returns the very table the backends keep up to date. Read it, never
+--- write to it -- a caller that changes `exited`, `job` or `pane` corrupts the registry. (Config
+--- getters are the opposite: they return copies.)
 ---@class Terminal.Handle
 ---@field id string Unique, `<root>::<name>`.
 ---@field name string
@@ -117,19 +202,20 @@
 
 ---@class Terminal.Backend
 ---@field name string
----@field caps table<string, boolean> Optional abilities: `hide`, `show`, `status`.
+---@field caps table<string, boolean> Optional abilities: `hide`, `show` (read by the conformance suite; a place for a future backend to say what it cannot do).
 ---@field available fun(env: table<string, string|nil>): boolean, string|nil
 ---@field spawn fun(spec: Terminal.SpawnSpec): Terminal.Handle|nil, string|nil
 ---@field send fun(handle: Terminal.Handle, text: string): boolean, string|nil
 ---@field focus fun(handle: Terminal.Handle): boolean, string|nil
 ---@field list fun(): Terminal.Handle[]
----@field close fun(handle: Terminal.Handle, opts?: { gone?: boolean }): boolean, string|nil `gone`: the caller has just seen that the pane does not exist (multiplexer backends then skip the CLI)
+---@field close fun(handle: Terminal.Handle, opts?: Terminal.CloseOpts): boolean, string|nil
 ---@field ping? fun(): boolean, string|nil Whether the multiplexer answers right now (`pin` asks before it ends a terminal)
 ---@field preflight? fun(spec: Terminal.SpawnSpec): boolean, string|nil What the backend refuses to start, without side effects (multiplexer backends: `env`)
----@field set_status? fun(status: table): boolean, string|nil
 ---@field capture? fun(handle: Terminal.Handle): string|nil, string|nil Screen text (multiplexer panes only)
 ---@field visible? fun(handle: Terminal.Handle): boolean|nil nil = could not be asked (a multiplexer that did not answer); never "gone"
 ---@field focused? fun(handle: Terminal.Handle): boolean
----@field probe? fun(handle: Terminal.Handle): { visible: boolean, focused: boolean }|nil, string|nil Both in one query; nil = could not be asked
+---@field probe? fun(handle: Terminal.Handle): Terminal.Probe|nil, string|nil Both in one query; nil = could not be asked
 ---@field show? fun(handle: Terminal.Handle, spec: Terminal.SpawnSpec): boolean, string|nil
 ---@field hide? fun(handle: Terminal.Handle): boolean, string|nil
+
+return {}

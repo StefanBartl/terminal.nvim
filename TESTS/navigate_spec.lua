@@ -142,6 +142,27 @@ describe("terminal.navigate.go", function()
     assert.equals(1, #calls)
   end)
 
+  it("count 0 (no count typed) and nil both mean one window; junk raises", function()
+    setup("auto", { WEZTERM_PANE = "1" })
+    vim.cmd("vsplit")
+    vim.cmd("vsplit")
+    vim.cmd("wincmd b")
+    local start = vim.api.nvim_get_current_win()
+    assert.equals("moved", navigate.go("h", 0))
+    local one_left = vim.api.nvim_get_current_win()
+    assert.not_equals(start, one_left)
+    assert.not_equals(vim.api.nvim_list_wins()[1], one_left)
+    assert.equals("moved", navigate.go("l"))
+    assert.equals(start, vim.api.nvim_get_current_win())
+    for _, bad in ipairs({ "2", -1, 0 / 0, math.huge, {} }) do
+      local ok, err = pcall(navigate.go, "h", bad)
+      assert.is_false(ok, vim.inspect(bad))
+      assert.truthy(tostring(err):find("count must be a number from 0 up", 1, true))
+    end
+    -- a huge but finite count is capped, not an error: Neovim stops at the last window
+    assert.equals("moved", navigate.go("h", 1e30))
+  end)
+
   it("a count moves that many windows", function()
     setup("auto", { WEZTERM_PANE = "1" })
     vim.cmd("vsplit")

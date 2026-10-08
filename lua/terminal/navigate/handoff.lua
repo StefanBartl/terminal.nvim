@@ -69,7 +69,7 @@ function M.choose(handoff, env)
     return {}, {}
   end
   local names
-  if handoff == "auto" or handoff == true then
+  if handoff == "auto" then
     names = ORDER
   elseif type(handoff) == "string" then
     names = { handoff }
@@ -85,7 +85,7 @@ function M.choose(handoff, env)
       local ok, reason = h.available(env)
       if ok then
         chosen[#chosen + 1] = h
-      elseif handoff ~= "auto" and handoff ~= true then
+      elseif handoff ~= "auto" then
         notes[#notes + 1] = ("navigation hand-off '%s' is not usable: %s"):format(
           name,
           reason or "?"

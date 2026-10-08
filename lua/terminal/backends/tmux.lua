@@ -110,7 +110,7 @@ function M.new(registry, runner, own_pane, opts)
   ---@type Terminal.Backend
   local backend = {
     name = "tmux",
-    caps = { hide = true, show = false, status = true },
+    caps = { hide = true, show = false },
   }
 
   ---@internal

@@ -66,7 +66,7 @@ end
 ---@return string[] notes Why a named exporter was not usable
 function M.choose(export, env)
   local names
-  local auto = export == "auto" or export == true
+  local auto = export == "auto"
   if export == false then
     return {}, {}
   elseif auto then

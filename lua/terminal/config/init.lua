@@ -17,6 +17,11 @@ local M = {}
 ---@type Terminal.Config
 M.options = vim.deepcopy(DEFAULTS)
 
+--- What the last `setup()` found wrong with the options (so `:checkhealth` can show it after the
+--- notification is gone). Empty before `setup()` ran.
+---@type string[]
+M.problems = {}
+
 ---@internal
 --- Keys whose value must be one of a closed set. Dot-path -> allowed values.
 ---@type table<string, string[]>
@@ -49,6 +54,91 @@ local OPEN_TABLES = { env = true, keymaps = true }
 --- otherwise raise from `nvim_create_autocmd` in the middle of `setup()`.
 ---@type table<string, true>
 local EVENT_LISTS = { ["auto_insert.events"] = true }
+
+---@internal
+--- A real, finite number (NaN and infinity pass `type(v) == "number"`).
+---@param v any
+---@return boolean
+local function finite(v)
+  return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+---@internal
+---@param v number
+---@return boolean
+local function whole(v)
+  return v % 1 == 0
+end
+
+---@internal
+--- Keys whose value, once it has the right type, must also be in a range. A value that only
+--- passes the type check would be quietly replaced by a fallback deep inside the code that uses
+--- it (`layout.resolve_size`), so a typo in a size would never be reported.
+---@type table<string, { ok: (fun(v: any): boolean), want: string }>
+local DOMAINS = {
+  ["float.width"] = {
+    ok = function(v)
+      return finite(v) and v > 0
+    end,
+    want = "a number above 0 (a fraction up to 1, or a count of cells)",
+  },
+  ["float.height"] = {
+    ok = function(v)
+      return finite(v) and v > 0
+    end,
+    want = "a number above 0 (a fraction up to 1, or a count of cells)",
+  },
+  ["split.size"] = {
+    ok = function(v)
+      return finite(v) and v > 0
+    end,
+    want = "a number above 0 (a fraction up to 1, or a count of cells)",
+  },
+  ["float.winblend"] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 0 and v <= 100
+    end,
+    want = "a whole number from 0 to 100",
+  },
+  ["float.zindex"] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 1
+    end,
+    want = "a whole number from 1 up",
+  },
+  ["status.debounce_ms"] = {
+    ok = function(v)
+      return finite(v) and v >= 0
+    end,
+    want = "a number of milliseconds from 0 up",
+  },
+  ["status.max_bytes"] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 1
+    end,
+    want = "a whole number of bytes from 1 up",
+  },
+  ["default_name"] = {
+    ok = function(v)
+      return v ~= ""
+    end,
+    want = "a non-empty name",
+  },
+  ["run.name"] = {
+    ok = function(v)
+      return v ~= ""
+    end,
+    want = "a non-empty name",
+  },
+}
+for _, key in ipairs({ "enter_padding", "enter_margin", "leave_padding", "leave_margin" }) do
+  DOMAINS["kitty." .. key] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 0
+    end,
+    want = "a whole number of cells from 0 up",
+  }
+end
 
 ---@internal
 ---@param list string[]
@@ -117,7 +207,11 @@ function M.validate(schema, opts, prefix)
       end
     elseif OPEN_TABLES[path] then
       if type(v) == "table" or (path == "keymaps" and v == false) then
-        clean[k] = v
+        -- An empty table means "no overrides": merged over the defaults it would replace them
+        -- (see the section branch below).
+        if v == false or next(v) ~= nil then
+          clean[k] = v
+        end
       else
         problems[#problems + 1] = ("config key '%s' should be a table, got %s"):format(
           path,
@@ -138,7 +232,12 @@ function M.validate(schema, opts, prefix)
       if type(v) == "table" then
         local sub_problems, sub_clean = M.validate(default_v, v, path)
         vim.list_extend(problems, sub_problems)
-        clean[k] = sub_clean
+        -- A section whose every key was dropped (or that was empty) must not reach the merge:
+        -- `lib.lua.config.deep_merge` takes an empty table for an empty *list* and would replace
+        -- the whole default section with it.
+        if next(sub_clean) ~= nil then
+          clean[k] = sub_clean
+        end
       else
         problems[#problems + 1] = ("config key '%s' should be a table, got %s"):format(
           path,
@@ -146,7 +245,16 @@ function M.validate(schema, opts, prefix)
         )
       end
     elseif type(v) == type(default_v) then
-      clean[k] = v
+      local domain = DOMAINS[path]
+      if domain and not domain.ok(v) then
+        problems[#problems + 1] = ("config key '%s' must be %s, got %s"):format(
+          path,
+          domain.want,
+          vim.inspect(v)
+        )
+      else
+        clean[k] = v
+      end
     else
       problems[#problems + 1] = ("config key '%s' should be %s, got %s"):format(
         path,
@@ -176,6 +284,15 @@ function M.setup(opts)
 
   -- Offending keys were dropped by `validate`, so a typo keeps that key's default.
   M.options = vim.deepcopy(lib_config.deep_merge(DEFAULTS, merged_opts))
+  -- Liberal in, canonical out: `true` means "auto" for the two keys that choose among
+  -- environments, so nothing downstream has to know the spelling.
+  if M.options.status.export == true then
+    M.options.status.export = "auto"
+  end
+  if M.options.navigate.handoff == true then
+    M.options.navigate.handoff = "auto"
+  end
+  M.problems = problems
   if #problems > 0 then
     -- Deferred: `setup()` can run during plugin load, before notifying is safe.
     vim.schedule(function()

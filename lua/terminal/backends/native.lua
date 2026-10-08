@@ -102,7 +102,7 @@ function M.new(registry)
   ---@type Terminal.Backend
   local backend = {
     name = "native",
-    caps = { hide = true, show = true, status = false },
+    caps = { hide = true, show = true },
   }
 
   ---@internal

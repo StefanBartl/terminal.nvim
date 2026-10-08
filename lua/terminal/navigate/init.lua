@@ -71,15 +71,29 @@ function M.setup(cfg, env, run)
   runtime.run = run or spawn_detached
 end
 
+--- Most windows one `go` can move over. Neovim stops at the last window anyway; the cap only
+--- keeps the `%d` of the `wincmd` string inside integer range.
+local MAX_COUNT = 9999
+
 --- Move `count` windows in `dir`; at the edge, hand off to the multiplexer.
+---
+--- Raises on a direction that is not h, j, k or l, and on a count that is neither nil nor a number
+--- from 0 up (`vim.v.count` is 0 when no count was typed, which means 1): both are programmer
+--- errors, not something the user can cause by typing.
 ---@param dir Terminal.Direction
----@param count? integer Default 1
+---@param count? integer Windows to move (default 1; 0 also means 1)
 ---@return "moved"|"float"|"edge" outcome
 function M.go(dir, count)
   if not core.valid(dir) then
     error(("terminal.navigate: invalid direction %s"):format(vim.inspect(dir)), 2)
   end
-  count = (type(count) == "number" and count >= 1) and math.floor(count) or 1
+  if count ~= nil and not (type(count) == "number" and count >= 0 and count < math.huge) then
+    error(
+      ("terminal.navigate: count must be a number from 0 up, got %s"):format(vim.inspect(count)),
+      2
+    )
+  end
+  count = math.min(math.max(math.floor(count or 0), 1), MAX_COUNT)
 
   local before = vim.api.nvim_get_current_win()
   local was_float = vim.api.nvim_win_get_config(before).relative ~= ""

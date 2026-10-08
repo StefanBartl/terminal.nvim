@@ -11,19 +11,31 @@ local M = {}
 ---@field bufname fun(): string Name of the current buffer ("" when none)
 ---@field root fun(path: string): string|nil Project root for a path (nil = none found)
 
+--- The canonical spelling of a directory, so that one project has ONE registry key: the real path
+--- (8.3 short names and symlinks resolved), forward slashes, an upper-case drive letter.
+--- `getcwd()` keeps the spelling it was changed with while a file buffer's name arrives in the long
+--- form; without this a terminal toggled from a terminal buffer would not find itself again.
+---@param path string
+---@return string
+local function canonical(path)
+  local key = require("lib.nvim.fs.normkey")(path)
+  return key ~= "" and key or path
+end
+
 --- The deps backed by the running editor.
 ---@return Terminal.ContextDeps
 function M.from_editor()
   return {
     cwd = function()
-      return vim.fn.getcwd()
+      return canonical(vim.fn.getcwd())
     end,
     bufname = function()
       return vim.api.nvim_buf_get_name(0)
     end,
     root = function(path)
       local start = path ~= "" and path or vim.fn.getcwd()
-      return vim.fs.root(start, { ".git" })
+      local found = vim.fs.root(start, { ".git" })
+      return found and canonical(found) or nil
     end,
   }
 end
@@ -70,15 +82,24 @@ function M.resolve(mode, deps)
 end
 
 --- The name a terminal gets when the caller gave none: the configured default for no count,
---- the count itself otherwise (`3<A-h>` -> terminal "3").
+--- the count itself otherwise (`3<A-h>` -> terminal "3"). "No count" is `nil` or `0` (what
+--- `vim.v.count` is without one); anything else that is not a number from 1 up is a mistake of
+--- the caller and is reported, not read as "no count".
 ---@param count integer|nil
 ---@param default_name string
----@return string
+---@return string|nil name
+---@return string|nil err
 function M.name_for_count(count, default_name)
-  if type(count) == "number" and count > 0 then
-    return tostring(math.floor(count))
+  if count == nil or count == 0 then
+    return default_name, nil
   end
-  return default_name
+  if type(count) == "number" and count >= 1 and count < math.huge then
+    return tostring(math.floor(count)), nil
+  end
+  return nil,
+    ("count must be a number from 1 up (0 or nil: the default terminal), got %s"):format(
+      tostring(count)
+    )
 end
 
 return M

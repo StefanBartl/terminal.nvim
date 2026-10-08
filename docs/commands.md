@@ -79,8 +79,21 @@ terminal.status()        -- { ready, backend, terminals }
 terminal.navigate("h", 2)  -- window left x2; at the edge the multiplexer takes over
 ```
 
-Every function returns `nil, err` (or `false, err`) instead of raising, and reports the
-problem to the user.
+Every function returns `nil, err` (or `false, err`) instead of raising. Only a programmer error
+raises: `navigate` with a direction that is not `h`, `j`, `k` or `l`, or with a count that is not a
+number from 0 up.
+
+- `open`, `toggle`, `send`, `run`, `pin` and `adopt` also **show** the failure to the user.
+- `hide` and `close` only **answer**: `false, "no terminal 'build' in this project"` when there is
+  none, without a message, so a script can probe with them. The `:Terminal hide|close` command
+  shows the reason.
+- A target must be a table with a non-empty string `name`, a `layout` of `float`, `split`, `vsplit`
+  or `tab`, a boolean `focus` and a `count` that is a number from 0 up (0: the default terminal);
+  anything else fails with that reason and starts nothing.
+- The handles that come back (`open`, `list`, `run` with `direct`) are the registry's own records,
+  not copies: read them, do not write to them.
+- A throwing `on_open` or `on_exit` callback is reported (`run: on_exit failed: ...`) and does not
+  take the terminal with it.
 
 ## Running a TUI from another plugin
 

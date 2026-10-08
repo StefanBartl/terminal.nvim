@@ -68,7 +68,7 @@ function M.new(registry, runner, own_pane)
   ---@type Terminal.Backend
   local backend = {
     name = "wezterm",
-    caps = { hide = true, show = false, status = false },
+    caps = { hide = true, show = false },
   }
 
   ---@internal

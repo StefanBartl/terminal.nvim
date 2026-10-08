@@ -2,16 +2,25 @@
 
 ```
 lua/terminal/
-  init.lua            facade: setup, open, toggle, hide, close, list, send, run
+  init.lua            facade: setup, open, toggle, hide, close, list, send, run, navigate, status
+  pin.lua             pin: restart a native terminal as a multiplexer pane (gets the facade's `host`)
+  adopt.lua           adopt: a pane's screen in a read-only buffer (gets the facade's `host`)
+  notify.lua          the one notifier, prefix "[terminal]"
   config/             DEFAULTS.lua (single source of truth), validation + store
   core/               pure logic, no editor state
     layout.lua          window geometry (fractions / absolute cells)
-    quote.lua           shell quoting for POSIX, PowerShell, cmd.exe
+    quote.lua           shell quoting for POSIX, fish, PowerShell, cmd.exe
     registry.lua        the set of terminals (an instance, no module-level table)
     context.lua         project root + terminal name for a call
+    navigate.lua        direction and outcome of a window move
+    status.lua, osc.lua the status dataset and its terminal escape sequences
   backends/
     init.lua            detection ($TMUX, $WEZTERM_PANE) and resolution
     native.lua          Neovim :terminal in float / split / vsplit / tab
+    tmux.lua            panes of the tmux server around Neovim
+    wezterm.lua         panes of the WezTerm mux around Neovim
+  navigate/             window moves and the hand-off to the multiplexer at the edge
+  status/               status export to the terminal around Neovim (collector + exporters)
   bindings/             keymaps (named actions), autocommands, :Terminal
   health.lua            :checkhealth terminal
   @types/               class definitions
@@ -32,7 +41,8 @@ lua/terminal/
 ## Backends
 
 A backend is a table satisfying `Terminal.Backend`: `available`, `spawn`, `send`, `focus`,
-`list`, `close`, plus optional `visible`, `focused`, `show`, `hide`, `set_status`. The
+`list`, `close`, plus `probe` (visible + focused in one answer) and optional `visible`,
+`focused`, `show`, `hide`, `capture`, `preflight`, `ping`. The
 interface is documented in `lua/terminal/@types/init.lua`. `backends.resolve` picks one from
 the configured name and the environment; a backend that is not available falls back to
 `native` with a notice. A backend keeps its handles in the registry it is given; nothing is

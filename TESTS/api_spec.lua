@@ -440,6 +440,113 @@ describe("terminal (facade)", function()
     end)
   end)
 
+  describe("error contract", function()
+    local function said(fragment)
+      vim.wait(100, function()
+        return false
+      end)
+      for _, n in ipairs(notices) do
+        if n.msg:find(fragment, 1, true) then
+          return true
+        end
+      end
+      return false
+    end
+
+    it("a target of the wrong shape fails with a reason, reports it, creates nothing", function()
+      local bad = {
+        { "x", "target must be a table" },
+        { { name = "" }, "target.name must be a non-empty string" },
+        { { name = 3 }, "target.name must be a non-empty string" },
+        { { layout = "diagonal" }, "unknown layout" },
+        { { focus = "yes" }, "target.focus must be a boolean" },
+        { { count = "3" }, "count must be a number from 1 up" },
+        { { count = -2 }, "count must be a number from 1 up" },
+      }
+      for _, case in ipairs(bad) do
+        local handle, err = terminal.open(case[1])
+        assert.is_nil(handle, vim.inspect(case[1]))
+        assert.truthy(err:find(case[2], 1, true), vim.inspect(case[1]) .. ": " .. tostring(err))
+        local ok, terr = terminal.toggle(case[1])
+        assert.is_false(ok)
+        assert.equals(err, terr)
+        local hidden, herr = terminal.hide(case[1])
+        assert.is_false(hidden)
+        assert.equals(err, herr)
+        local closed, cerr = terminal.close(case[1])
+        assert.is_false(closed)
+        assert.equals(err, cerr)
+      end
+      assert.is_true(said("target must be a table"))
+      assert.equals(0, #terminal.list(true))
+    end)
+
+    it("hide and close of a terminal that does not exist say so without a notification", function()
+      local hidden, herr = terminal.hide({ name = "ghost" })
+      assert.is_false(hidden)
+      assert.equals("no terminal 'ghost' in this project", herr)
+      local closed, cerr = terminal.close({ name = "ghost" })
+      assert.is_false(closed)
+      assert.equals("no terminal 'ghost' in this project", cerr)
+      assert.is_false(said("ghost"), "the caller asked a question; it was answered")
+    end)
+
+    it("toggle returns true when it created, showed or hid the terminal", function()
+      assert.is_true((terminal.toggle()))
+      jobs.settle()
+      assert.is_true((terminal.toggle()))
+      jobs.settle()
+      assert.is_true((terminal.toggle()))
+    end)
+
+    it("send and run with options of the wrong type fail instead of raising", function()
+      local ok, err = terminal.send("x", "y")
+      assert.is_false(ok)
+      assert.truthy(err:find("opts must be a table", 1, true))
+      ok, err = terminal.run("x", 3)
+      assert.is_false(ok)
+      assert.truthy(err:find("opts must be a table", 1, true))
+      assert.equals(0, #terminal.list(true))
+    end)
+
+    it("run: close must be always, success or never", function()
+      local ok, err = terminal.run(jobs.sleeper(), { direct = true, close = "sometimes" })
+      assert.is_false(ok)
+      assert.truthy(err:find("close must be always, success or never", 1, true))
+      assert.equals(0, #terminal.list(true))
+    end)
+
+    it("a callback that raises is reported and does not take the terminal with it", function()
+      local code
+      local ok, _, handle = terminal.run(jobs.exit_with(0), {
+        direct = true,
+        name = "cb",
+        close = "never",
+        on_open = function()
+          error("open boom")
+        end,
+        on_exit = function(c)
+          code = c
+          error("exit boom")
+        end,
+      })
+      assert.is_true(ok)
+      assert.is_not_nil(handle)
+      assert.is_true(jobs.wait(function()
+        return code ~= nil
+      end))
+      assert.is_true(said("on_open failed"))
+      assert.is_true(said("on_exit failed"))
+      assert.equals(1, #terminal.list())
+    end)
+
+    it("returned handles are live references: the registry's own record", function()
+      local a = terminal.open()
+      local b = terminal.list()[1]
+      assert.equals(a, b)
+    end)
+  end)
+
   it("list(true) shows every project, list() only the current one", function()
     terminal.open({ name = "a", focus = false })
     assert.equals(1, #terminal.list())

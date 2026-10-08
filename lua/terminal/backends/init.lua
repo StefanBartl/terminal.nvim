@@ -1,11 +1,18 @@
 ---@module 'terminal.backends'
 --- Backend registry, environment detection and resolution.
 ---
---- A backend is a table that satisfies `Terminal.Backend`. `native` always exists; the
---- multiplexer backends register themselves when they are implemented. `detect` and `resolve`
---- are pure functions over an environment table, so they are testable without a real terminal.
+--- A backend is a table that satisfies `Terminal.Backend`. `native` always exists; the multiplexer
+--- backends are registered on demand by the facade (`terminal.init`), which holds the instances.
+--- This module knows their names and the order in which they are tried, and decides which one a
+--- configuration asks for: `detect` and `resolve` are pure functions over an environment table, so
+--- they are testable without a real terminal.
 
 local M = {}
+
+--- The multiplexer backends, in the order `pin` tries them when none is named (the innermost
+--- first: tmux inside WezTerm).
+---@type string[]
+M.MULTIPLEXERS = { "tmux", "wezterm" }
 
 ---@internal
 --- Variables that identify a multiplexer or terminal emulator, most specific first.
@@ -35,8 +42,8 @@ end
 ---
 --- `wanted` is the configured name. "auto" is `native`: terminals stay Neovim windows even inside
 --- WezTerm or tmux (status export to those is a separate, additive feature). A multiplexer
---- backend is used only when it is named; one that is not registered (not implemented yet, or
---- not available here) falls back to `native` and says why.
+--- backend is used only when it is named; one that is not registered (not available here) falls
+--- back to `native` and says why.
 ---@param wanted Terminal.BackendName
 ---@param _env table<string, string|nil> Unused: kept so a future "auto" can read it
 ---@param registered table<string, any> Set of registered backend names

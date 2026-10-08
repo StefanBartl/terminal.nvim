@@ -10,6 +10,8 @@
 ---   :Terminal send line|selection|file [name] [--exec]
 ---   :Terminal run [--name=] [--direct] <command...>
 
+local notify = require("terminal.notify")
+
 local M = {}
 
 local LAYOUTS = { "float", "split", "vsplit", "tab" }
@@ -88,11 +90,10 @@ local function send_route(what)
       local lines = lines_for(what, ctx)
       if #lines > 1 and ctx.flags.exec ~= true then
         -- Typing a line break into a shell presses Enter: every line but the last would run.
-        vim.notify(
-          ("[terminal] %d lines would be executed one by one: add --exec to run them, or send a single line"):format(
+        notify.warn(
+          ("%d lines would be executed one by one: add --exec to run them, or send a single line"):format(
             #lines
-          ),
-          vim.log.levels.WARN
+          )
         )
         return
       end
@@ -177,7 +178,10 @@ function M.setup()
         args = NAME_ARG,
         desc = "Hide a terminal's window; its job keeps running",
         run = function(ctx)
-          terminal.hide(target_of(ctx))
+          local ok, err = terminal.hide(target_of(ctx))
+          if not ok then
+            notify.warn(err or "cannot hide")
+          end
         end,
       },
       {
@@ -185,7 +189,10 @@ function M.setup()
         args = NAME_ARG,
         desc = "Stop a terminal's job and remove it",
         run = function(ctx)
-          terminal.close(target_of(ctx))
+          local ok, err = terminal.close(target_of(ctx))
+          if not ok then
+            notify.warn(err or "cannot close")
+          end
         end,
       },
       {
@@ -233,7 +240,7 @@ function M.setup()
         run = function()
           local items = terminal.list()
           if #items == 0 then
-            vim.notify("[terminal] no terminals in this project", vim.log.levels.INFO)
+            notify.info("no terminals in this project")
             return
           end
           vim.ui.select(items, {
@@ -270,7 +277,7 @@ function M.setup()
         run = function(ctx)
           local opts, command = M.parse_run(ctx.raw.fargs or {})
           if #command == 0 then
-            vim.notify("[terminal] run: no command given", vim.log.levels.WARN)
+            notify.warn("run: no command given")
             return
           end
           if opts.direct then

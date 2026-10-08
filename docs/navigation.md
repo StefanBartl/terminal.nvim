@@ -10,6 +10,10 @@ require("terminal").navigate("l")      -- right; hands off at Neovim's right edg
 require("terminal").navigate("h", 2)   -- two windows left
 ```
 
+`navigate` raises (a programmer error, not something a key press can cause) on a direction that is not
+`h`, `j`, `k` or `l`, and on a count that is not a number from 0 up; `0` (what `vim.v.count` is when
+no count was typed) and `nil` both mean one window.
+
 ## Rules
 
 - **Neovim first.** `wincmd` runs; only if the current window did not change is it the edge.
