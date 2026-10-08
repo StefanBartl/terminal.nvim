@@ -6,36 +6,78 @@
 local M = {}
 
 ---@internal
---- Branch per directory, kept for a moment: a status update can fire several times a second
---- (mode changes, buffer switches) and the answer almost never changes in that time. Reading
---- `.git/HEAD` was the whole cost of an update.
----@type table<string, { at: number, value: string|false }>
-local branch_cache = {}
-local BRANCH_TTL_MS = 2000
+--- Most directories (and repositories) remembered; a long session visits many.
+local MAX_REMEMBERED = 64
 
 ---@internal
---- Branch of the repository that contains `dir`: from gitsigns when it already knows, else by
---- reading `.git/HEAD` (one small file). A detached HEAD gives the short hash.
+--- Directory -> its repository's `.git/HEAD`. The root walk is the part of a lookup that costs
+--- something; the answer only changes when a repository appears or disappears, which the `HEAD`
+--- stat below notices.
+---@type table<string, string>
+local head_paths = {}
+
+---@class Terminal.HeadRead
+---@field sec integer mtime of the file when it was read
+---@field nsec integer
+---@field size integer
+---@field value string|false The branch, false when `HEAD` names none
+
+---@internal
+--- What was read from each `HEAD`, valid while the file's mtime and size stay the same. A status
+--- update can fire several times a second (mode changes, buffer switches); the stat is far
+--- cheaper than the read, and unlike a timer it never serves a branch from before a switch.
+---@type table<string, Terminal.HeadRead>
+local heads = {}
+
+---@internal
+--- The branch named by a `HEAD` file: `ref: refs/heads/<name>`, or the short hash when detached.
+---@param path string
+---@return string|false
+local function parse_head(path)
+  local f = io.open(path, "r")
+  if not f then
+    return false
+  end
+  local line = f:read("*l") or ""
+  f:close()
+  local ref = line:match("^ref:%s*refs/heads/(.+)$")
+  if ref then
+    return ref
+  end
+  return line:match("^%x%x%x%x%x%x%x") and line:sub(1, 7) or false
+end
+
+---@internal
+--- The `HEAD` file of the repository that contains `dir`, nil outside one. A worktree or
+--- submodule has a `.git` *file*, not a directory: its HEAD is not here, the branch is unknown.
+---@param dir string
+---@return string|nil
+local function head_path(dir)
+  local known = head_paths[dir]
+  if known then
+    return known
+  end
+  local root = vim.fs.root(dir ~= "" and dir or vim.fn.getcwd(), ".git")
+  if not root then
+    return nil
+  end
+  if vim.tbl_count(head_paths) >= MAX_REMEMBERED then
+    head_paths = {}
+    heads = {}
+  end
+  head_paths[dir] = root .. "/.git/HEAD"
+  return head_paths[dir]
+end
+
+---@internal
+--- Branch of the repository that contains `dir`: from gitsigns when the current buffer already has
+--- it, else from `.git/HEAD`.
+---
+--- The gitsigns variables belong to the *current buffer*, not to `dir`, so they are read before
+--- anything is cached -- a cache keyed by directory would hand one buffer's answer to another.
 ---@param dir string
 ---@return string|nil
 local function branch_of(dir)
-  local now = vim.uv.now()
-  local cached = branch_cache[dir]
-  if cached and now - cached.at < BRANCH_TTL_MS then
-    return cached.value or nil
-  end
-  local value = M.read_branch(dir)
-  if vim.tbl_count(branch_cache) > 64 then
-    branch_cache = {} -- bounded: a long session visits many directories
-  end
-  branch_cache[dir] = { at = now, value = value or false }
-  return value
-end
-
---- Uncached: the branch of the repository that contains `dir`.
----@param dir string
----@return string|nil
-function M.read_branch(dir)
   local head = vim.b.gitsigns_head
   if type(head) == "string" and head ~= "" then
     return head
@@ -44,21 +86,23 @@ function M.read_branch(dir)
   if type(dict) == "table" and type(dict.head) == "string" and dict.head ~= "" then
     return dict.head
   end
-  local root = vim.fs.root(dir ~= "" and dir or vim.fn.getcwd(), ".git")
-  if not root then
+  local path = head_path(dir)
+  if not path then
     return nil
   end
-  local f = io.open(root .. "/.git/HEAD", "r")
-  if not f then
-    return nil -- a worktree/submodule has a `.git` file, not a directory: unknown here
+  local st = vim.uv.fs_stat(path)
+  if not st then
+    head_paths[dir] = nil -- the repository is gone, or `.git` is a file (worktree)
+    heads[path] = nil
+    return nil
   end
-  local line = f:read("*l") or ""
-  f:close()
-  local ref = line:match("^ref:%s*refs/heads/(.+)$")
-  if ref then
-    return ref
+  local read = heads[path]
+  if read and read.sec == st.mtime.sec and read.nsec == st.mtime.nsec and read.size == st.size then
+    return read.value or nil
   end
-  return line:match("^%x%x%x%x%x%x%x") and line:sub(1, 7) or nil
+  local value = parse_head(path)
+  heads[path] = { sec = st.mtime.sec, nsec = st.mtime.nsec, size = st.size, value = value }
+  return value or nil
 end
 
 ---@internal

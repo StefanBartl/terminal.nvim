@@ -21,9 +21,9 @@ function M.setup()
     local ok, err = pcall(part[2], cfg)
     if not ok then
       vim.schedule(function()
-        require("lib.nvim.notify")
-          .create("[terminal]")
-          .error(("%s could not be set up: %s"):format(part[1], tostring(err)))
+        require("terminal.notify").error(
+          ("%s could not be set up: %s"):format(part[1], tostring(err))
+        )
       end)
     end
   end

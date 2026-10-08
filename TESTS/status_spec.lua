@@ -146,9 +146,9 @@ describe("terminal.core.status", function()
     assert.equals(99999, s.h)
   end)
 
-  it("equal compares values", function()
-    assert.is_true(status.equal(status.build(snap()), status.build(snap())))
-    assert.is_false(status.equal(status.build(snap()), status.build(snap({ mode = "i" }))))
+  it("the same snapshot builds the same dataset, another mode a different one", function()
+    assert.same(status.build(snap()), status.build(snap()))
+    assert.not_same(status.build(snap()), status.build(snap({ mode = "i" })))
   end)
 
   it("encode returns compact JSON that round-trips", function()
@@ -220,6 +220,31 @@ describe("terminal.status (publishing)", function()
         return e.name
       end, chosen)
     )
+  end)
+
+  it("choose: auto outside tmux and WezTerm loads no exporter and no tmux backend", function()
+    for _, mod in ipairs({
+      "terminal.status.exporters.tmux",
+      "terminal.status.exporters.wezterm",
+      "terminal.backends.tmux",
+      "terminal.core.osc",
+    }) do
+      package.loaded[mod] = nil
+    end
+    assert.same({}, (publisher.choose("auto", {})))
+    for _, mod in ipairs({
+      "terminal.status.exporters.tmux",
+      "terminal.status.exporters.wezterm",
+      "terminal.backends.tmux",
+      "terminal.core.osc",
+    }) do
+      assert.is_nil(package.loaded[mod], mod .. " was loaded for nothing")
+    end
+    -- inside WezTerm only that exporter's module is loaded
+    publisher.choose("auto", { WEZTERM_PANE = "3" })
+    assert.is_not_nil(package.loaded["terminal.status.exporters.wezterm"])
+    assert.is_nil(package.loaded["terminal.status.exporters.tmux"])
+    assert.is_nil(package.loaded["terminal.backends.tmux"])
   end)
 
   it("choose: false means none; an unknown or unusable name is reported", function()
@@ -411,6 +436,23 @@ describe("terminal.status (publishing)", function()
       publisher.publish_now()
       publisher.clear()
       assert.equals(1, failing.cleared)
+    end)
+
+    it("a clear that reports failure is not dropped silently", function()
+      failing.clear = function()
+        return false, "nope"
+      end
+      publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+      local messages = {}
+      local original = vim.notify
+      vim.notify = function(msg)
+        messages[#messages + 1] = msg
+      end
+      publisher.clear()
+      vim.wait(100)
+      vim.notify = original
+      assert.equals(1, #messages, vim.inspect(messages))
+      assert.truthy(messages[1]:find("could not clear: nope", 1, true))
     end)
   end)
 

@@ -42,6 +42,26 @@ function M.default_runner(argv, opts)
   return { code = res.code, stdout = res.stdout or "", stderr = res.stderr or "" }
 end
 
+---@internal
+--- The objects in the JSON list a `wezterm cli` command printed. That output is a foreign API's
+--- answer: whatever is not an object (a number, a JSON null) is dropped, and a null inside an
+--- object is an absent field -- never `vim.NIL`, which is truthy and not equal to nil.
+---@param stdout string
+---@return table[]|nil objects nil when the text is not JSON or not a list
+local function decode_objects(stdout)
+  local ok, data = pcall(vim.json.decode, stdout, { luanil = { object = true } })
+  if not ok or type(data) ~= "table" then
+    return nil
+  end
+  local objects = {}
+  for _, entry in ipairs(data) do
+    if type(entry) == "table" then
+      objects[#objects + 1] = entry
+    end
+  end
+  return objects
+end
+
 --- Whether `wezterm cli` can be used from here.
 ---@param env table<string, string|nil>
 ---@return boolean ok
@@ -68,7 +88,6 @@ function M.new(registry, runner, own_pane)
   ---@type Terminal.Backend
   local backend = {
     name = "wezterm",
-    caps = { hide = true, show = false },
   }
 
   ---@internal
@@ -101,13 +120,15 @@ function M.new(registry, runner, own_pane)
     if not res then
       return nil, err
     end
-    local ok, data = pcall(vim.json.decode, res.stdout)
-    if not ok or type(data) ~= "table" then
+    local data = decode_objects(res.stdout)
+    if not data then
       return nil, "wezterm cli list returned something that is not JSON"
     end
     local by_id = {}
     for _, p in ipairs(data) do
-      by_id[tostring(p.pane_id)] = p
+      if p.pane_id ~= nil then
+        by_id[tostring(p.pane_id)] = p
+      end
     end
     return by_id, nil
   end
@@ -144,6 +165,9 @@ function M.new(registry, runner, own_pane)
     local ok, refused = backend.preflight(spec)
     if not ok then
       return nil, refused
+    end
+    if not vim.list_contains(require("terminal.backends").LAYOUTS, spec.layout) then
+      return nil, ("unknown layout '%s'"):format(tostring(spec.layout))
     end
     local args
     if spec.layout == "tab" then
@@ -199,7 +223,17 @@ function M.new(registry, runner, own_pane)
     registry:add(handle)
     -- A new pane takes focus; without focus the caller wants to stay where it was.
     if spec.focus == false and own_pane ~= "" then
-      cli({ "activate-pane", "--pane-id", own_pane })
+      local back, berr = cli({ "activate-pane", "--pane-id", own_pane })
+      if not back then
+        vim.schedule(function()
+          require("terminal.notify").warn(
+            ("terminal '%s': could not give focus back to Neovim's pane: %s"):format(
+              spec.name,
+              berr or "?"
+            )
+          )
+        end)
+      end
     end
     return handle, nil
   end
@@ -224,12 +258,9 @@ function M.new(registry, runner, own_pane)
     if not res then
       return nil
     end
-    local ok, data = pcall(vim.json.decode, res.stdout)
-    if not ok or type(data) ~= "table" then
-      return nil
-    end
-    for _, client in ipairs(data) do
-      if client.focused_pane_id ~= nil then
+    for _, client in ipairs(decode_objects(res.stdout) or {}) do
+      -- A client without a focused pane reports null: the next client may have one.
+      if type(client.focused_pane_id) == "number" then
         return tostring(client.focused_pane_id)
       end
     end

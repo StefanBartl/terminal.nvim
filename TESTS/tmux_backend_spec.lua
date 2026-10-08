@@ -87,6 +87,17 @@ describe("terminal.backends.tmux", function()
       assert.equals("new-window", state.calls[#state.calls][1])
     end)
 
+    it("refuses a layout it does not know instead of guessing a right split", function()
+      local before = #state.calls
+      for _, bad in ipairs({ "diagonal", "", "Float" }) do
+        local h, err = backend.spawn(spec({ layout = bad }))
+        assert.is_nil(h, bad)
+        assert.truthy(err:find("unknown layout", 1, true), bad)
+      end
+      assert.equals(before, #state.calls, "tmux was not asked")
+      assert.equals(0, registry:count())
+    end)
+
     it("without focus the new pane is created detached (-d)", function()
       backend.spawn(spec({ focus = false }))
       assert.truthy(vim.tbl_contains(calls()[1], "-d"))

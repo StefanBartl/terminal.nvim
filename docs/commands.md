@@ -13,12 +13,17 @@ One compound command, `:Terminal <action> [args] [flags]`, with `<Tab>` completi
 | `:Terminal adopt [name]` | Show a tmux/WezTerm terminal's screen in a read-only buffer. |
 | `:Terminal list` | Pick one of this project's terminals (`vim.ui.select`). |
 | `:Terminal send line [name] [--exec]` | Type the current line. |
-| `:'<,'>Terminal send selection [name] [--exec]` | Type the selected lines. |
+| `:'<,'>Terminal send selection [name] [--exec]` | Type the selection (see below). |
 | `:Terminal send file [name] [--exec]` | Type the whole buffer. |
 | `:Terminal run [--name=] [--layout=] [--direct] <command...>` | Run a command (see below). |
 
 `name` defaults to the configured `default_name` (`main`); `3` is the terminal "3" that
 `3<A-h>` uses. `--layout=` is `float`, `split`, `vsplit` or `tab`.
+
+`<Tab>` completes `name` from the terminals that are open in this project, read when you press the
+key. `hide`, `close`, `pin` and `adopt` offer only those; `toggle`, `open`, `send` and `--name=`
+also offer `default_name`, `run.name` and the counts 1 to 9, and accept any other name (a name that
+is not open is reported by the command).
 
 ## Pin and adopt
 
@@ -35,6 +40,14 @@ then on `toggle`, `send`, `close` act on the pane. The backend is tmux inside tm
 `adopt` shows a pane's screen (`wezterm cli get-text` / `tmux capture-pane -p`) in a read-only
 buffer named `terminal://<backend>/<pane>/<name>`. It is a *view*: it refreshes once a second
 while visible and says so when the pane is gone. Control characters in the text are replaced.
+
+## What `send selection` sends
+
+The selection is what you selected: a **characterwise** selection (`v`) sends exactly those
+characters, a **blockwise** one (`CTRL-V`) the block (one line per row), a **linewise** one (`V`) or a
+plain range (`:2,3Terminal send selection`) whole lines. A selection that spans several lines needs
+`--exec` (see below). The command only trusts the Visual marks when they describe the very range it
+was given, so a plain range after an older selection sends whole lines.
 
 ## Typing versus executing
 
@@ -73,6 +86,7 @@ terminal.toggle({ name = "build", layout = "vsplit" })
 terminal.open({ count = 3, focus = false })
 terminal.hide(); terminal.close({ name = "build" })
 terminal.list()          -- this project's terminals; list(true) for all
+terminal.names()         -- their names, straight from the registry (no multiplexer is asked)
 terminal.send("ls", { newline = true, name = "repl" })
 terminal.run({ "git", "status" })
 terminal.status()        -- { ready, backend, terminals }

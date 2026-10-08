@@ -11,28 +11,62 @@ local registry_mod = require("terminal.core.registry")
 local api = vim.api
 local fn = vim.fn
 
+--- How long `close` waits for a stopped job to end: a shell reacts to the signal in milliseconds,
+--- one that does not within a second is stuck.
+local JOB_STOP_WAIT_MS = 1000
+
 local M = {}
 
 ---@internal
---- Close one window without ever closing the last window of the editor.
+--- The buffer a window shows after its terminal is gone: the one `:bdelete` would show -- the
+--- alternate buffer, else the most recently used listed one -- and a fresh empty buffer only when
+--- the editor has no other.
+---@param exclude integer The terminal buffer that is going away
+---@return integer bufnr
+local function replacement(exclude)
+  local function usable(b)
+    return b > 0 and b ~= exclude and api.nvim_buf_is_valid(b) and vim.bo[b].buflisted
+  end
+  local alt = fn.bufnr("#")
+  if usable(alt) then
+    return alt
+  end
+  local listed = fn.getbufinfo({ buflisted = 1 })
+  table.sort(listed, function(a, b)
+    return a.lastused > b.lastused
+  end)
+  for _, info in ipairs(listed) do
+    if usable(info.bufnr) then
+      return info.bufnr
+    end
+  end
+  return api.nvim_create_buf(true, false)
+end
+
+---@internal
+--- Close one window without ever closing the last window of the editor. Floating windows are not
+--- "windows left to look at": with the terminal in the only normal window and a float open,
+--- closing it would raise E444, so that case shows another buffer instead.
 ---@param win integer
+---@param bufnr integer The terminal buffer the window shows (it is not a valid replacement)
 ---@return nil
-local function close_window(win)
+local function close_window(win, bufnr)
   if not api.nvim_win_is_valid(win) then
     return
   end
-  local config = api.nvim_win_get_config(win)
-  if config.relative ~= "" then
-    api.nvim_win_close(win, true)
+  if api.nvim_win_get_config(win).relative ~= "" then
+    pcall(api.nvim_win_close, win, true)
     return
   end
   local tab = api.nvim_win_get_tabpage(win)
-  if #api.nvim_tabpage_list_wins(tab) > 1 or #api.nvim_list_tabpages() > 1 then
-    api.nvim_win_close(win, true)
+  local normal = vim.tbl_filter(function(w)
+    return api.nvim_win_get_config(w).relative == ""
+  end, api.nvim_tabpage_list_wins(tab))
+  if #normal > 1 or #api.nvim_list_tabpages() > 1 then
+    pcall(api.nvim_win_close, win, true)
     return
   end
-  -- The only window of the only tab: show an empty buffer instead of quitting the editor.
-  api.nvim_win_set_buf(win, api.nvim_create_buf(true, false))
+  api.nvim_win_set_buf(win, replacement(bufnr))
 end
 
 ---@internal
@@ -102,7 +136,6 @@ function M.new(registry)
   ---@type Terminal.Backend
   local backend = {
     name = "native",
-    caps = { hide = true, show = true },
   }
 
   ---@internal
@@ -116,6 +149,20 @@ function M.new(registry)
     end
   end
 
+  -- When a terminal buffer goes away by any other route (`:bwipeout`, a plugin), forget its handle.
+  -- One autocommand for all terminals in a named group instead of one per buffer; a backend that
+  -- is created again (a second `setup()`) replaces the group instead of doubling the handler.
+  local Autocmd = require("lib.nvim.bindings.autocmd")
+  Autocmd.create("BufWipeout", function(args)
+    local h = registry:find_by_buf(args.buf)
+    if h and h.backend == "native" then
+      forget(h)
+    end
+  end, {
+    group = Autocmd.group("terminal.native", true),
+    desc = "terminal.nvim: forget a wiped terminal buffer",
+  })
+
   ---@internal
   --- Forget a terminal and remove its window(s) and buffer.
   ---@param handle Terminal.Handle
@@ -125,7 +172,7 @@ function M.new(registry)
     local bufnr = handle.bufnr
     if bufnr and api.nvim_buf_is_valid(bufnr) then
       for _, win in ipairs(fn.win_findbuf(bufnr)) do
-        close_window(win)
+        close_window(win, bufnr)
       end
       pcall(api.nvim_buf_delete, bufnr, { force = true })
     end
@@ -193,21 +240,11 @@ function M.new(registry)
     local ok, res = pcall(fn.jobstart, cmd, job_opts)
     local job = ok and res or -1
     if job <= 0 then
-      close_window(win)
+      close_window(win, bufnr)
       pcall(api.nvim_buf_delete, bufnr, { force = true })
       return nil, ("could not start '%s'"):format(type(cmd) == "table" and cmd[1] or cmd)
     end
     handle.job = job
-
-    -- When the buffer goes away by any other route (`:bwipeout`, a plugin), forget it.
-    api.nvim_create_autocmd("BufWipeout", {
-      buffer = bufnr,
-      once = true,
-      callback = function()
-        forget(handle)
-      end,
-      desc = "terminal.nvim: forget a wiped terminal buffer",
-    })
 
     registry:add(handle)
     if spec.start_insert then
@@ -295,7 +332,7 @@ function M.new(registry)
       return false, "the terminal buffer is gone"
     end
     for _, win in ipairs(fn.win_findbuf(handle.bufnr)) do
-      close_window(win)
+      close_window(win, handle.bufnr)
     end
     return true, nil
   end
@@ -323,7 +360,19 @@ function M.new(registry)
       pcall(fn.jobstop, handle.job)
       -- Let the job actually end before its buffer goes away: deleting the buffer of a job that
       -- is still shutting down crashed Neovim 0.12 on Windows (0xC0000005, headless, splits).
-      pcall(fn.jobwait, { handle.job }, 1000)
+      local ok, waited = pcall(fn.jobwait, { handle.job }, JOB_STOP_WAIT_MS)
+      if ok and waited[1] == -1 then
+        -- Still running after the wait: the terminal is removed anyway (the user asked for it),
+        -- but a job that survives its own `jobstop` is worth a line.
+        vim.schedule(function()
+          require("terminal.notify").warn(
+            ("terminal '%s': the job did not stop within %d ms"):format(
+              handle.name,
+              JOB_STOP_WAIT_MS
+            )
+          )
+        end)
+      end
     end
     dispose(handle)
     return true, nil

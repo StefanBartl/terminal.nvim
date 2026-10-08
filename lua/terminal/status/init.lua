@@ -33,21 +33,20 @@ local runtime =
   { exporters = {}, off = {}, last = {}, debounce = nil, max_bytes = 1024, oversize = false }
 
 ---@internal
----@type table<string, fun(): Terminal.StatusExporter>
+--- The exporters by name: the module that implements it, and the environment variable that says
+--- its terminal is there. "auto" looks at the variable first, so the module -- and everything it
+--- pulls in -- is loaded only where it can work (a Neovim in a plain terminal loads none).
+---@type table<string, { module: string, signal: string }>
 local EXPORTERS = {
-  tmux = function()
-    return (require("terminal.status.exporters.tmux"))
-  end,
-  wezterm = function()
-    return (require("terminal.status.exporters.wezterm"))
-  end,
+  tmux = { module = "terminal.status.exporters.tmux", signal = "TMUX" },
+  wezterm = { module = "terminal.status.exporters.wezterm", signal = "WEZTERM_PANE" },
 }
 
 ---@internal
 ---@param text string
 local function warn(text)
   vim.schedule(function()
-    require("lib.nvim.notify").create("[terminal]").warn(text)
+    require("terminal.notify").warn(text)
   end)
 end
 
@@ -84,11 +83,15 @@ function M.choose(export, env)
   end
   local chosen, notes = {}, {}
   for _, name in ipairs(names) do
-    local make = EXPORTERS[name]
-    if not make then
+    local known = EXPORTERS[name]
+    if not known then
       notes[#notes + 1] = ("status exporter '%s' does not exist"):format(name)
+    elseif auto and (asked[known.signal] == nil or asked[known.signal] == "") then
+      -- "auto" skips an exporter whose terminal is not there without loading it
+      goto continue
     else
-      local exporter = make()
+      ---@type Terminal.StatusExporter
+      local exporter = require(known.module)
       local ok, reason = exporter.available(asked)
       if ok then
         chosen[#chosen + 1] = exporter
@@ -96,6 +99,7 @@ function M.choose(export, env)
         notes[#notes + 1] = ("status exporter '%s' is not usable: %s"):format(name, reason or "?")
       end
     end
+    ::continue::
   end
   return chosen, notes
 end
@@ -143,7 +147,10 @@ function M.clear()
     runtime.debounce.cancel()
   end
   for _, exporter in ipairs(runtime.exporters) do
-    pcall(exporter.clear)
+    local ok, cleared, cerr = pcall(exporter.clear)
+    if not ok or cleared == false then
+      warn(("status exporter '%s' could not clear: %s"):format(exporter.name, cerr or cleared))
+    end
   end
   runtime.last = {}
 end

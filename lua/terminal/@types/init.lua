@@ -202,7 +202,6 @@
 
 ---@class Terminal.Backend
 ---@field name string
----@field caps table<string, boolean> Optional abilities: `hide`, `show` (read by the conformance suite; a place for a future backend to say what it cannot do).
 ---@field available fun(env: table<string, string|nil>): boolean, string|nil
 ---@field spawn fun(spec: Terminal.SpawnSpec): Terminal.Handle|nil, string|nil
 ---@field send fun(handle: Terminal.Handle, text: string): boolean, string|nil

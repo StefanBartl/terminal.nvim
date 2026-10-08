@@ -110,7 +110,6 @@ function M.new(registry, runner, own_pane, opts)
   ---@type Terminal.Backend
   local backend = {
     name = "tmux",
-    caps = { hide = true, show = false },
   }
 
   ---@internal
@@ -218,6 +217,9 @@ function M.new(registry, runner, own_pane, opts)
     local ok, refused = backend.preflight(spec)
     if not ok then
       return nil, refused
+    end
+    if not vim.list_contains(require("terminal.backends").LAYOUTS, spec.layout) then
+      return nil, ("unknown layout '%s'"):format(tostring(spec.layout))
     end
     local args
     if spec.layout == "tab" then

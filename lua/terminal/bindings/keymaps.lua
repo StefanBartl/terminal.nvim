@@ -15,15 +15,18 @@ local M = {}
 local LEAVE = "<C-\\><C-n>"
 
 ---@internal
---- Clear the shell screen without leaving terminal mode: `cls` on Windows, `clear` elsewhere.
+--- Clear the shell screen without leaving terminal mode: `cls` for cmd.exe and PowerShell,
+--- `clear` for everything else. It depends on the shell the terminal runs, not on the OS: Git
+--- Bash or WSL on Windows want `clear`.
 ---@return nil
 local function clear_screen()
   local job = vim.b.terminal_job_id
   if not job then
     return
   end
-  local env = require("lib.nvim.system.env").get()
-  vim.fn.chansend(job, { env.is_windows and "cls" or "clear", "" })
+  local kind =
+    require("terminal.core.quote").shell_kind(require("terminal.config").shell_executable())
+  vim.fn.chansend(job, { (kind == "cmd" or kind == "powershell") and "cls" or "clear", "" })
 end
 
 ---@internal

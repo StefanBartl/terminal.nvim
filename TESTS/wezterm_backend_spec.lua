@@ -104,6 +104,42 @@ describe("terminal.backends.wezterm", function()
       assert.same({}, state.calls)
     end)
 
+    it("refuses a layout it does not know instead of guessing a right split", function()
+      for _, bad in ipairs({ "diagonal", "", "Float" }) do
+        local h, err = backend.spawn(spec({ layout = bad }))
+        assert.is_nil(h, bad)
+        assert.truthy(err:find("unknown layout", 1, true), bad)
+      end
+      assert.same({}, state.calls)
+      assert.equals(0, registry:count())
+    end)
+
+    it("says so when it cannot give the focus back to Neovim's pane", function()
+      local messages = {}
+      local original = vim.notify
+      vim.notify = function(msg)
+        messages[#messages + 1] = msg
+      end
+      local calls = 0
+      local runner, rstate = fake()
+      local inner = runner
+      local flaky = wezterm.new(registry, function(argv, opts)
+        if argv[3] == "activate-pane" then
+          calls = calls + 1
+          return { code = 1, stdout = "", stderr = "pane gone" }
+        end
+        return inner(argv, opts)
+      end, "7")
+      local h = flaky.spawn(spec({ focus = false }))
+      vim.wait(100)
+      vim.notify = original
+      assert.is_not_nil(h)
+      assert.equals(1, calls)
+      assert.equals(1, #messages, vim.inspect(messages))
+      assert.truthy(messages[1]:find("could not give focus back", 1, true))
+      assert.truthy(rstate)
+    end)
+
     it("reports a failing wezterm cli with its stderr, registering nothing", function()
       local failing = wezterm.new(registry, function()
         return { code = 1, stdout = "", stderr = "no such domain" }
@@ -183,6 +219,32 @@ describe("terminal.backends.wezterm", function()
       assert.is_false(backend.focused(h))
       state.list_fails = false
       assert.is_true(backend.visible(h))
+    end)
+
+    it("a client without a focused pane (JSON null) does not hide the next client's", function()
+      local h = backend.spawn(spec({ layout = "tab" }))
+      backend.hide(h) -- focus is in Neovim's tab now
+      -- the first client has no focused pane (null), the second one has the terminal's focused
+      state.raw_clients = '[{"focused_pane_id":null},{"focused_pane_id":' .. h.pane .. "}]"
+      assert.is_true(backend.focused(h))
+      state.raw_clients = '[{"focused_pane_id":null}]'
+      assert.is_false(backend.focused(h))
+    end)
+
+    it("output that is a list of something else than objects never raises", function()
+      local h = backend.spawn(spec())
+      for _, raw in ipairs({ "[1]", "[null]", "[true]", '["x"]', "[[1]]", "{}", '{"a":1}', "[]" }) do
+        state.raw_list = raw
+        state.raw_clients = raw
+        local ok, err = pcall(backend.ping)
+        assert.is_true(ok, raw .. ": " .. tostring(err))
+        ok, err = pcall(backend.probe, h)
+        assert.is_true(ok, raw .. ": " .. tostring(err))
+        ok, err = pcall(backend.list)
+        assert.is_true(ok, raw .. ": " .. tostring(err))
+      end
+      state.raw_list = "this is not json"
+      assert.is_nil((backend.probe(h)))
     end)
 
     it("probe answers visible and focused with ONE list for a pane in Neovim's tab", function()

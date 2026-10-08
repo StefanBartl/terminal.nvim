@@ -14,31 +14,72 @@ local notify = require("terminal.notify")
 
 local M = {}
 
-local LAYOUTS = { "float", "split", "vsplit", "tab" }
+local LAYOUTS = require("terminal.backends").LAYOUTS
 
 ---@internal
---- The optional terminal-name argument; `desc` is the line the option float shows for it.
----@param desc string
----@return Lib.UserCmd.Composer.ArgSpec[]
-local function name_arg(desc)
-  return { { name = "name", type = "STRING", optional = true, desc = desc } }
+--- A terminal name that may be new (toggle, open, send): completion offers what exists plus the
+--- configured names and the counts, typing anything else stays possible.
+---@type Lib.UserCmd.Composer.ArgSpec[]
+local NAME_ARG = { { name = "name", type = "TERMINAL", optional = true } }
+
+---@internal
+--- A terminal name that has to exist (hide, close, pin, adopt): completion offers only what is
+--- open in this project. An unknown name is still accepted at the prompt, the command then says
+--- there is no such terminal.
+---@type Lib.UserCmd.Composer.ArgSpec[]
+local LIVE_NAME_ARG = { { name = "name", type = "TERMINAL_LIVE", optional = true } }
+
+---@internal
+--- Candidates that start with what is typed.
+---@param names string[]
+---@param lead string
+---@return string[]
+local function starting_with(names, lead)
+  return vim.tbl_filter(function(name)
+    return vim.startswith(name, lead)
+  end, names)
 end
 
 ---@internal
---- A name that may be new (toggle, open): the terminal is created when missing.
----@type Lib.UserCmd.Composer.ArgSpec[]
-local NAME_ARG = name_arg("Terminal name, created when missing (default: config default_name)")
-
----@internal
---- Where `send` types to: the `run.name` terminal unless named, created when missing.
----@type Lib.UserCmd.Composer.ArgSpec[]
-local SEND_NAME_ARG =
-  name_arg("Terminal to send to, created when missing (default: config run.name)")
-
----@internal
---- A terminal that has to exist (hide, close, pin, adopt); the command says when there is none.
----@type Lib.UserCmd.Composer.ArgSpec[]
-local LIVE_NAME_ARG = name_arg("Existing terminal of this project (default: config default_name)")
+--- Register the argument types for terminal names. Candidates are read when Tab is pressed, from
+--- the registry, so a terminal opened a moment ago completes.
+---@param composer table `lib.nvim.bindings.usercmd.composer`
+---@return nil
+local function register_name_types(composer)
+  local function accept(raw)
+    return true, raw, nil
+  end
+  composer.register_type("TERMINAL_LIVE", {
+    desc = "name of a terminal open in this project",
+    validate = accept,
+    complete = function(lead)
+      return starting_with(require("terminal").names(), lead)
+    end,
+  })
+  composer.register_type("TERMINAL", {
+    desc = "terminal name (new or existing); a number N is what <A-h> with count N uses",
+    validate = accept,
+    complete = function(lead)
+      local config = require("terminal.config")
+      local names = require("terminal").names()
+      for _, name in ipairs({ config.get("default_name"), config.get("run.name") }) do
+        names[#names + 1] = name
+      end
+      for count = 1, 9 do
+        names[#names + 1] = tostring(count)
+      end
+      -- each name once, the open ones first
+      local seen, out = {}, {}
+      for _, name in ipairs(names) do
+        if not seen[name] then
+          seen[name] = true
+          out[#out + 1] = name
+        end
+      end
+      return starting_with(out, lead)
+    end,
+  })
+end
 
 ---@internal
 --- What each layout looks like, for the option float (the native backend's windows; a
@@ -74,6 +115,28 @@ local function target_of(ctx)
 end
 
 ---@internal
+--- The text of a Visual selection that is exactly the range the command was given: the characters
+--- of a characterwise selection, the block of a blockwise one. nil when the range does not come
+--- from a characterwise / blockwise selection (a linewise one, `:2,3`, or a stale selection).
+---@param range Lib.UserCmd.Composer.RangeInfo
+---@return string[]|nil
+local function visual_text(range)
+  if range.mode ~= "v" and range.mode ~= "\22" then
+    return nil
+  end
+  local from, to = vim.fn.getpos("'<"), vim.fn.getpos("'>")
+  -- The marks outlive the selection: only trust them when they describe this very range.
+  if from[2] ~= range.line1 or to[2] ~= range.line2 then
+    return nil
+  end
+  local ok, lines = pcall(vim.fn.getregion, from, to, { type = range.mode })
+  if not ok or type(lines) ~= "table" or #lines == 0 then
+    return nil
+  end
+  return lines
+end
+
+---@internal
 --- The lines a `send` route acts on.
 ---@param what "line"|"selection"|"file"
 ---@param ctx Lib.UserCmd.Composer.Ctx
@@ -83,6 +146,10 @@ local function lines_for(what, ctx)
   if what == "file" then
     return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   elseif what == "selection" then
+    local text = visual_text(ctx.range)
+    if text then
+      return text
+    end
     local first, last = ctx.range.line1, ctx.range.line2
     return vim.api.nvim_buf_get_lines(buf, first - 1, last, false)
   end
@@ -96,7 +163,7 @@ local function send_route(what)
   return {
     path = { "send", what },
     range = what == "selection",
-    args = SEND_NAME_ARG,
+    args = NAME_ARG,
     flags = {
       {
         name = "exec",
@@ -165,6 +232,7 @@ end
 function M.setup()
   local composer = require("lib.nvim.bindings.usercmd.composer")
   local terminal = require("terminal")
+  register_name_types(composer)
 
   composer.verb("Terminal", {
     desc = "Named terminals: toggle, open, hide, close, list, send, run",
@@ -217,7 +285,7 @@ function M.setup()
       },
       {
         path = { "pin" },
-        args = name_arg("Native terminal to restart as a pane (default: config default_name)"),
+        args = LIVE_NAME_ARG,
         flags = {
           {
             name = "backend",
@@ -248,7 +316,7 @@ function M.setup()
       },
       {
         path = { "adopt" },
-        args = name_arg("Multiplexer terminal to view (default: config default_name)"),
+        args = LIVE_NAME_ARG,
         desc = "Show a tmux/WezTerm terminal's screen in a read-only buffer",
         run = function(ctx)
           terminal.adopt({ name = ctx.args.name })
@@ -283,7 +351,7 @@ function M.setup()
         flags = {
           {
             name = "name",
-            type = "STRING",
+            type = "TERMINAL",
             desc = "Name of the terminal to use (default: config run.name)",
           },
           {

@@ -222,7 +222,7 @@ function M.parse_wezterm_version(text)
 end
 
 --- The first WezTerm release these features were tested on (2024-02-03).
-M.WEZTERM_TESTED = 20240203
+local WEZTERM_TESTED = 20240203
 
 ---@internal
 ---@param argv string[]
@@ -265,13 +265,13 @@ function M.check_wezterm(health, env, cfg)
   end
   local version = run({ "wezterm", "--version" })
   local date = version and M.parse_wezterm_version(version)
-  if date and date >= M.WEZTERM_TESTED then
-    health.ok(("WezTerm %d (tested on %d)"):format(date, M.WEZTERM_TESTED))
+  if date and date >= WEZTERM_TESTED then
+    health.ok(("WezTerm %d (tested on %d)"):format(date, WEZTERM_TESTED))
   elseif date then
     report(
       health,
       relied.cli or relied.export,
-      ("WezTerm %d is older than the tested %d"):format(date, M.WEZTERM_TESTED),
+      ("WezTerm %d is older than the tested %d"):format(date, WEZTERM_TESTED),
       { "Update WezTerm; user variables and `wezterm cli` behave differently in older releases" }
     )
   else

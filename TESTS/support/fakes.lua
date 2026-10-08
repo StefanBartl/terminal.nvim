@@ -9,7 +9,7 @@ local M = {}
 --- pane in a tab nobody looks at is active too), and only `list-clients` says which pane has the
 --- user's focus (`state.active`). Activating a pane also brings its tab to the front.
 ---@return Terminal.WezTermRunner runner
----@return table state { calls, panes, active, tab_active, stdin }
+---@return table state { calls, panes, active, tab_active, stdin; `raw_list` / `raw_clients`: text to answer `list` / `list-clients` with instead of the model; `on_get_text`: called before `get-text` answers (to make a capture slow) }
 local function wezterm()
   local state = {
     calls = {},
@@ -33,18 +33,27 @@ local function wezterm()
       if state.list_fails then
         return { code = 124, stdout = "", stderr = "timed out" }
       end
+      if state.raw_list then
+        return { code = 0, stdout = state.raw_list, stderr = "" }
+      end
       local out = {}
       for id, p in pairs(state.panes) do
         out[#out + 1] = vim.tbl_extend("force", p, { is_active = state.tab_active[p.tab_id] == id })
       end
       return { code = 0, stdout = vim.json.encode(out), stderr = "" }
     elseif sub == "list-clients" then
+      if state.raw_clients then
+        return { code = 0, stdout = state.raw_clients, stderr = "" }
+      end
       return {
         code = 0,
         stdout = vim.json.encode({ { focused_pane_id = tonumber(state.active) } }),
         stderr = "",
       }
     elseif sub == "get-text" then
+      if state.on_get_text then
+        state.on_get_text()
+      end
       local id = argv[5]
       if not state.panes[id] then
         return { code = 1, stdout = "", stderr = "pane " .. id .. " not found" }

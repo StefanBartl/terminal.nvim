@@ -139,6 +139,66 @@ describe("terminal.backends.native", function()
       assert.is_true(backend.hide(h))
       assert.equals(1, #vim.api.nvim_list_wins())
     end)
+
+    describe("the terminal is the only normal window of the editor", function()
+      local file, file_buf, float
+
+      before_each(function()
+        file = vim.fn.tempname()
+        vim.fn.writefile({ "the file you were editing" }, file)
+        vim.cmd("silent! only")
+        vim.cmd("silent! tabonly")
+        vim.cmd("edit " .. vim.fn.fnameescape(file))
+        file_buf = vim.api.nvim_get_current_buf()
+      end)
+
+      after_each(function()
+        if float and vim.api.nvim_win_is_valid(float) then
+          vim.api.nvim_win_close(float, true)
+        end
+        float = nil
+        vim.cmd("silent! tabonly")
+        pcall(vim.cmd, "bwipeout! " .. file_buf)
+        vim.fn.delete(file)
+      end)
+
+      --- The terminal alone in its tab, the file's tab closed.
+      local function terminal_alone()
+        local h = backend.spawn(spec({ layout = "tab" }))
+        vim.cmd("1tabclose")
+        assert.equals(1, #vim.api.nvim_list_tabpages())
+        jobs.settle()
+        return h
+      end
+
+      it("hide shows the buffer you were editing, not a new empty one", function()
+        local h = terminal_alone()
+        local win = vim.fn.win_findbuf(h.bufnr)[1]
+        assert.is_true(backend.hide(h))
+        assert.equals(file_buf, vim.api.nvim_win_get_buf(win))
+      end)
+
+      it("an unrelated float does not count as a window to fall back on", function()
+        local h = terminal_alone()
+        float = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false, {
+          relative = "editor",
+          row = 1,
+          col = 1,
+          width = 10,
+          height = 3,
+        })
+        -- closing the terminal's window used to raise E444 here and leave the handle orphaned
+        local ok, res = pcall(backend.hide, h)
+        assert.is_true(ok, tostring(res))
+        assert.is_true(res)
+        assert.is_false(backend.visible(h))
+        assert.is_true(vim.api.nvim_win_is_valid(float))
+        local closed, cres = pcall(backend.close, h)
+        assert.is_true(closed, tostring(cres))
+        assert.equals(0, registry:count())
+        assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
+      end)
+    end)
   end)
 
   describe("send", function()
@@ -248,6 +308,36 @@ describe("terminal.backends.native", function()
       assert.same({ "b" }, names)
       assert.is_nil(registry:get(a.id))
       assert.is_not_nil(registry:get(b.id))
+    end)
+
+    it("close says so when the job is still running after the wait", function()
+      local h = backend.spawn(spec())
+      jobs.settle()
+      local jobwait = vim.fn.jobwait
+      vim.fn.jobwait = function()
+        return { -1 }
+      end
+      local messages = {}
+      local original = vim.notify
+      vim.notify = function(msg)
+        messages[#messages + 1] = msg
+      end
+      local ok = backend.close(h)
+      vim.wait(100)
+      vim.notify = original
+      vim.fn.jobwait = jobwait
+      assert.is_true(ok)
+      assert.equals(0, registry:count(), "the terminal is removed anyway")
+      assert.equals(1, #messages, vim.inspect(messages))
+      assert.truthy(messages[1]:find("did not stop", 1, true))
+    end)
+
+    it("watches wiped buffers with ONE named autocommand, however many terminals", function()
+      backend.spawn(spec({ name = "a" }))
+      backend.spawn(spec({ name = "b" }))
+      native.new(registry_mod.new()) -- a second backend replaces the group, it does not add to it
+      local found = vim.api.nvim_get_autocmds({ group = "terminal.native", event = "BufWipeout" })
+      assert.equals(1, #found)
     end)
   end)
 end)

@@ -3,7 +3,8 @@
 Every `setup()` option and its default (`lua/terminal/config/DEFAULTS.lua` is the source).
 A key that is unknown, or has the wrong type, is reported once and ignored; a value outside
 a closed set (`layout`, `backend`, `cwd`, `on_exit`, `float.title_pos`) or outside its range
-(see the comments below: sizes above 0, `winblend` 0..100, whole numbers where cells or bytes are
+(see the comments below: sizes above 0, `winblend` 0..100, a border name `nvim_open_win` knows
+or a list of 1, 2, 4 or 8 pieces, a `signcolumn` value, whole numbers where cells or bytes are
 counted, non-empty names) falls back to its default. A section whose every key was dropped keeps
 all its defaults. `:checkhealth terminal` lists what the last `setup()` reported.
 `status.export = true` and `navigate.handoff = true` are read as `"auto"`.

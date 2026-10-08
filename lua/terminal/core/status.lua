@@ -107,14 +107,6 @@ function M.build(snap)
   }
 end
 
---- Whether two datasets say the same thing.
----@param a Terminal.Status|nil
----@param b Terminal.Status|nil
----@return boolean
-function M.equal(a, b)
-  return vim.deep_equal(a, b)
-end
-
 --- The wire form: compact JSON, within `max_bytes`. When it is too long the longest free-text
 --- fields are shortened step by step (cwd, then file, then branch); a dataset that still does
 --- not fit is refused rather than sent truncated mid-field.

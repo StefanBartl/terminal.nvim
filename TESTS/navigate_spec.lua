@@ -118,6 +118,15 @@ describe("terminal.navigate.go", function()
     end)
   end
 
+  it("handoff = false chooses nothing and does not even load the hand-off module", function()
+    package.loaded["terminal.navigate.handoff"] = nil
+    setup(false, { TMUX = "x", WEZTERM_PANE = "1" })
+    assert.is_nil(package.loaded["terminal.navigate.handoff"])
+    assert.same({}, navigate.active())
+    assert.equals("edge", navigate.go("h"))
+    assert.same({}, calls)
+  end)
+
   it("a single window is at every edge: hands off in the right direction", function()
     setup("auto", { WEZTERM_PANE = "1" })
     assert.equals("edge", navigate.go("h"))

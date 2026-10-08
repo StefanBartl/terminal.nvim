@@ -314,6 +314,36 @@ describe("terminal pin / adopt", function()
       end, 100))
     end)
 
+    it("a capture slower than the refresh interval never overlaps the next one", function()
+      boot(true)
+      terminal.open({ name = "work" })
+      jobs.settle()
+      local _, _, pinned = terminal.pin({ name = "work" })
+      local running, deepest, captures = 0, 0, 0
+      local buf = terminal.adopt({ name = "work" })
+      -- from now on a capture takes 1.5 s: longer than the 1 s between two refreshes. The wait
+      -- lets the event loop run, exactly like `vim.system():wait()` does.
+      state.on_get_text = function()
+        captures = captures + 1
+        running = running + 1
+        deepest = math.max(deepest, running)
+        vim.wait(1500)
+        running = running - 1
+      end
+      vim.v.errmsg = ""
+      -- the pane disappears while the first slow capture runs: the view ends after that capture
+      state.panes[pinned.pane] = nil
+      assert.is_true(vim.wait(6000, function()
+        return captures >= 1
+          and (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""):find("not found", 1, true)
+            ~= nil
+      end, 50))
+      vim.wait(2500) -- time for ticks that must not happen
+      assert.equals(1, deepest, "two captures ran at the same time")
+      assert.equals(1, captures, "the view kept refreshing a pane that is gone")
+      assert.equals("", vim.v.errmsg)
+    end)
+
     it("refuses a native terminal: there is no pane to show", function()
       boot(true)
       terminal.open({ name = "work" })

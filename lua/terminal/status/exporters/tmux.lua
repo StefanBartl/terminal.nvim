@@ -88,9 +88,10 @@ end
 
 --- Whether the process `pid` is an ancestor of this Neovim: true / false, nil when the chain
 --- cannot be followed.
+---@internal
 ---@param pid integer
 ---@return boolean|nil
-function M.is_ancestor(pid)
+local function is_ancestor(pid)
   local current = vim.uv.os_getpid()
   for _ = 1, 64 do
     local parent = M.parent_of(current)
@@ -157,7 +158,7 @@ function M.nested(address)
   if pid == nil then
     return true
   end
-  local ancestor = M.is_ancestor(pid)
+  local ancestor = is_ancestor(pid)
   if ancestor == nil then
     return true
   end

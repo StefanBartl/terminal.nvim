@@ -41,32 +41,8 @@ local function environment()
     TMUX = vim.env.TMUX,
     WEZTERM_PANE = vim.env.WEZTERM_PANE,
     TMUX_PANE = vim.env.TMUX_PANE,
+    NVIM = vim.env.NVIM,
   }
-end
-
----@internal
---- The configured shell as a job command: nil = the editor's 'shell'.
----@return string|string[]|nil
-local function shell_command()
-  local shell = config.get("shell")
-  if type(shell) == "table" then
-    return #shell > 0 and shell or nil
-  end
-  if type(shell) == "string" and shell ~= "" then
-    return shell
-  end
-  return nil
-end
-
----@internal
---- The shell executable name, for quoting decisions.
----@return string
-local function shell_executable()
-  local cmd = shell_command()
-  if type(cmd) == "table" then
-    return cmd[1]
-  end
-  return cmd or vim.o.shell
 end
 
 ---@internal
@@ -95,7 +71,7 @@ local function build_spec(name, cwd, root, extra)
     name = name,
     root = root,
     cwd = cwd,
-    cmd = shell_command(),
+    cmd = config.shell_command(),
     env = next(env) ~= nil and env or nil,
     layout = extra.layout or config.get("layout"),
     float = config.get("float"),
@@ -172,7 +148,7 @@ function M.setup(opts)
     {
       "status",
       function()
-        require("terminal.status").setup(config.get_all())
+        require("terminal.status").setup(config.get_all(), env)
       end,
     },
     {
@@ -219,9 +195,6 @@ local function probe(b, handle)
 end
 
 ---@internal
-local LAYOUTS = { float = true, split = true, vsplit = true, tab = true }
-
----@internal
 --- The boundary check of every public function that takes a target. The facade is a system
 --- boundary (user config, other plugins call it), so a wrong type is reported with a reason
 --- instead of raising from deep inside; `count` is checked where the name is made.
@@ -237,7 +210,7 @@ local function check_target(target)
   if target.name ~= nil and (type(target.name) ~= "string" or target.name == "") then
     return "target.name must be a non-empty string"
   end
-  if target.layout ~= nil and not LAYOUTS[target.layout] then
+  if target.layout ~= nil and not vim.list_contains(backends.LAYOUTS, target.layout) then
     return ("unknown layout %s (use float, split, vsplit or tab)"):format(tostring(target.layout))
   end
   if target.focus ~= nil and type(target.focus) ~= "boolean" then
@@ -517,6 +490,23 @@ function M.list(all)
   return state.registry:list(root)
 end
 
+--- The names of this project's terminals (all projects with `all = true`), straight from the
+--- registry: no multiplexer is asked, so a pane the user closed a moment ago can still be named.
+--- Cheap enough for completion on every key; `list` is the exact answer.
+---@param all? boolean
+---@return string[] names In creation order
+function M.names(all)
+  backend()
+  local root
+  if not all then
+    local _, project = context.resolve(config.get("cwd"), state.deps)
+    root = project
+  end
+  return vim.tbl_map(function(h)
+    return h.name
+  end, state.registry:list(root))
+end
+
 ---@internal
 --- `send` with the target already resolved.
 ---@param text string
@@ -594,8 +584,8 @@ end
 local function line_shell_kind(at, default)
   local existing = find_live(at.root, at.name)
   local owner = existing and existing.backend or default.name
-  if shell_command() ~= nil or owner == "native" then
-    return require("terminal.core.quote").shell_kind(shell_executable())
+  if config.shell_command() ~= nil or owner == "native" then
+    return require("terminal.core.quote").shell_kind(config.shell_executable())
   end
   return "portable"
 end

@@ -8,7 +8,7 @@
 
 local DEFAULTS = require("terminal.config.DEFAULTS")
 local lib_config = require("lib.lua.config")
-local notify = require("lib.nvim.notify").create("[terminal]")
+local notify = require("terminal.notify")
 
 local M = {}
 
@@ -27,7 +27,7 @@ M.problems = {}
 ---@type table<string, string[]>
 local ENUMS = {
   backend = { "auto", "native", "wezterm", "tmux" },
-  layout = { "float", "split", "vsplit", "tab" },
+  layout = require("terminal.backends").LAYOUTS,
   cwd = { "project", "buffer", "cwd" },
   on_exit = { "close", "close_on_success", "keep" },
   ["float.title_pos"] = { "left", "center", "right" },
@@ -69,6 +69,10 @@ end
 local function whole(v)
   return v % 1 == 0
 end
+
+---@internal
+--- The border styles `nvim_open_win` knows by name.
+local BORDER_NAMES = { "none", "single", "double", "rounded", "solid", "shadow" }
 
 ---@internal
 --- Keys whose value, once it has the right type, must also be in a range. A value that only
@@ -130,6 +134,33 @@ local DOMAINS = {
     end,
     want = "a non-empty name",
   },
+}
+DOMAINS["float.border"] = {
+  ok = function(v)
+    if type(v) == "string" then
+      return v == "" or vim.list_contains(BORDER_NAMES, v)
+    end
+    -- A custom border: 1, 2, 4 or 8 pieces (`:h nvim_open_win()` border).
+    local n = #v
+    return n == 1 or n == 2 or n == 4 or n == 8
+  end,
+  want = "a border name ("
+    .. table.concat(BORDER_NAMES, ", ")
+    .. ") or a list of 1, 2, 4 or 8 pieces",
+}
+DOMAINS["window_options.signcolumn"] = {
+  ok = function(v)
+    local kind, rest = v:match("^(%a+)(.*)$")
+    if kind == "no" or kind == "number" then
+      return rest == ""
+    elseif kind == "yes" then
+      return rest == "" or rest:find("^:[1-9]$") ~= nil
+    elseif kind == "auto" then
+      return rest == "" or rest:find("^:[1-9]$") ~= nil or rest:find("^:[1-9]%-[1-9]$") ~= nil
+    end
+    return false
+  end,
+  want = "yes, no, auto, number, yes:N, auto:N or auto:N-M",
 }
 for _, key in ipairs({ "enter_padding", "enter_margin", "leave_padding", "leave_margin" }) do
   DOMAINS["kitty." .. key] = {
@@ -219,7 +250,14 @@ function M.validate(schema, opts, prefix)
         )
       end
     elseif WIDE_TYPES[path] then
-      if contains(WIDE_TYPES[path], type(v)) then
+      local domain = DOMAINS[path]
+      if contains(WIDE_TYPES[path], type(v)) and domain and not domain.ok(v) then
+        problems[#problems + 1] = ("config key '%s' must be %s, got %s"):format(
+          path,
+          domain.want,
+          vim.inspect(v)
+        )
+      elseif contains(WIDE_TYPES[path], type(v)) then
         clean[k] = v
       else
         problems[#problems + 1] = ("config key '%s' should be %s, got %s"):format(
@@ -314,6 +352,30 @@ function M.get(path)
     return vim.deepcopy(v)
   end
   return v
+end
+
+--- The configured shell as a job command: nil = the editor's 'shell'.
+---@return string|string[]|nil
+function M.shell_command()
+  local shell = M.options.shell
+  if type(shell) == "table" then
+    return #shell > 0 and vim.deepcopy(shell) or nil
+  end
+  if type(shell) == "string" and shell ~= "" then
+    return shell
+  end
+  return nil
+end
+
+--- The executable of the shell terminals run -- the configured one, else Neovim's 'shell' --
+--- for decisions that depend on the kind of shell (quoting, `cls` or `clear`).
+---@return string
+function M.shell_executable()
+  local cmd = M.shell_command()
+  if type(cmd) == "table" then
+    return cmd[1]
+  end
+  return cmd or vim.o.shell
 end
 
 --- A deep-copied snapshot of the whole resolved config.

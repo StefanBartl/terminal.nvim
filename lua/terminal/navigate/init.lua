@@ -8,7 +8,6 @@
 --- that direction, ...) is ignored -- it is the normal case at the outer edge.
 
 local core = require("terminal.core.navigate")
-local handoff = require("terminal.navigate.handoff")
 
 local M = {}
 
@@ -58,17 +57,22 @@ end
 ---@return nil
 function M.setup(cfg, env, run)
   env = env or { TMUX = vim.env.TMUX, WEZTERM_PANE = vim.env.WEZTERM_PANE }
-  local chosen, notes = handoff.choose(cfg.navigate.handoff, env)
+  runtime.run = run or spawn_detached
+  if cfg.navigate.handoff == false then
+    -- nothing to choose: the hand-off module is not even loaded
+    runtime.handoffs = {}
+    return
+  end
+  local chosen, notes = require("terminal.navigate.handoff").choose(cfg.navigate.handoff, env)
   if #notes > 0 then
     vim.schedule(function()
-      local n = require("lib.nvim.notify").create("[terminal]")
+      local notify = require("terminal.notify")
       for _, note in ipairs(notes) do
-        n.warn(note)
+        notify.warn(note)
       end
     end)
   end
   runtime.handoffs = chosen
-  runtime.run = run or spawn_detached
 end
 
 --- Most windows one `go` can move over. Neovim stops at the last window anyway; the cap only

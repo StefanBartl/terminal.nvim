@@ -9,6 +9,11 @@
 
 local M = {}
 
+--- Every layout a terminal can have. A multiplexer backend has no floating pane: it opens `float`
+--- as a pane to the right.
+---@type Terminal.Layout[]
+M.LAYOUTS = { "float", "split", "vsplit", "tab" }
+
 --- The multiplexer backends, in the order `pin` tries them when none is named (the innermost
 --- first: tmux inside WezTerm).
 ---@type string[]

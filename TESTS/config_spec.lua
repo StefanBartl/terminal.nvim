@@ -200,6 +200,38 @@ describe("terminal.config", function()
       assert.equals(10, config.get("kitty.leave_margin"))
     end)
 
+    it("checks float.border: a name nvim_open_win knows, or 1, 2, 4 or 8 pieces", function()
+      for _, bad in ipairs({ "foo", "Rounded", {}, { "a", "b", "c" } }) do
+        local problems = config.setup({ float = { border = bad } })
+        assert.equals(1, #problems, vim.inspect(bad))
+        assert.equals("rounded", config.get("float.border"))
+      end
+      for _, good in ipairs({
+        "none",
+        "single",
+        "double",
+        "rounded",
+        "solid",
+        "shadow",
+        "",
+        { "a", "b" },
+        { "1", "2", "3", "4", "5", "6", "7", "8" },
+      }) do
+        assert.same({}, config.setup({ float = { border = good } }), vim.inspect(good))
+      end
+    end)
+
+    it("checks window_options.signcolumn: the values 'signcolumn' takes", function()
+      for _, bad in ipairs({ "bogus", "yes:0", "no:2", "number:3", "auto:1-", "", "yes:" }) do
+        local problems = config.setup({ window_options = { signcolumn = bad } })
+        assert.equals(1, #problems, bad)
+        assert.equals("no", config.get("window_options.signcolumn"))
+      end
+      for _, good in ipairs({ "yes", "no", "auto", "number", "yes:2", "auto:1-3" }) do
+        assert.same({}, config.setup({ window_options = { signcolumn = good } }), good)
+      end
+    end)
+
     it("wants a name for default_name and run.name that is not empty", function()
       local problems = config.setup({ default_name = "", run = { name = "" } })
       assert.equals(2, #problems)

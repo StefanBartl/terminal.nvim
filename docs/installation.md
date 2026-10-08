@@ -24,7 +24,11 @@
 | Only the command, loaded on first use | `cmd = { "Terminal" }` and set `keymaps = { preset = false }` |
 
 With `cmd` alone, lazy.nvim defines a stub `:Terminal` that loads the plugin and re-runs;
-the keys exist only after that first load.
+the keys exist only after that first load. So do the two background features that listen to
+Neovim from the start: the status export ([status.md](status.md)) and the edge hand-off
+([navigation.md](navigation.md)). Until the first `:Terminal` a WezTerm tab title or tmux
+`status-right` stays empty. Use `event = "VeryLazy"` if you run Neovim inside WezTerm or tmux and
+want those.
 
 ## Without a plugin manager
 

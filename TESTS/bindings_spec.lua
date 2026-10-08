@@ -108,6 +108,38 @@ describe("terminal bindings", function()
       assert.equals(norm("<C-l>"), bound("t", "<C-l>"))
     end)
 
+    it("clear types cls for cmd.exe and PowerShell, clear for every other shell", function()
+      local chansend = vim.fn.chansend
+      local typed
+      vim.fn.chansend = function(_, data)
+        typed = data
+        return 1
+      end
+      vim.b.terminal_job_id = 1
+      local ok, err = pcall(function()
+        for shell, want in pairs({
+          ["bash"] = "clear",
+          ["C:\\Program Files\\Git\\bin\\bash.exe"] = "clear",
+          ["/usr/bin/fish"] = "clear",
+          ["C:\\Windows\\System32\\cmd.exe"] = "cls",
+          ["pwsh"] = "cls",
+          ["powershell.exe"] = "cls",
+        }) do
+          terminal.setup({ shell = shell, keymaps = { clear = "<A-l>" } })
+          typed = nil
+          map("t", "<A-l>").callback()
+          assert.same({ want, "" }, typed, shell)
+        end
+        -- an argv shell: its first word decides
+        terminal.setup({ shell = { "pwsh", "-NoLogo" }, keymaps = { clear = "<A-l>" } })
+        map("t", "<A-l>").callback()
+        assert.same({ "cls", "" }, typed)
+      end)
+      vim.fn.chansend = chansend
+      vim.b.terminal_job_id = nil
+      assert.is_true(ok, tostring(err))
+    end)
+
     it("the leave-terminal-mode keys send <C-\\><C-n>", function()
       terminal.setup({ shell = jobs.sleeper() })
       assert.equals(norm("<C-\\><C-n>"), norm(map("t", "<Esc>").rhs))
@@ -172,6 +204,57 @@ describe("terminal bindings", function()
       for _, want in ipairs({ "toggle", "open", "hide", "close", "list", "send", "run" }) do
         assert.is_true(vim.tbl_contains(items, want), want)
       end
+    end)
+
+    describe("completes terminal names from the registry at Tab time", function()
+      before_each(function()
+        terminal.setup({ shell = jobs.sleeper(), start_insert = false })
+        terminal.open({ name = "build", focus = false })
+        terminal.open({ name = "repl", focus = false })
+      end)
+
+      it("hide, close, pin and adopt offer only the terminals that are open", function()
+        for _, verb in ipairs({ "hide", "close", "pin", "adopt" }) do
+          local items = vim.fn.getcompletion("Terminal " .. verb .. " ", "cmdline")
+          table.sort(items)
+          assert.same({ "build", "repl" }, items, verb)
+        end
+        assert.same({ "build" }, vim.fn.getcompletion("Terminal close b", "cmdline"))
+      end)
+
+      it("toggle, open and send also offer the configured names and the counts", function()
+        for _, line in ipairs({
+          "Terminal toggle ",
+          "Terminal open ",
+          "Terminal send line ",
+          "Terminal send selection ",
+          "Terminal send file ",
+        }) do
+          local items = vim.fn.getcompletion(line, "cmdline")
+          for _, want in ipairs({ "build", "repl", "main", "run", "1", "9" }) do
+            assert.is_true(vim.tbl_contains(items, want), line .. want)
+          end
+          local seen = {}
+          for _, item in ipairs(items) do
+            assert.is_nil(seen[item], "offered twice: " .. item)
+            seen[item] = true
+          end
+        end
+      end)
+
+      it("run --name= completes the same names", function()
+        local items = vim.fn.getcompletion("Terminal run --name=", "cmdline")
+        assert.is_true(vim.tbl_contains(items, "--name=build"), vim.inspect(items))
+        assert.is_true(vim.tbl_contains(items, "--name=run"), vim.inspect(items))
+      end)
+
+      it(
+        "a name that is not open is accepted: the command says there is no such terminal",
+        function()
+          vim.cmd("Terminal close ghost")
+          assert.equals(2, #terminal.list())
+        end
+      )
     end)
 
     it("completes the layouts for --layout=", function()
@@ -272,6 +355,58 @@ describe("terminal bindings", function()
         vim.cmd("2Terminal send selection")
       end)
       assert.equals("two", single[1].text)
+    end)
+
+    describe("send selection follows the kind of Visual selection", function()
+      local function eol()
+        return vim.fn.has("win32") == 1 and "\r" or "\n"
+      end
+
+      before_each(function()
+        terminal.setup({ shell = jobs.sleeper(), start_insert = false })
+        vim.cmd("enew")
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { "echo hello world", "ghijkl", "mnopqr" })
+      end)
+
+      it("characterwise: only the selected characters", function()
+        vim.cmd("normal! gg0wviw\27") -- "hello"
+        local sent = jobs.record_sends(function()
+          vim.cmd("'<,'>Terminal send selection")
+        end)
+        assert.equals("hello", sent[1].text)
+      end)
+
+      it("characterwise over several lines: from the first character to the last", function()
+        vim.cmd("normal! gg0wvj0\27") -- "hello world", then the "g" at the start of line 2
+        local sent = jobs.record_sends(function()
+          vim.cmd("'<,'>Terminal send selection --exec")
+        end)
+        assert.equals("hello world\ng" .. eol(), sent[1].text)
+      end)
+
+      it("blockwise: the block, one line per row", function()
+        vim.cmd("normal! gg0l\22jl\27") -- columns 2-3 of lines 1-2
+        local sent = jobs.record_sends(function()
+          vim.cmd("'<,'>Terminal send selection --exec")
+        end)
+        assert.equals("ch\nhi" .. eol(), sent[1].text)
+      end)
+
+      it("linewise: whole lines", function()
+        vim.cmd("normal! ggVj\27")
+        local sent = jobs.record_sends(function()
+          vim.cmd("'<,'>Terminal send selection --exec")
+        end)
+        assert.equals("echo hello world\nghijkl" .. eol(), sent[1].text)
+      end)
+
+      it("a plain range after an older selection is whole lines, not that selection", function()
+        vim.cmd("normal! gg0wviw\27") -- leaves charwise marks on line 1
+        local sent = jobs.record_sends(function()
+          vim.cmd("2,3Terminal send selection --exec")
+        end)
+        assert.equals("ghijkl\nmnopqr" .. eol(), sent[1].text)
+      end)
     end)
 
     it("send file types the whole buffer with --exec", function()

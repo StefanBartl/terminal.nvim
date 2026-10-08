@@ -34,9 +34,8 @@ local function contract(name, make)
       ctx.cleanup()
     end)
 
-    it("has a name, optional abilities and a boolean availability answer", function()
+    it("has a name and a boolean availability answer", function()
       assert.equals(name, ctx.backend.name)
-      assert.is_table(ctx.backend.caps)
       local ok, reason = ctx.backend.available({})
       assert.is_boolean(ok)
       if not ok then
