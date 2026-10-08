@@ -43,6 +43,16 @@ value — is escaped with a backslash in front of a final `;` (`backends.tmux.wo
 `select 1;` would lose its semicolon and a command word `notes;` followed by `run-shell` would start a
 tmux command. `TESTS/live/tmux.lua` types such lines into a pane running `cat` and compares the screen.
 
+The start directory (`-c`) has a second escape: tmux expands that one value as a *format* (`#S`, `#{...}`,
+`#(...)`, and `##` for a literal `#`), so a directory called `C#` or `#S` would silently open the pane in `$HOME`.
+Every `#` of the directory is doubled before it is passed (`C#` is sent as `C##`). Typed text, command words and
+option values are not expanded, so only `-c` needs this. `TESTS/live/tmux.lua` starts panes in real directories
+named `C#`, `a##b`, `#S`, `#{pane_id}` and `x#(echo hi)` and asks tmux for `#{pane_current_path}`.
+
+A layout the backend does not know (`float`, `split`, `vsplit` and `tab` are the four) is refused instead of being
+guessed as a split. The refusal is part of the backend's `preflight`, so `pin` finds out before it ends the native
+terminal.
+
 `tmux 3.1+` takes `split-window -l 30%`; an older tmux gets `-p 30` (the version is asked once, on the
 first split; `:checkhealth terminal` shows it).
 

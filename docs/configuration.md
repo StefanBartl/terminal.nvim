@@ -3,9 +3,10 @@
 Every `setup()` option and its default (`lua/terminal/config/DEFAULTS.lua` is the source).
 A key that is unknown, or has the wrong type, is reported once and ignored; a value outside
 a closed set (`layout`, `backend`, `cwd`, `on_exit`, `float.title_pos`) or outside its range
-(see the comments below: sizes above 0, `winblend` 0..100, a border name `nvim_open_win` knows
-or a list of 1, 2, 4 or 8 pieces, a `signcolumn` value, whole numbers where cells or bytes are
-counted, non-empty names) falls back to its default. A section whose every key was dropped keeps
+(see the comments below: sizes above 0, `winblend` 0..100, a border style name (`none`, `single`,
+`double`, `rounded`, `solid`, `shadow`, `bold`) or a list of 1, 2, 4 or 8 pieces, a `signcolumn`
+value ('signcolumn' itself takes `auto:N-M` only with N below M), whole numbers where cells or bytes
+are counted, non-empty names) falls back to its default. A section whose every key was dropped keeps
 all its defaults. `:checkhealth terminal` lists what the last `setup()` reported.
 `status.export = true` and `navigate.handoff = true` are read as `"auto"`.
 
@@ -22,7 +23,8 @@ require("terminal").setup({
   float = {
     width = 0.8,            -- fraction of the editor (0 < x <= 1) or absolute columns (> 1)
     height = 0.8,           -- fraction or absolute lines
-    border = "rounded",     -- anything nvim_open_win accepts; "none" removes it
+    border = "rounded",     -- none | single | double | rounded | solid | shadow | bold, or a list of
+                            -- 1, 2, 4 or 8 pieces (:h nvim_open_win()); "none" removes it
     title = true,           -- show the terminal's name in a bordered float
     title_pos = "center",   -- "left" | "center" | "right"
     winblend = 0,           -- 0 opaque .. 100 transparent
@@ -48,7 +50,7 @@ require("terminal").setup({
     enable = true,
     number = false,
     relativenumber = false,
-    signcolumn = "no",
+    signcolumn = "no",      -- yes | no | auto | number | yes:N | auto:N | auto:N-M (digits 1-9, N below M)
     spell = false,
     cursorline = false,
   },

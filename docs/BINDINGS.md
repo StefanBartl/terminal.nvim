@@ -29,8 +29,12 @@ does the rest.
 
 `<Tab>` completes the terminal name from the terminals that are open in this project (read when
 the key is pressed). `:Terminal send selection` sends exactly the selected characters for a
-characterwise (`v`) selection, the block for a blockwise one and whole lines for a linewise one or
-a plain range.
+characterwise (`v`) selection and the block for a blockwise one — when the command line that runs it
+starts with the range `'<,'>`: `:` pressed in Visual mode (Neovim fills the range in), `:'<,'>Terminal
+send selection` typed by hand, or a mapping whose right-hand side starts with `:` (`xnoremap <leader>ts
+:Terminal send selection<CR>`). It sends whole lines for a linewise selection, for a numeric range
+(`:2,3Terminal send selection`, also when it covers the lines of an older selection) and for a call
+that has no command line at all (a `<Cmd>` mapping, `vim.cmd()` from Lua).
 
 ## Autocommands
 
@@ -47,6 +51,7 @@ twice does not double a handler.
 | `terminal.status` | `VimLeavePre` | Clear the published status (pane options, user variables). | `status.enable` |
 | `terminal.status` | `VimEnter` (once) | First publication, only when `setup()` ran before Neovim had started; otherwise it is published at once. | `status.enable` |
 | `terminal.native` | `BufWipeout` | Forget the handle of a native terminal whose buffer was wiped by other means (`:bwipeout`, another plugin). One autocommand for all terminals. | none: created with the native backend |
+| `terminal.usrcmds` | `CmdlineLeave` (`:` only) | Note whether the command line that is about to run starts with the range `'<,'>`; `:Terminal send selection` uses the Visual marks only then. Nothing is stored but that yes/no, and only until the command has run. | `commands` |
 
 The `terminal.status` autocommands exist only while status export is on and at least one exporter
 fits the environment (inside tmux or WezTerm, `status.export`); otherwise the group stays empty.

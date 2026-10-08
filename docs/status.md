@@ -15,7 +15,7 @@ receiving side):
 | `pid` | the Neovim process |
 | `mode` | `nvim_get_mode().mode` (`n`, `i`, `v`, `V`, `t`, ...); the two control-character modes are spelled out: `^V` (blockwise Visual, `no^V` operator-pending) and `^S` (Select block) |
 | `file`, `ft` | file name (last path component; `terminal` for terminal buffers) and filetype |
-| `cwd`, `branch` | working directory and git branch (from gitsigns, else `.git/HEAD`) |
+| `cwd`, `branch` | working directory and git branch (from gitsigns, else `.git/HEAD`). The search starts at the directory of the buffer's file, or at the working directory for a buffer that is not a file (a terminal, `oil://`), so the branch follows `:cd`. Where the repository was found is remembered for 2 s, so a `git init` below a known repository shows up within that time; a branch switch is seen at once, because the `HEAD` file is checked on every update |
 | `e`, `w`, `i`, `h` | diagnostic counts: error, warning, info, hint |
 | `rec` | register being recorded into, `""` when none |
 | `mod` | the buffer is modified |
@@ -55,7 +55,8 @@ recording, the modified flag, focus — debounced (`status.debounce_ms`, 80), an
 what an exporter publishes differs from what it sent last** (the tmux exporter carries mode, file, branch,
 E/W counts, macro and modified flag: a change in `cwd`, filetype or the info and hint counts costs it no
 process). An exporter that fails is switched off once, with one notice — and still cleaned up when
-Neovim exits. A Neovim **without a UI** (a headless script) publishes nothing, silently; the status goes
+Neovim exits. A Neovim **without a UI** (a headless script) publishes nothing and leaves nothing behind to clean
+up, so it exits without a notice; the status goes
 out when a UI attaches (`UIEnter`) — also to a UI that attaches *again* (another WezTerm pane after
 `:detach`): it has seen nothing, so the "nothing changed" gate is reset for it. A dataset over `status.max_bytes` is reported once, not on every event.
 
