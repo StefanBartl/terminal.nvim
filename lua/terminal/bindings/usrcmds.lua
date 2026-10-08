@@ -38,7 +38,7 @@ local SEND_NAME_ARG =
 ---@internal
 --- A terminal that has to exist (hide, close, pin, adopt); the command says when there is none.
 ---@type Lib.UserCmd.Composer.ArgSpec[]
-local LIVE_NAME_ARG = name_arg("Terminal open in this project (default: config default_name)")
+local LIVE_NAME_ARG = name_arg("Existing terminal of this project (default: config default_name)")
 
 ---@internal
 --- What each layout looks like, for the option float (the native backend's windows; a
