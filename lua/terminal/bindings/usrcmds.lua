@@ -17,17 +17,34 @@ local M = {}
 local LAYOUTS = require("terminal.backends").LAYOUTS
 
 ---@internal
---- A terminal name that may be new (toggle, open, send): completion offers what exists plus the
---- configured names and the counts, typing anything else stays possible.
----@type Lib.UserCmd.Composer.ArgSpec[]
-local NAME_ARG = { { name = "name", type = "TERMINAL", optional = true } }
+--- The optional terminal-name argument. `desc` is the line the option float shows for it; `kind`
+--- is the argument type that completes it: `TERMINAL` offers what is open plus the configured
+--- names and the counts and accepts any other name, `TERMINAL_LIVE` offers only what is open. An
+--- unknown name is accepted at the prompt either way, the command then says there is none.
+---@param desc string
+---@param kind "TERMINAL"|"TERMINAL_LIVE"
+---@return Lib.UserCmd.Composer.ArgSpec[]
+local function name_arg(desc, kind)
+  return { { name = "name", type = kind, optional = true, desc = desc } }
+end
 
 ---@internal
---- A terminal name that has to exist (hide, close, pin, adopt): completion offers only what is
---- open in this project. An unknown name is still accepted at the prompt, the command then says
---- there is no such terminal.
+--- A name that may be new (toggle, open): the terminal is created when missing.
 ---@type Lib.UserCmd.Composer.ArgSpec[]
-local LIVE_NAME_ARG = { { name = "name", type = "TERMINAL_LIVE", optional = true } }
+local NAME_ARG =
+  name_arg("Terminal name, created when missing (default: config default_name)", "TERMINAL")
+
+---@internal
+--- Where `send` types to: the `run.name` terminal unless named, created when missing.
+---@type Lib.UserCmd.Composer.ArgSpec[]
+local SEND_NAME_ARG =
+  name_arg("Terminal to send to, created when missing (default: config run.name)", "TERMINAL")
+
+---@internal
+--- A terminal that has to exist (hide, close); the command says when there is none.
+---@type Lib.UserCmd.Composer.ArgSpec[]
+local LIVE_NAME_ARG =
+  name_arg("Existing terminal of this project (default: config default_name)", "TERMINAL_LIVE")
 
 ---@internal
 --- Candidates that start with what is typed.
@@ -163,7 +180,7 @@ local function send_route(what)
   return {
     path = { "send", what },
     range = what == "selection",
-    args = NAME_ARG,
+    args = SEND_NAME_ARG,
     flags = {
       {
         name = "exec",
@@ -285,7 +302,10 @@ function M.setup()
       },
       {
         path = { "pin" },
-        args = LIVE_NAME_ARG,
+        args = name_arg(
+          "Native terminal to restart as a pane (default: config default_name)",
+          "TERMINAL_LIVE"
+        ),
         flags = {
           {
             name = "backend",
@@ -316,7 +336,10 @@ function M.setup()
       },
       {
         path = { "adopt" },
-        args = LIVE_NAME_ARG,
+        args = name_arg(
+          "Multiplexer terminal to view (default: config default_name)",
+          "TERMINAL_LIVE"
+        ),
         desc = "Show a tmux/WezTerm terminal's screen in a read-only buffer",
         run = function(ctx)
           terminal.adopt({ name = ctx.args.name })
