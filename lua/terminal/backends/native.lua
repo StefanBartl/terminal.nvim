@@ -21,6 +21,14 @@ local JOB_STOP_WAIT_MS = 1000
 --- once `jobstop` was called, so this is an upper bound that is not expected to be reached.
 local JOB_KILL_WAIT_MS = 5000
 
+--- Windows only: how long a layout change (a window of this backend opened or closed) has to be in
+--- the past before a job is stopped. Closing one terminal's window resizes its neighbours' ConPTYs,
+--- and stopping the job of such a terminal within a few milliseconds kills Neovim (0xC0000005:
+--- `close(a); close(b)` on two running splits, every time; 30 ms apart it never happened). Measured
+--- steps: 10 ms crashed, 20 ms 3 of 4 survived, 30..150 ms 3 of 3. 100 ms keeps clear of it on a
+--- loaded machine.
+local LAYOUT_SETTLE_MS = 100
+
 local M = {}
 
 ---@internal
@@ -261,30 +269,62 @@ function M.new(registry)
     desc = "terminal.nvim: forget a wiped terminal buffer",
   })
 
+  -- When this backend last opened or closed a window (`vim.uv.hrtime()`, ns); see `settle_layout`.
+  local layout_changed_at = 0
+
+  ---@internal
+  --- Note that a window of this backend was just opened or closed.
+  local function layout_changed()
+    layout_changed_at = vim.uv.hrtime()
+  end
+
+  ---@internal
+  --- Windows only: let the last layout change be `LAYOUT_SETTLE_MS` old before a job is stopped (see
+  --- there). Elsewhere, and when nothing changed lately, it returns at once.
+  local function settle_layout()
+    if fn.has("win32") ~= 1 then
+      return
+    end
+    local left = LAYOUT_SETTLE_MS - (vim.uv.hrtime() - layout_changed_at) / 1e6
+    if left > 0 then
+      vim.wait(math.ceil(left))
+    end
+  end
+
   -- A scratch buffer that could not be deleted (see `editing_blocked`); kept so the next probe
-  -- reuses it instead of leaving another one behind.
+  -- reuses it instead of leaving another one behind (one at most, until the lock is gone).
   local probe_buf = nil
 
   ---@internal
   --- Why Neovim refuses, right now, to close windows or delete buffers; nil when it does not. It
   --- refuses both under a text lock (an `<expr>` mapping, E565) and in the command-line window
   --- (E11), and the only way to know is to ask with a buffer nobody cares about: a terminal must
-  --- not be stopped first and found undeletable afterwards.
+  --- not be stopped first and found undeletable afterwards. The probe runs under `:noautocmd`: a
+  --- `BufNew` handler of the user that fails for a scratch buffer must not read as a refusal, and
+  --- none of them should see a buffer that is made and gone within a call. When the question
+  --- cannot be asked at all the answer is "no obstacle known": the real operation then answers.
   ---@return string|nil reason Neovim's own words
   local function editing_blocked()
     if not (probe_buf and api.nvim_buf_is_valid(probe_buf)) then
-      local made, buf = pcall(api.nvim_create_buf, false, true)
-      if not made then
-        return tostring(buf)
+      local made, res =
+        pcall(api.nvim_exec2, "noautocmd echo nvim_create_buf(v:false, v:true)", { output = true })
+      local buf = made and tonumber(res.output) or nil
+      if not buf then
+        return nil
       end
       probe_buf = buf
     end
-    local deleted, err = pcall(api.nvim_buf_delete, probe_buf, { force = true })
+    local deleted, err = pcall(
+      api.nvim_exec2,
+      ("noautocmd call nvim_buf_delete(%d, {'force': v:true})"):format(probe_buf),
+      {}
+    )
     if deleted then
       probe_buf = nil
       return nil
     end
-    return tostring(err)
+    -- "nvim_exec2(), line 1: Vim(call):E5555: API call: E565: Not allowed ...": keep the last code
+    return tostring(err):match(".*(E%d+: .*)$") or tostring(err)
   end
 
   ---@internal
@@ -336,6 +376,7 @@ function M.new(registry)
       if not ok then
         return false, ("cannot close the window: %s"):format(err)
       end
+      layout_changed()
     end
     return true, nil
   end
@@ -407,6 +448,7 @@ function M.new(registry)
       pcall(api.nvim_buf_delete, bufnr, { force = true })
       return nil, werr
     end
+    layout_changed()
 
     local root = spec.root or spec.cwd
     ---@type Terminal.Handle
@@ -529,6 +571,7 @@ function M.new(registry)
     if not win then
       return false, err
     end
+    layout_changed()
     handle.layout = spec.layout
     if spec.start_insert then
       vim.cmd("startinsert")
@@ -588,6 +631,8 @@ function M.new(registry)
       and not handle.exited
       and fn.jobwait({ handle.job }, 0)[1] == -1
     if running then
+      -- Not right after another window opened or closed (see LAYOUT_SETTLE_MS).
+      settle_layout()
       pcall(fn.jobstop, handle.job)
       -- Let the job actually end before its buffer goes away: deleting the buffer of a job that
       -- is still shutting down crashed Neovim 0.12 on Windows (0xC0000005, headless, splits).

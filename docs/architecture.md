@@ -58,8 +58,16 @@ multiple setups cannot leak into each other.
 - **Teardown order:** closing a terminal first asks whether Neovim will let its windows and its
   buffer go (a text lock, the command-line window, `winfixbuf` on the window that would have to
   show another buffer); a refusal there leaves the terminal exactly as it was — running, registered,
-  no buffer made. Only then it stops the job and waits for it to end, closes the windows and deletes
-  the buffer. The job goes first on purpose: Neovim 0.12 on Windows dies (`0xC0000005`, every time) when
-  the windows of a running terminal that is shown in two windows are closed and the job is stopped
-  right after, however long the pause; and it can crash when a terminal buffer disappears while its
-  ConPTY is still shutting down.
+  no window closed, no listed buffer made (the question is asked with a scratch buffer under
+  `:noautocmd`; one unlisted scratch buffer may stay until a text lock is gone). Only then it stops
+  the job and waits for it to end, closes the windows and deletes the buffer. A change that happens
+  while the job stops (an autocommand of the user) can still leave a finished terminal that is
+  registered and visible; the next `close` removes it.
+  The order and the pauses are what Neovim 0.12 on Windows survives (`0xC0000005` otherwise):
+  the job goes first, because closing the windows of a running terminal that is shown in two
+  windows and stopping its job right after kills it every time, however long the pause; and a job is
+  stopped no sooner than 100 ms after the last window of this backend was opened or closed, because
+  closing one terminal's window resizes its neighbours and stopping a neighbour's job within a few
+  milliseconds of that kills it too (`close(a); close(b)` on two running splits). The pause is
+  tracked per backend and applies on Windows only. A terminal buffer that disappears while its
+  ConPTY is still shutting down can crash it as well: the buffer is deleted after the job ended.

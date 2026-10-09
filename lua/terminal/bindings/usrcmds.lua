@@ -193,12 +193,20 @@ end
 --- row by row, from its left edge (`getregionpos` keeps a multibyte character whole and knows tabs)
 --- to the end of THAT row, as a yank of it gives. A row that ends before the left edge has nothing
 --- in the block (empty here, a yank pads it with blanks).
+---
+--- The positions are the marks as they were BEFORE the round trip: `gv` clamps a corner that lies
+--- past the text or inside a closed fold (and drops its `virtualedit` padding), and leaving Visual
+--- mode writes the clamped positions into the marks. From Visual mode only the wanted column of
+--- the cursor is taken, and the marks are written back afterwards. No autocommand runs during
+--- the round trip (`ModeChanged` handlers of the user must neither see it nor fail it), and Select
+--- mode, which `gv` starts when 'selectmode' has "cmd", is left as well.
 ---@return string[]|nil rows nil when the selection cannot be had
+---@return string|nil err Why
 local function block_text()
   local view = vim.fn.winsaveview()
+  local from, to = vim.fn.getpos("'<"), vim.fn.getpos("'>")
   local ok, lines = pcall(function()
-    vim.cmd("silent keepjumps normal! gv")
-    local from, to = vim.fn.getpos("v"), vim.fn.getpos(".")
+    vim.cmd("noautocmd silent keepjumps normal! gv")
     if vim.fn.getcurpos()[5] ~= vim.v.maxcol then
       return vim.fn.getregion(from, to, { type = "\22" })
     end
@@ -222,14 +230,16 @@ local function block_text()
     end
     return out
   end)
-  if vim.fn.mode():find("^[vV\22]") then
+  if vim.fn.mode():find("^[vVsS\22\19]") then
     pcall(function()
-      vim.cmd("silent! normal! \27")
+      vim.cmd("noautocmd silent! normal! \27")
     end)
   end
+  pcall(vim.fn.setpos, "'<", from)
+  pcall(vim.fn.setpos, "'>", to)
   pcall(vim.fn.winrestview, view)
   if not ok or type(lines) ~= "table" or #lines == 0 then
-    return nil
+    return nil, ok and "nothing is selected there" or tostring(lines)
   end
   return lines
 end
@@ -252,9 +262,12 @@ end
 --- of a characterwise selection, the block of a blockwise one (to the end of every row after `$`).
 --- nil when the range does not come from a characterwise / blockwise selection: a linewise one, a
 --- range typed by hand (`:2,3`, also when it covers the lines of an older selection), or a call
---- without a command line.
+--- without a command line. When the range IS a selection but it cannot be read, the answer is
+--- `nil` and the reason: the caller must not fall back to whole lines, which send more than was
+--- selected.
 ---@param range Lib.UserCmd.Composer.RangeInfo
----@return string[]|nil
+---@return string[]|nil text
+---@return string|nil err
 local function visual_text(range)
   local named = line_names_marks
   line_names_marks = false
@@ -272,7 +285,7 @@ local function visual_text(range)
   end
   local ok, lines = pcall(vim.fn.getregion, from, to, { type = range.mode })
   if not ok or type(lines) ~= "table" or #lines == 0 then
-    return nil
+    return nil, ok and "nothing is selected there" or tostring(lines)
   end
   return lines
 end
@@ -281,15 +294,21 @@ end
 --- The lines a `send` route acts on.
 ---@param what "line"|"selection"|"file"
 ---@param ctx Lib.UserCmd.Composer.Ctx
----@return string[]
+---@return string[]|nil lines nil after a warning: the selection could not be read
 local function lines_for(what, ctx)
   local buf = vim.api.nvim_get_current_buf()
   if what == "file" then
     return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   elseif what == "selection" then
-    local text = visual_text(ctx.range)
+    local text, err = visual_text(ctx.range)
     if text then
       return text
+    end
+    if err then
+      notify.warn(
+        ("send selection: the selection could not be read (%s); nothing was sent"):format(err)
+      )
+      return nil
     end
     local first, last = ctx.range.line1, ctx.range.line2
     return vim.api.nvim_buf_get_lines(buf, first - 1, last, false)
@@ -316,6 +335,9 @@ local function send_route(what)
     desc = ("Send the %s to a terminal (typed only; --exec presses Enter)"):format(what),
     run = function(ctx)
       local lines = lines_for(what, ctx)
+      if not lines then
+        return
+      end
       if #lines > 1 and ctx.flags.exec ~= true then
         -- Typing a line break into a shell presses Enter: every line but the last would run.
         notify.warn(

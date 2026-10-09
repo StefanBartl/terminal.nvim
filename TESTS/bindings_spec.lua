@@ -700,6 +700,123 @@ describe("terminal bindings", function()
         end
       )
 
+      it(
+        "a selection that starts below the first line of a closed fold is the selection",
+        function()
+          -- the range of an Ex command starts at the FIRST line of a closed fold, the mark sits on
+          -- the third line: both ends have to be matched against the fold
+          vim.api.nvim_buf_set_lines(
+            0,
+            0,
+            -1,
+            false,
+            { "aaa bbb", "ccc ddd", "eee fff", "ggg hhh" }
+          )
+          type_keys("3G0wvj<Esc>")
+          vim.cmd("2,3fold")
+          local text = sent_by(":'<,'>Terminal send selection --exec<CR>")
+          pcall(function()
+            vim.cmd("normal! zE")
+          end)
+          assert.equals("fff\nggg h" .. eol(), text)
+        end
+      )
+
+      it("a block corner drawn past a row inside a closed fold keeps its padding", function()
+        -- `gv` drops the padding of a corner inside a closed fold ('virtualedit' all) and its Esc
+        -- writes the dropped position into '<: the block came out wider than the one drawn
+        local saved = vim.o.virtualedit
+        vim.o.virtualedit = "all"
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+          "aaaaaaaaaa",
+          "bbbbbbbbbb",
+          "cccccccccc",
+          "dddddddddd",
+        })
+        vim.cmd("2,3fold")
+        local ok, sent, yank = pcall(sent_and_yanked, "2G13|<C-v>4G4|")
+        pcall(function()
+          vim.cmd("normal! zE")
+        end)
+        vim.o.virtualedit = saved
+        assert.is_true(ok, tostring(sent))
+        assert.same(yank, sent)
+      end)
+
+      it("the Visual round trip puts mode, cursor and marks back", function()
+        local function state()
+          return {
+            mode = vim.fn.mode(),
+            cursor = vim.fn.getcurpos(),
+            first = vim.fn.getpos("'<"),
+            last = vim.fn.getpos("'>"),
+          }
+        end
+        -- A selection far from the cursor, typed as `:'<,'>`: what Neovim itself does with the
+        -- cursor is the baseline, the characterwise run has no round trip.
+        type_keys("gg0wviw<Esc>3G0")
+        sent_by(":'<,'>Terminal send selection --exec<CR>")
+        local baseline = state()
+        type_keys("gg0l<C-v>jl<Esc>3G0")
+        local marks = { vim.fn.getpos("'<"), vim.fn.getpos("'>") }
+        sent_by(":'<,'>Terminal send selection --exec<CR>")
+        local after = state()
+        assert.equals("n", after.mode, "Visual mode was left again")
+        assert.same(
+          baseline.cursor,
+          after.cursor,
+          "the cursor is where the command leaves it anyway"
+        )
+        assert.same(marks, { after.first, after.last }, "the marks are the ones the user made")
+      end)
+
+      it("stale marks are left alone: the round trip clamps them, the user's stay", function()
+        type_keys("gg0lll<C-v>jjl<Esc>")
+        -- the text under the marks is gone: nothing can be read there (and nothing is sent, with a
+        -- warning), but the marks are the user's and stay as they were (Neovim moves them with
+        -- the text, so they are read after it changed)
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, { "ab", "cd", "ef" })
+        local marks = { vim.fn.getpos("'<"), vim.fn.getpos("'>") }
+        local sent
+        jobs.capture_notify(function()
+          sent = jobs.record_sends(function()
+            type_keys(":'<,'>Terminal send selection --exec<CR>")
+          end)
+        end)
+        assert.same({}, sent, "nothing was sent for a selection that cannot be read")
+        assert.same(marks, { vim.fn.getpos("'<"), vim.fn.getpos("'>") })
+      end)
+
+      it("a failing ModeChanged autocommand of the user does not change what is sent", function()
+        type_keys("gg0l<C-v>jl<Esc>")
+        local armed = true
+        local id = vim.api.nvim_create_autocmd("ModeChanged", {
+          callback = function()
+            if armed and vim.v.event.new_mode:find("^[vV\22sS\19]") then
+              error("a plugin with a bug")
+            end
+          end,
+        })
+        local ok, text = pcall(sent_by, ":'<,'>Terminal send selection --exec<CR>")
+        armed = false
+        pcall(vim.api.nvim_del_autocmd, id)
+        assert.is_true(ok, tostring(text))
+        assert.equals("ch\nhi" .. eol(), text)
+      end)
+
+      it("with 'selectmode' cmd the round trip does not leave Select mode behind", function()
+        type_keys("gg0l<C-v>jl<Esc>")
+        local saved = vim.o.selectmode
+        vim.o.selectmode = "cmd"
+        local ok, text = pcall(sent_by, ":'<,'>Terminal send selection --exec<CR>")
+        local mode = vim.fn.mode()
+        vim.o.selectmode = saved
+        type_keys("<Esc>")
+        assert.is_true(ok, tostring(text))
+        assert.equals("ch\nhi" .. eol(), text)
+        assert.equals("n", mode, "the next typed character must not replace the block")
+      end)
+
       it("linewise: whole lines", function()
         local text = sent_by("ggVj:Terminal send selection --exec<CR>")
         assert.equals("echo hello world\nghijkl" .. eol(), text)

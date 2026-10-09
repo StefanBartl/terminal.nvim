@@ -386,8 +386,7 @@ describe("terminal.backends.native", function()
           assert.is_false(closed)
           mentions(err, "E1513")
           -- Not orphaned and not half-done: still registered, buffer and window still there,
-          -- and the job still running (the windows are dealt with first, nothing is stopped
-          -- until they are gone).
+          -- and the job still running (Neovim is asked first, nothing is stopped on a refusal).
           assert.equals(h, registry:get(h.id))
           assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
           assert.is_true(backend.visible(h))
@@ -401,6 +400,49 @@ describe("terminal.backends.native", function()
           assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
           assert.equals(file_buf, vim.api.nvim_win_get_buf(win))
         end)
+
+        -- The question "would a window have to show another buffer?" is answered before anything
+        -- is stopped, so it has to know WHICH window ends up the last one: closing one makes the
+        -- next one the last. These cases pin that arithmetic (two windows, two tabs).
+        local layouts = {
+          {
+            name = "two windows of one tab",
+            make = function(h)
+              vim.api.nvim_win_call(vim.fn.win_findbuf(h.bufnr)[1], function()
+                vim.cmd("split")
+              end)
+            end,
+          },
+          {
+            name = "two tabs, the terminal alone in each",
+            make = function(h)
+              vim.cmd("tabnew")
+              vim.api.nvim_win_set_buf(0, h.bufnr)
+            end,
+          },
+        }
+        for _, layout in ipairs(layouts) do
+          it(("close finds the window that is replaced: %s"):format(layout.name), function()
+            local h = terminal_alone()
+            layout.make(h)
+            local wins = vim.fn.win_findbuf(h.bufnr)
+            assert.equals(2, #wins)
+            jobs.settle()
+            -- the last window taken is the one that has to show another buffer
+            vim.wo[wins[#wins]].winfixbuf = true
+            local ok, closed, err = pcall(backend.close, h)
+            assert.is_true(ok, tostring(closed))
+            assert.is_false(closed)
+            mentions(err, "E1513")
+            assert.equals(-1, vim.fn.jobwait({ h.job }, 0)[1], "the command was not killed")
+            assert.equals(2, #vim.fn.win_findbuf(h.bufnr), "no window was closed")
+            -- on any other window 'winfixbuf' is no obstacle: it is simply closed
+            vim.wo[wins[#wins]].winfixbuf = false
+            vim.wo[wins[1]].winfixbuf = true
+            assert.is_true(backend.close(h))
+            assert.equals(0, registry:count())
+          end)
+        end
       end
     end)
 
@@ -472,13 +514,21 @@ describe("terminal.backends.native", function()
         assert.is_false(backend.visible(h))
         jobs.settle()
         local ok, closed, err
+        local buffers = #vim.api.nvim_list_bufs()
         under_textlock(function()
           ok, closed, err = pcall(backend.close, h)
+          -- asked again and again: the buffer the question is asked with is kept and reused
+          pcall(backend.close, h)
+          pcall(backend.close, h)
         end)
         assert.is_true(ok, tostring(closed))
         assert.is_false(closed)
         mentions(err, "E565")
         mentions(err, "cannot delete the buffer")
+        assert.is_true(
+          #vim.api.nvim_list_bufs() <= buffers + 1,
+          "three refusals leave at most one scratch buffer behind"
+        )
         -- Not left behind unknown to the registry, and not marked as removed.
         assert.equals(h, registry:get(h.id))
         assert.is_true(vim.api.nvim_buf_is_valid(h.bufnr))
@@ -490,6 +540,88 @@ describe("terminal.backends.native", function()
         assert.is_true(backend.close(h), "it works again once the lock is gone")
         assert.equals(0, registry:count())
         assert.is_false(vim.api.nvim_buf_is_valid(h.bufnr))
+      end)
+
+      -- The question is asked with a scratch buffer made and deleted again: no autocommand of the
+      -- user may see it (a BufNew handler that fails for a scratch buffer used to read as a refusal
+      -- and locked hide / close / the cleanup of an exited terminal for good).
+      it("hide and close work although a BufNew autocommand of the user fails", function()
+        local h = backend.spawn(spec({ layout = "vsplit" }))
+        jobs.settle()
+        local id = vim.api.nvim_create_autocmd("BufNew", {
+          callback = function()
+            error("a plugin with a bug")
+          end,
+        })
+        local hidden = { pcall(backend.hide, h) }
+        local closed = { pcall(backend.close, h) }
+        pcall(vim.api.nvim_del_autocmd, id)
+        assert.is_true(hidden[1] and hidden[2] == true, tostring(hidden[2]) .. tostring(hidden[3]))
+        assert.is_true(closed[1] and closed[2] == true, tostring(closed[2]) .. tostring(closed[3]))
+        assert.equals(0, registry:count())
+      end)
+
+      -- The command-line window refuses window changes and buffer deletion like a text lock does.
+      -- Entering it takes a normal-mode `q:`, which this editor's runner cannot do (it ends the
+      -- run), so a child Neovim does it and writes what hide / close answered inside it.
+      it("hide and close answer false inside the command-line window", function()
+        local this_file =
+          vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p"):gsub("\\", "/")
+        local root = this_file:match("^(.*)/TESTS/[^/]*$")
+        -- where the live scripts look for lib.nvim: the variable the runner was given, else the
+        -- directory next to this plugin
+        local lib = vim.env.LIB_NVIM_DIR or (root and (root .. "/../lib.nvim"))
+        assert.is_truthy(root and lib, "the plugin and lib.nvim are found")
+        local dir = vim.fn.tempname()
+        vim.fn.mkdir(dir, "p")
+        local script, out =
+          vim.fs.normalize(dir .. "/child.lua"), vim.fs.normalize(dir .. "/out.json")
+        vim.fn.writefile({
+          ("vim.opt.rtp:prepend(%q); vim.opt.rtp:append(%q)"):format(root, lib),
+          'local registry = require("terminal.core.registry").new()',
+          'local backend = require("terminal.backends.native").new(registry)',
+          ("local h = backend.spawn({ name = 'a', root = '/proj', cwd = %q, cmd = %s, layout = 'vsplit',"):format(
+            vim.fs.normalize(vim.fn.getcwd()),
+            vim.inspect(jobs.sleeper())
+          ),
+          "  float = {}, split = { size = 0.3 }, start_insert = false, on_exit = 'close' })",
+          "vim.wait(600)",
+          "local result = {}",
+          'vim.api.nvim_create_autocmd("CmdwinEnter", { once = true, callback = function()',
+          "  result.hide = { pcall(backend.hide, h) }",
+          "  result.close = { pcall(backend.close, h) }",
+          "end })",
+          'pcall(function() vim.cmd("normal! q:") end)',
+          "result.running = vim.fn.jobwait({ h.job }, 0)[1] == -1",
+          "result.registered = registry:get(h.id) == h",
+          ("local f = assert(io.open(%q, 'w')); f:write(vim.json.encode(result)); f:close()"):format(
+            out
+          ),
+          "vim.cmd('qa!')",
+        }, script)
+        local res = vim
+          .system({ vim.v.progpath, "-n", "-i", "NONE", "--headless", "-u", "NONE", "-l", script })
+          :wait(60000)
+        local text = vim.uv.fs_stat(out) and table.concat(vim.fn.readfile(out), "\n") or ""
+        vim.fn.delete(dir, "rf")
+        -- a plain assert: nothing below can be read without the child's answer
+        assert(
+          text ~= "",
+          ("the child wrote no answer (exit %s, root %s, lib %s): %s %s"):format(
+            tostring(res.code),
+            tostring(root),
+            tostring(lib),
+            tostring(res.stdout),
+            tostring(res.stderr)
+          )
+        )
+        local result = vim.json.decode(text)
+        assert.is_true(result.hide[1] and result.hide[2] == false, vim.inspect(result.hide))
+        mentions(result.hide[3], "E11")
+        assert.is_true(result.close[1] and result.close[2] == false, vim.inspect(result.close))
+        mentions(result.close[3], "E11")
+        assert.is_true(result.running, "the command was not killed")
+        assert.is_true(result.registered)
       end)
 
       -- The last window cannot be closed, so a buffer is made to show in it; under the lock that
@@ -554,6 +686,41 @@ describe("terminal.backends.native", function()
           assert.is_false(jobs.process_alive(pid), "the command is gone")
         end)
       end
+    end)
+
+    -- Closing a terminal's window resizes its neighbours; stopping a neighbour's job within a few
+    -- milliseconds of that killed Neovim on Windows (0xC0000005, every time: close(a); close(b) on
+    -- two running splits). No jobs.settle() between the two calls on purpose.
+    describe("running terminals next to each other", function()
+      for _, layout in ipairs({ "split", "vsplit" }) do
+        it(("close(a); close(b) back to back (%s)"):format(layout), function()
+          local a = backend.spawn(spec({ name = "a", layout = layout }))
+          jobs.settle()
+          local b = backend.spawn(spec({ name = "b", layout = layout }))
+          jobs.settle()
+          local pids = { vim.fn.jobpid(a.job), vim.fn.jobpid(b.job) }
+          local ok_a, closed_a = pcall(backend.close, a)
+          local ok_b, closed_b = pcall(backend.close, b)
+          assert.is_true(ok_a and closed_a == true, tostring(closed_a))
+          assert.is_true(ok_b and closed_b == true, tostring(closed_b))
+          assert.equals(0, registry:count())
+          for _, pid in ipairs(pids) do
+            assert.is_false(jobs.process_alive(pid), "the command is gone")
+          end
+        end)
+      end
+
+      it("hide(a); close(b) back to back", function()
+        local a = backend.spawn(spec({ name = "a", layout = "split" }))
+        jobs.settle()
+        local b = backend.spawn(spec({ name = "b", layout = "split" }))
+        jobs.settle()
+        assert.is_true(backend.hide(a))
+        local ok, closed = pcall(backend.close, b)
+        assert.is_true(ok and closed == true, tostring(closed))
+        assert.is_true(backend.close(a))
+        assert.equals(0, registry:count())
+      end)
     end)
   end)
 
