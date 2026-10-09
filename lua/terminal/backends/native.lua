@@ -287,7 +287,9 @@ function M.new(registry)
     end
     local left = LAYOUT_SETTLE_MS - (vim.uv.hrtime() - layout_changed_at) / 1e6
     if left > 0 then
-      vim.wait(math.ceil(left))
+      -- (a pause that cannot be had must not abort the close: `close` has marked the handle
+      -- disposed by now and the job would be left running)
+      pcall(vim.wait, math.ceil(left))
     end
   end
 
