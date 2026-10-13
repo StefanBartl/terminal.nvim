@@ -115,6 +115,7 @@ function M.check()
     { "lib.lua.config", "configuration" },
     { "lib.nvim.fs.normkey", "project paths" },
     { "lib.nvim.terminal", "kitty detection" },
+    { "lib.nvim.terminal.osc", "escape sequences for the status export" },
     { "lib.nvim.debounce", "status debounce" },
   }
   for _, r in ipairs(required) do

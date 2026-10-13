@@ -55,11 +55,7 @@ local function send(vars)
     return false, err
   end
   -- ONE call: a redraw between the parts would show a half-updated state.
-  local ok, serr = pcall(vim.api.nvim_ui_send, payload)
-  if not ok then
-    return false, tostring(serr)
-  end
-  return true, nil
+  return require("lib.nvim.terminal.osc").send(payload)
 end
 
 --- Publish a dataset.
