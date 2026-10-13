@@ -277,6 +277,74 @@ function M.publish(json, data)
   return true, nil
 end
 
+--- Starts a tmux command without waiting; `on_done(res)` runs on the main loop. Replaceable (specs).
+---@type fun(argv: string[], on_done: fun(res: Terminal.ExecResult)): vim.SystemObj|nil
+M.spawn = function(argv, on_done)
+  return require("terminal.core.exec").spawn(argv, { timeout = 2000 }, on_done)
+end
+
+--- The publish in flight (at most one), the newest request that arrived meanwhile, and a counter
+--- that `clear` bumps so a late answer from before the clear is ignored.
+local inflight ---@type vim.SystemObj|boolean|nil
+local pending ---@type { argv: string[], done: fun(ok: boolean, err?: string) }|nil
+local epoch = 0
+
+---@internal
+---@param argv string[]
+---@param done fun(ok: boolean, err?: string)
+local function start(argv, done)
+  local mine = epoch
+  inflight = true
+  local proc = M.spawn(argv, function(res)
+    if mine ~= epoch then
+      return
+    end
+    inflight = nil
+    local queued = pending
+    pending = nil
+    if res.code ~= 0 then
+      -- The caller switches the exporter off: a queued request would only repeat the failure.
+      done(false, vim.trim(res.stderr))
+      return
+    end
+    done(true)
+    if queued then
+      start(queued.argv, queued.done)
+    end
+  end)
+  if proc and inflight then
+    inflight = proc
+  end
+end
+
+--- Publish without blocking the editor (a mode change must not wait for tmux). One tmux process
+--- runs at a time; a request that comes while it runs replaces any earlier waiting one (the
+--- newest dataset wins), and only the requests that actually run are reported to `done`.
+---@param json string The encoded dataset
+---@param data? table The same dataset, already decoded
+---@param done fun(ok: boolean, err?: string) Called on the main loop once the process ended
+---@return boolean ok # false when the request is unusable (done is not called then)
+---@return string|nil err
+function M.publish_async(json, data, done)
+  local pane = vim.env.TMUX_PANE
+  if data == nil then
+    local ok, decoded = pcall(vim.json.decode, json)
+    if not ok or type(decoded) ~= "table" then
+      return false, "dataset is not JSON"
+    end
+    data = decoded
+  end
+  -- Set before the call: a chain that fails half-way has still written some of the options.
+  owned = true
+  local argv = command(pane, M.fields(data), false)
+  if inflight then
+    pending = { argv = argv, done = done }
+  else
+    start(argv, done)
+  end
+  return true, nil
+end
+
 --- Remove the options (this Neovim leaves the pane). Nothing to do when this instance never
 --- wrote them.
 ---@return boolean ok
@@ -286,6 +354,15 @@ function M.clear()
     return true, nil
   end
   owned = false
+  -- A publish still running must end before the options go, or it would write them back.
+  epoch = epoch + 1
+  pending = nil
+  if type(inflight) == "table" then
+    pcall(function()
+      inflight:wait(2000)
+    end)
+  end
+  inflight = nil
   local pane = vim.env.TMUX_PANE
   local res = M.run(command(pane, M.fields({}), true))
   if res.code ~= 0 then

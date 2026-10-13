@@ -134,12 +134,23 @@ function M.publish_now()
     if not runtime.off[exporter.name] and (exporter.ready == nil or exporter.ready()) then
       local key = exporter.key and exporter.key(data) or json
       if runtime.last[exporter.name] ~= key then
-        local ok, perr = exporter.publish(json, data)
-        if ok then
-          runtime.last[exporter.name] = key
+        local function settle(ok, perr)
+          if ok then
+            runtime.last[exporter.name] = key
+          else
+            runtime.off[exporter.name] = true
+            warn(("status exporter '%s' switched off: %s"):format(exporter.name, perr or "?"))
+          end
+        end
+        if exporter.publish_async then
+          -- Not blocking: the answer arrives later and `settle` runs then. An unusable request is
+          -- answered at once.
+          local started, aerr = exporter.publish_async(json, data, settle)
+          if not started then
+            settle(false, aerr)
+          end
         else
-          runtime.off[exporter.name] = true
-          warn(("status exporter '%s' switched off: %s"):format(exporter.name, perr or "?"))
+          settle(exporter.publish(json, data))
         end
       end
     end

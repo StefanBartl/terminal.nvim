@@ -25,6 +25,8 @@ function M.default_runner(argv, opts)
   return require("terminal.core.exec").run(argv, opts)
 end
 
+local REAL_RUNNER = M.default_runner
+
 ---@internal
 --- Whether a decoded JSON value is an object with at least one field (`{"a":1}`): not a list
 --- (`[1]`), not a scalar. An object of nothing but nulls decodes to an empty table, which cannot
@@ -103,10 +105,7 @@ function M.new(registry, runner, own_pane)
   ---@param opts? Terminal.ExecOpts
   ---@return Terminal.WezTermRun|nil run
   ---@return string|nil err
-  local function cli(args, opts)
-    local argv = { "wezterm", "cli" }
-    vim.list_extend(argv, args)
-    local res = runner(argv, opts)
+  local function checked(args, res)
     if res.code ~= 0 then
       local why = vim.trim(res.stderr ~= "" and res.stderr or res.stdout)
       return nil,
@@ -117,6 +116,36 @@ function M.new(registry, runner, own_pane)
         )
     end
     return res, nil
+  end
+
+  ---@internal
+  ---@param args string[] Arguments after `wezterm cli`
+  ---@param opts? Terminal.ExecOpts
+  ---@return Terminal.WezTermRun|nil run
+  ---@return string|nil err
+  local function cli(args, opts)
+    local argv = { "wezterm", "cli" }
+    vim.list_extend(argv, args)
+    return checked(args, runner(argv, opts))
+  end
+
+  ---@internal
+  --- Like `cli`, without blocking: `on_done(res, err)` runs on the main loop. With an injected
+  --- runner (specs) the runner is called from a scheduled callback instead of a process.
+  ---@param args string[]
+  ---@param on_done fun(res: Terminal.WezTermRun|nil, err: string|nil)
+  local function cli_async(args, on_done)
+    local argv = { "wezterm", "cli" }
+    vim.list_extend(argv, args)
+    if runner == REAL_RUNNER then
+      require("terminal.core.exec").spawn(argv, nil, function(res)
+        on_done(checked(args, res))
+      end)
+    else
+      vim.schedule(function()
+        on_done(checked(args, runner(argv)))
+      end)
+    end
   end
 
   ---@internal
@@ -348,6 +377,15 @@ function M.new(registry, runner, own_pane)
       return nil, err
     end
     return res.stdout, nil
+  end
+
+  --- `capture` without blocking the editor.
+  ---@param handle Terminal.Handle
+  ---@param on_done fun(text: string|nil, err: string|nil)
+  function backend.capture_async(handle, on_done)
+    cli_async({ "get-text", "--pane-id", handle.pane }, function(res, err)
+      on_done(res and res.stdout or nil, err)
+    end)
   end
 
   --- A pane cannot be hidden; "hide" gives focus back to Neovim's own pane.

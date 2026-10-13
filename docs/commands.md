@@ -39,7 +39,8 @@ then on `toggle`, `send`, `close` act on the pane. The backend is tmux inside tm
 
 `adopt` shows a pane's screen (`wezterm cli get-text` / `tmux capture-pane -p`) in a read-only
 buffer named `terminal://<backend>/<pane>/<name>`. It is a *view*: it refreshes once a second
-while visible and says so when the pane is gone. Control characters in the text are replaced.
+while visible (the first picture is taken at once, the refreshes do not block the editor) and says so
+when the pane is gone. Control characters in the text are replaced.
 
 ## What `send selection` sends
 

@@ -87,6 +87,8 @@ function M.default_runner(argv, opts)
   return require("terminal.core.exec").run(argv, opts)
 end
 
+local REAL_RUNNER = M.default_runner
+
 --- Whether `tmux` can be used from here.
 ---@param env table<string, string|nil>
 ---@return boolean ok
@@ -125,19 +127,53 @@ function M.new(registry, runner, own_pane, opts)
   ---@param args string[] Arguments after `tmux`
   ---@return Terminal.TmuxRun|nil
   ---@return string|nil err
-  local function tmux(args)
+  local function argv_of(args)
     local argv = { "tmux" }
     if opts.socket then
       vim.list_extend(argv, { "-L", opts.socket })
     end
     vim.list_extend(argv, args)
-    local res = runner(argv)
+    return argv
+  end
+
+  ---@internal
+  ---@param args string[]
+  ---@param res Terminal.TmuxRun
+  ---@return Terminal.TmuxRun|nil
+  ---@return string|nil err
+  local function checked(args, res)
     if res.code ~= 0 then
       local why = vim.trim(res.stderr ~= "" and res.stderr or res.stdout)
       return nil,
         ("tmux %s failed (%d): %s"):format(args[1], res.code, why ~= "" and why or "no output")
     end
     return res, nil
+  end
+
+  ---@internal
+  ---@param args string[] Arguments after `tmux`
+  ---@return Terminal.TmuxRun|nil
+  ---@return string|nil err
+  local function tmux(args)
+    return checked(args, runner(argv_of(args)))
+  end
+
+  ---@internal
+  --- Like `tmux`, without blocking: `on_done(res, err)` runs on the main loop. With an injected
+  --- runner (specs) the runner is called from a scheduled callback instead of a process.
+  ---@param args string[]
+  ---@param on_done fun(res: Terminal.TmuxRun|nil, err: string|nil)
+  local function tmux_async(args, on_done)
+    local argv = argv_of(args)
+    if runner == REAL_RUNNER then
+      require("terminal.core.exec").spawn(argv, nil, function(res)
+        on_done(checked(args, res))
+      end)
+    else
+      vim.schedule(function()
+        on_done(checked(args, runner(argv)))
+      end)
+    end
   end
 
   ---@internal
@@ -373,6 +409,15 @@ function M.new(registry, runner, own_pane, opts)
       return nil, err
     end
     return res.stdout, nil
+  end
+
+  --- `capture` without blocking the editor.
+  ---@param handle Terminal.Handle
+  ---@param on_done fun(text: string|nil, err: string|nil)
+  function backend.capture_async(handle, on_done)
+    tmux_async({ "capture-pane", "-p", "-t", handle.pane }, function(res, err)
+      on_done(res and res.stdout or nil, err)
+    end)
   end
 
   --- A pane cannot be hidden; "hide" gives focus back to Neovim's own pane.

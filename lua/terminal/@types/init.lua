@@ -298,6 +298,7 @@
 ---@field ping? fun(): boolean, string|nil Whether the multiplexer answers right now (`pin` asks before it ends a terminal)
 ---@field preflight? fun(spec: Terminal.SpawnSpec): boolean, string|nil What the backend refuses to start, without side effects (multiplexer backends: `env`)
 ---@field capture? fun(handle: Terminal.Handle): string|nil, string|nil Screen text (multiplexer panes only)
+---@field capture_async? fun(handle: Terminal.Handle, on_done: fun(text: string|nil, err: string|nil)) `capture` without blocking; `on_done` runs on the main loop
 ---@field visible? fun(handle: Terminal.Handle): boolean|nil nil = could not be asked (a multiplexer that did not answer); never "gone"
 ---@field focused? fun(handle: Terminal.Handle): boolean
 ---@field probe? fun(handle: Terminal.Handle): Terminal.Probe|nil, string|nil Both in one query; nil = could not be asked

@@ -85,3 +85,38 @@ describe("terminal.core.exec", function()
     assert.equals(word, res.stdout)
   end)
 end)
+
+describe("terminal.core.exec.spawn", function()
+  it("does not wait and reports the same result table from the main loop", function()
+    local got
+    local proc = exec.spawn(
+      nvim("lua io.stdout:write('out'); vim.cmd('cquit 4')"),
+      SLOW,
+      function(res)
+        got = res
+      end
+    )
+    assert.is_not_nil(proc)
+    assert.is_nil(got, "the callback ran before the process could have ended")
+    assert.is_true(vim.wait(20000, function()
+      return got ~= nil
+    end, 20))
+    assert.equals(4, got.code)
+    assert.truthy(got.stdout:find("out", 1, true), vim.inspect(got))
+  end)
+
+  it("a program that does not exist is code 127, answered later and never raised", function()
+    local got
+    local ok, proc = pcall(exec.spawn, { "terminal-nvim-no-such-program-xyz" }, nil, function(res)
+      got = res
+    end)
+    assert.is_true(ok, tostring(proc))
+    assert.is_nil(proc)
+    assert.is_nil(got, "answered synchronously")
+    assert.is_true(vim.wait(2000, function()
+      return got ~= nil
+    end, 10))
+    assert.equals(127, got.code)
+    assert.is_true(#got.stderr > 0)
+  end)
+end)

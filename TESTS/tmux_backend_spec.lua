@@ -1019,3 +1019,121 @@ describe("terminal facade with the tmux backend", function()
     assert.equals("git status --short", (state.keys[#state.keys]:gsub("[\r\n]+$", "")))
   end)
 end)
+
+describe("tmux status exporter: publish_async", function()
+  local saved_spawn, saved_pane
+  local started ---@type { argv: string[], finish: fun(code: integer, stderr?: string) }[]
+
+  before_each(function()
+    saved_spawn, saved_pane = exporter.spawn, vim.env.TMUX_PANE
+    vim.env.TMUX_PANE = "%9"
+    started = {}
+    -- Test double: a spawn that only records; the spec decides when each "process" ends.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exporter.spawn = function(argv, on_done)
+      started[#started + 1] = {
+        argv = argv,
+        finish = function(code, stderr)
+          on_done({ code = code, stdout = "", stderr = stderr or "" })
+        end,
+      }
+      return { wait = function() end }
+    end
+  end)
+
+  after_each(function()
+    exporter.clear()
+    exporter.spawn, vim.env.TMUX_PANE = saved_spawn, saved_pane
+  end)
+
+  local function publish(mode, done)
+    return exporter.publish_async(vim.json.encode({ mode = mode }), nil, done or function() end)
+  end
+
+  it("returns before the process ends", function()
+    local reported
+    assert.is_true((publish("n", function(ok)
+      reported = ok
+    end)))
+    assert.equals(1, #started)
+    assert.equals("%9", started[1].argv[5])
+    assert.is_nil(reported)
+    started[1].finish(0)
+    assert.is_true(reported)
+  end)
+
+  it("runs one process at a time and only the newest waiting dataset follows", function()
+    local seen = {}
+    local function done(name)
+      return function(ok)
+        seen[#seen + 1] = name .. (ok and "+" or "-")
+      end
+    end
+    publish("n", done("a"))
+    publish("i", done("b"))
+    publish("v", done("c"))
+    assert.equals(1, #started, "a second process started while the first ran")
+    started[1].finish(0)
+    assert.equals(2, #started, "the waiting dataset did not follow")
+    assert.truthy(vim.tbl_contains(started[2].argv, "v"), vim.inspect(started[2].argv))
+    started[2].finish(0)
+    assert.same({ "a+", "c+" }, seen, "the replaced request must not be reported")
+    assert.equals(2, #started)
+  end)
+
+  it("a failure is reported and drops the waiting request", function()
+    local seen = {}
+    publish("n", function(ok, err)
+      seen[#seen + 1] = tostring(ok) .. ":" .. tostring(err)
+    end)
+    publish("i", function() end)
+    started[1].finish(1, " no server \n")
+    assert.same({ "false:no server" }, seen)
+    assert.equals(1, #started, "a request was started after a failure")
+  end)
+
+  it("an unusable dataset is refused at once", function()
+    local ok, err = exporter.publish_async("not json", nil, function() end)
+    assert.is_false(ok)
+    assert.truthy(err)
+    assert.equals(0, #started)
+  end)
+
+  it("clear waits for the running process and ignores its late answer", function()
+    local waited, reported = false, false
+    -- Test double: a process that can be waited for.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exporter.spawn = function(argv, on_done)
+      started[#started + 1] = {
+        argv = argv,
+        finish = function(code)
+          on_done({ code = code, stdout = "", stderr = "" })
+        end,
+      }
+      return {
+        wait = function()
+          waited = true
+        end,
+      }
+    end
+    local saved_run = exporter.run
+    local unset
+    -- Test double: records the unset command instead of running tmux.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exporter.run = function(argv)
+      unset = argv
+      return { code = 0, stderr = "" }
+    end
+    publish("n", function()
+      reported = true
+    end)
+    publish("i", function() end)
+    exporter.clear()
+    exporter.run = saved_run
+    assert.is_true(waited)
+    assert.truthy(unset and vim.tbl_contains(unset, "-u"), vim.inspect(unset))
+    started[1].finish(0)
+    assert.is_false(reported, "an answer from before the clear was acted on")
+    assert.equals(1, #started, "the waiting request started after the clear")
+  end)
+end)

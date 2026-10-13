@@ -3,8 +3,9 @@
 --- multiplexer backends, the tmux status exporter and `:checkhealth`: they all need the same
 --- "start it, wait with a timeout, never raise" wrapper, so it exists once.
 ---
---- Nothing here is asynchronous: the caller is blocked for at most `timeout`. Fire-and-forget
---- processes (`navigate`) and the Kitty padding restore at exit use `vim.system` directly.
+--- `run` blocks the caller for at most `timeout`; `spawn` does not block and reports the same
+--- result table from the main loop when the process ends. Fire-and-forget processes (`navigate`)
+--- and the Kitty padding restore at exit use `vim.system` directly.
 
 local M = {}
 
@@ -44,12 +45,44 @@ function M.run(argv, opts)
     -- short timeout, or a child that survives SIGKILL for the whole timeout again).
     return { code = 124, stdout = "", stderr = "timed out" }
   end
+  return M.result(res)
+end
+
+--- The result table for a finished `vim.system` object.
+---@param res vim.SystemCompleted
+---@return Terminal.ExecResult
+function M.result(res)
   local code = res.code
   if code == 0 and (res.signal or 0) ~= 0 then
     -- A program that a signal ended (the OOM killer, SIGHUP at logout) did not succeed.
     code = 128 + res.signal
   end
   return { code = code, stdout = res.stdout or "", stderr = res.stderr or "" }
+end
+
+--- Start `argv` (never a shell string) without waiting. `on_done` gets the same result as `run`,
+--- on the main loop (never inside a fast event), also when the command could not be started.
+---@param argv string[]
+---@param opts? Terminal.ExecOpts
+---@param on_done fun(res: Terminal.ExecResult)
+---@return vim.SystemObj|nil process # nil when it could not be started
+function M.spawn(argv, opts, on_done)
+  opts = opts or {}
+  local ok, proc = pcall(
+    vim.system,
+    argv,
+    { text = true, stdin = opts.stdin, timeout = opts.timeout or M.DEFAULT_TIMEOUT_MS },
+    vim.schedule_wrap(function(res)
+      on_done(M.result(res))
+    end)
+  )
+  if not ok then
+    vim.schedule(function()
+      on_done({ code = 127, stdout = "", stderr = tostring(proc) })
+    end)
+    return nil
+  end
+  return proc
 end
 
 return M

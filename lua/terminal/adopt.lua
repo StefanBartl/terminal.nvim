@@ -1,7 +1,8 @@
 ---@module 'terminal.adopt'
 --- `adopt`: a multiplexer terminal's screen in a read-only buffer -- a *view*, not a transfer.
 ---
---- The buffer refreshes once a second while it is visible and stops when the pane is gone. The text
+--- The buffer refreshes once a second while it is visible and stops when the pane is gone. The
+--- first picture is taken synchronously; the refreshes do not block the editor. The text
 --- is whatever the multiplexer reports for the pane, with control characters replaced.
 ---
 --- Loaded by the facade (`terminal.adopt(target)` calls `run`); it needs the facade's internals
@@ -90,14 +91,11 @@ function M.run(host, target)
     return nil, err
   end
 
-  --- One refresh; false when the view is over (buffer gone, or the pane cannot be captured).
-  local function refresh()
-    if not vim.api.nvim_buf_is_valid(buf) then
-      return false
-    end
-    local text, cerr = capture(handle)
-    -- The capture blocks (up to the CLI timeout) and lets scheduled callbacks run: the buffer may
-    -- have been wiped meanwhile.
+  --- Show a capture; false when the view is over (buffer gone, or the pane cannot be captured).
+  ---@param text string|nil
+  ---@param cerr string|nil
+  ---@return boolean
+  local function apply(text, cerr)
     if not vim.api.nvim_buf_is_valid(buf) then
       return false
     end
@@ -107,7 +105,10 @@ function M.run(host, target)
     vim.bo[buf].modifiable = false
     return text ~= nil
   end
-  refresh()
+
+  -- The first picture is taken synchronously, so the buffer has content when `adopt` returns (a
+  -- command the user just typed); every later refresh runs without blocking the editor.
+  apply(capture(handle))
 
   -- A one-shot timer, armed again only after the refresh has ended: no overlapping captures, and
   -- `stop` is safe to call twice (closing a closed handle raises).
@@ -125,6 +126,11 @@ function M.run(host, target)
       end
     end
     local tick
+    local function rearm()
+      if not done then
+        timer:start(REFRESH_MS, 0, tick)
+      end
+    end
     tick = vim.schedule_wrap(function()
       if done then
         return
@@ -132,11 +138,24 @@ function M.run(host, target)
       if not vim.api.nvim_buf_is_valid(buf) then
         return stop()
       end
-      if #vim.fn.win_findbuf(buf) > 0 and not refresh() then
-        return stop()
+      if #vim.fn.win_findbuf(buf) == 0 then
+        return rearm()
       end
-      if not done then
-        timer:start(REFRESH_MS, 0, tick)
+      if b.capture_async then
+        b.capture_async(handle, function(text, cerr)
+          if done then
+            return
+          end
+          if not apply(text, cerr) then
+            return stop()
+          end
+          rearm()
+        end)
+      else
+        if not apply(capture(handle)) then
+          return stop()
+        end
+        rearm()
       end
     end)
     timer:start(REFRESH_MS, 0, tick)

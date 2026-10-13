@@ -612,3 +612,80 @@ describe("terminal.status (publishing)", function()
     assert.equals("tmux", named[1].name)
   end)
 end)
+
+describe("terminal.status with an asynchronous exporter", function()
+  local publisher, fake, answers
+  local original_uis
+
+  before_each(function()
+    package.loaded["terminal.status"] = nil
+    publisher = require("terminal.status")
+    original_uis = vim.api.nvim_list_uis
+    -- Test double: pretends that one UI is attached.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.api.nvim_list_uis = function()
+      return { {} }
+    end
+    answers = {}
+    fake = {
+      name = "wezterm",
+      requests = 0,
+      available = function()
+        return true
+      end,
+      -- Test double: an exporter whose answer arrives when the spec says so.
+      publish_async = function(_, _, done)
+        fake.requests = fake.requests + 1
+        answers[#answers + 1] = done
+        return true
+      end,
+      clear = function()
+        return true
+      end,
+    }
+    package.loaded["terminal.status.exporters.wezterm"] = fake
+  end)
+
+  after_each(function()
+    vim.api.nvim_list_uis = original_uis
+    publisher.clear()
+    pcall(vim.api.nvim_del_augroup_by_name, "terminal.status")
+    package.loaded["terminal.status.exporters.wezterm"] = nil
+  end)
+
+  local function start()
+    publisher.setup(
+      { status = { enable = true, export = "auto", debounce_ms = 5, max_bytes = 1024 } },
+      { WEZTERM_PANE = "3" }
+    )
+  end
+
+  it("takes the dataset as published only once the answer says so", function()
+    start()
+    publisher.publish_now()
+    assert.equals(1, fake.requests)
+    publisher.publish_now() -- the answer is still out: the same dataset is asked for again
+    assert.equals(2, fake.requests)
+    answers[2](true)
+    publisher.publish_now() -- now it is the last published one
+    assert.equals(2, fake.requests)
+  end)
+
+  it("switches the exporter off when the answer is a failure", function()
+    start()
+    publisher.publish_now()
+    answers[1](false, "boom")
+    assert.same({}, publisher.active())
+    publisher.publish_now()
+    assert.equals(1, fake.requests)
+  end)
+
+  it("an unusable request switches it off at once", function()
+    start()
+    fake.publish_async = function()
+      return false, "dataset is not JSON"
+    end
+    publisher.publish_now()
+    assert.same({}, publisher.active())
+  end)
+end)
