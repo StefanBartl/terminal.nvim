@@ -24,4 +24,6 @@ return {
     -- The native backend starts real shell jobs in specs that exercise it, so process_net stays
     -- at its default; specs for the pure core never start one.
   },
+  -- gated: a failed conformance check makes `scripts/test.sh conformance` exit 1 (docs/CONFORMANCE.md of testing.nvim)
+  conformance = { gate = true },
 }
