@@ -13,7 +13,6 @@ the plugin manager's folder) and exits non-zero when anything is missing or red.
 |---|---|
 | `config_spec.lua` | defaults, merge, validation (event names included) |
 | `layout_spec.lua` | pure window geometry |
-| `quote_spec.lua` | shell quoting for POSIX / PowerShell / cmd.exe / "portable", hostile words |
 | `registry_spec.lua` | registry, project/name resolution, backend detection |
 | `native_spec.lua` | the native backend on real windows and jobs |
 | `api_spec.lua` | the public facade on the native backend |

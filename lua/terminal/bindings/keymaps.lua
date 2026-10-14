@@ -27,7 +27,7 @@ local function clear_screen()
     return
   end
   local kind =
-    require("terminal.core.quote").shell_kind(require("terminal.config").shell_executable())
+    require("lib.nvim.cross.shell_quote").shell_kind(require("terminal.config").shell_executable())
   vim.fn.chansend(job, { (kind == "cmd" or kind == "powershell") and "cls" or "clear", "" })
 end
 

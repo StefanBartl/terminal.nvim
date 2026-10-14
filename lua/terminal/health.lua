@@ -115,6 +115,8 @@ function M.check()
     { "lib.lua.config", "configuration" },
     { "lib.nvim.fs.normkey", "project paths" },
     { "lib.nvim.terminal", "kitty detection" },
+    { "lib.nvim.cross.shell_quote", "quoting for the typed command line" },
+    { "lib.nvim.cross.platform.is_windows", "platform checks" },
     { "lib.nvim.terminal.osc", "escape sequences for the status export" },
     { "lib.nvim.debounce", "status debounce" },
   }

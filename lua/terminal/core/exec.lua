@@ -7,6 +7,9 @@
 --- result table from the main loop when the process ends. Fire-and-forget processes (`navigate`)
 --- and the Kitty padding restore at exit use `vim.system` directly.
 
+-- Not `lib.nvim.cross.run_argv`: its timeout kills the whole process tree with a grace period
+-- (measured on Windows: a 300 ms limit took 1.2 s to return), and `run` blocks the editor. The
+-- result codes below are the same ones (124, 128 + signal).
 local M = {}
 
 ---@class Terminal.ExecResult

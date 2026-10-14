@@ -397,10 +397,10 @@ function M.setup()
   local terminal = require("terminal")
   register_name_types(composer)
   line_names_marks = false
-  vim.api.nvim_create_autocmd("CmdlineLeave", {
-    group = vim.api.nvim_create_augroup("terminal.usrcmds", { clear = true }),
+  local autocmd = require("lib.nvim.bindings.autocmd")
+  autocmd.create("CmdlineLeave", note_command_line, {
+    group = autocmd.group("terminal.usrcmds", true),
     pattern = ":",
-    callback = note_command_line,
     desc = "terminal.nvim: note whether :Terminal send selection was given the '<,'> range",
   })
 

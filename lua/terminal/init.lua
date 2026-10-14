@@ -541,7 +541,7 @@ local function send_impl(text, opts, at)
   end
   local payload = text
   if opts.newline then
-    payload = payload .. (vim.fn.has("win32") == 1 and "\r" or "\n")
+    payload = payload .. (require("lib.nvim.cross.platform.is_windows")() and "\r" or "\n")
   end
   local ok, serr = backend_of(handle).send(handle, payload)
   if not ok then
@@ -599,12 +599,12 @@ end
 --- ("portable"); anything else is refused instead of quoted for the wrong shell.
 ---@param at Terminal.Resolved
 ---@param default Terminal.Backend
----@return Terminal.ShellKind
+---@return Lib.ShellKind
 local function line_shell_kind(at, default)
   local existing = find_live(at.root, at.name)
   local owner = existing and existing.backend or default.name
   if config.shell_command() ~= nil or owner == "native" then
-    return require("terminal.core.quote").shell_kind(config.shell_executable())
+    return require("lib.nvim.cross.shell_quote").shell_kind(config.shell_executable())
   end
   return "portable"
 end
@@ -697,7 +697,7 @@ local function run_line(b, cmd, opts, at)
   local line
   if type(cmd) == "table" then
     local qerr
-    line, qerr = require("terminal.core.quote").argv_to_line(cmd, line_shell_kind(at, b))
+    line, qerr = require("lib.nvim.cross.shell_quote").argv_to_line(cmd, line_shell_kind(at, b))
     if not line then
       local err = "run: " .. (qerr or "cannot quote the command")
       fail(err)
@@ -741,7 +741,7 @@ function M.run(cmd, opts)
   if opts.direct then
     -- Counted past a hole (`{ "git", "clean", nil, "--dry-run" }`): `#` and `ipairs` stop at it,
     -- and the words behind it would be dropped without a sound.
-    local count = require("terminal.core.quote").arg_count(cmd)
+    local count = require("lib.nvim.cross.shell_quote").arg_count(cmd)
     if count == 0 then
       local err = "run: `direct` needs a non-empty argv list"
       fail(err)

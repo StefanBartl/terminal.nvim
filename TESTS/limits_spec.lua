@@ -6,7 +6,7 @@
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
 dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
 
-local quote = require("terminal.core.quote")
+local quote = require("lib.nvim.cross.shell_quote")
 local status = require("terminal.core.status")
 
 --- The quadratic pattern code that `basename` and the cmd.exe quoting replaced, kept here as the

@@ -53,7 +53,7 @@ multiple setups cannot leak into each other.
 ## Design notes
 
 - **Quoting is its own pure module.** `run` with an argv never builds a line from an
-  unquoted string; `core/quote.lua` is tested against hostile words for each shell family.
+  unquoted string; `lib.nvim.cross.shell_quote` (the quoting itself, shared with other plugins) is tested against hostile words for each shell family, here with property specs and a real PowerShell.
 - **`send` types, it does not execute**, unless asked (`newline = true` / `--exec`).
 - **Teardown order:** closing a terminal first asks whether Neovim will let its windows and its
   buffer go (a text lock, the command-line window, `winfixbuf` on the window that would have to

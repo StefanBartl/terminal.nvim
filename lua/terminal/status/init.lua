@@ -193,7 +193,8 @@ local EVENTS = {
 ---@return nil
 function M.setup(cfg, env)
   M.clear()
-  local group = vim.api.nvim_create_augroup("terminal.status", { clear = true })
+  local autocmd = require("lib.nvim.bindings.autocmd")
+  local group = autocmd.group("terminal.status", true)
   runtime.exporters = {}
   runtime.off = {}
   runtime.oversize = false
@@ -219,40 +220,37 @@ function M.setup(cfg, env)
   end
 
   runtime.debounce = require("lib.nvim.debounce").new(M.publish_now, cfg.status.debounce_ms)
-  vim.api.nvim_create_autocmd(EVENTS, {
+  autocmd.create(EVENTS, function()
+    runtime.debounce.call()
+  end, {
     group = group,
-    callback = function()
-      runtime.debounce.call()
-    end,
     desc = "terminal.nvim: publish the status dataset",
   })
   -- A UI that attaches (after startup: a GUI client, `:connect`, a new WezTerm pane after
   -- `:detach`) is a new terminal that has seen nothing yet: what could not be published without
   -- one goes out now, and so does what was published to the UI before it -- the delta gate must
   -- not hold it back.
-  vim.api.nvim_create_autocmd("UIEnter", {
+  autocmd.create("UIEnter", function()
+    runtime.last = {}
+    runtime.debounce.call()
+  end, {
     group = group,
-    callback = function()
-      runtime.last = {}
-      runtime.debounce.call()
-    end,
     desc = "terminal.nvim: send the status to a newly attached UI",
   })
-  vim.api.nvim_create_autocmd("VimLeavePre", {
+  autocmd.create("VimLeavePre", M.clear, {
     group = group,
-    callback = M.clear,
     desc = "terminal.nvim: clear the published status",
   })
   -- First publication once the UI is up (setup() may run before it).
   if vim.v.vim_did_enter == 1 then
     runtime.debounce.call()
   else
-    vim.api.nvim_create_autocmd("VimEnter", {
+    autocmd.create("VimEnter", function()
+      runtime.debounce.call()
+    end, {
       group = group,
       once = true,
-      callback = function()
-        runtime.debounce.call()
-      end,
+      desc = "terminal.nvim: first status publication",
     })
   end
 end

@@ -282,7 +282,7 @@ function M.new(registry)
   --- Windows only: let the last layout change be `LAYOUT_SETTLE_MS` old before a job is stopped (see
   --- there). Elsewhere, and when nothing changed lately, it returns at once.
   local function settle_layout()
-    if fn.has("win32") ~= 1 then
+    if not require("lib.nvim.cross.platform.is_windows")() then
       return
     end
     local left = LAYOUT_SETTLE_MS - (vim.uv.hrtime() - layout_changed_at) / 1e6

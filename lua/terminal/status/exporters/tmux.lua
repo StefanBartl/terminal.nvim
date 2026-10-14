@@ -78,7 +78,7 @@ M.parent_of = function(pid)
     end
   end
   -- Not on Windows: a `ps` there (Git Bash) numbers processes in its own namespace.
-  if vim.fn.has("win32") == 0 and vim.fn.executable("ps") == 1 then
+  if not require("lib.nvim.cross.platform.is_windows")() and vim.fn.executable("ps") == 1 then
     -- One second: `ps` answers at once, the limit only bounds a hang.
     local res = require("terminal.core.exec").run(
       { "ps", "-o", "ppid=", "-p", tostring(pid) },

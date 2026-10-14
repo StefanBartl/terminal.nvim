@@ -7,7 +7,7 @@
 -- Hermetic: no multiplexer variables from the terminal the specs are run in.
 dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/env.lua").isolate()
 
-local quote = require("terminal.core.quote")
+local quote = require("lib.nvim.cross.shell_quote")
 local osc = require("terminal.core.osc")
 local status = require("terminal.core.status")
 
@@ -225,7 +225,7 @@ describe("the property generator", function()
   end)
 end)
 
-describe("terminal.core.quote (property)", function()
+describe("lib.nvim.cross.shell_quote (property)", function()
   it("posix: whatever the words, a POSIX shell parses the line back to the same words", function()
     local rand = xorshift(20261007)
     for _ = 1, 400 do
@@ -513,7 +513,7 @@ local POWERSHELL_WORDS = {
   "a\226\128\139b\\",
 }
 
-describe("terminal.core.quote against the real PowerShell (property)", function()
+describe("lib.nvim.cross.shell_quote against the real PowerShell (property)", function()
   local to_line = function(argv)
     return quote.argv_to_line(argv, "powershell")
   end
