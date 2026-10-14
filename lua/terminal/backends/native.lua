@@ -301,32 +301,37 @@ function M.new(registry)
   --- Why Neovim refuses, right now, to close windows or delete buffers; nil when it does not. It
   --- refuses both under a text lock (an `<expr>` mapping, E565) and in the command-line window
   --- (E11), and the only way to know is to ask with a buffer nobody cares about: a terminal must
-  --- not be stopped first and found undeletable afterwards. The probe runs under `:noautocmd`: a
+  --- not be stopped first and found undeletable afterwards. The probe runs with every event ignored: a
   --- `BufNew` handler of the user that fails for a scratch buffer must not read as a refusal, and
   --- none of them should see a buffer that is made and gone within a call. When the question
   --- cannot be asked at all the answer is "no obstacle known": the real operation then answers.
   ---@return string|nil reason Neovim's own words
   local function editing_blocked()
+    -- No autocommand may see the probe buffer: 'eventignore' is what `:noautocmd` sets, and unlike
+    -- parsing the output of an `:echo` (empty on Neovim 0.11, which left the question unasked and
+    -- the job stopped before the refusal came) it works the same on every version.
+    local saved = vim.o.eventignore
+    vim.o.eventignore = "all"
+    local blocked
     if not (probe_buf and api.nvim_buf_is_valid(probe_buf)) then
-      local made, res =
-        pcall(api.nvim_exec2, "noautocmd echo nvim_create_buf(v:false, v:true)", { output = true })
-      local buf = made and tonumber(res.output) or nil
-      if not buf then
-        return nil
+      local made, buf = pcall(api.nvim_create_buf, false, true)
+      if made and buf and buf > 0 then
+        probe_buf = buf
+      else
+        probe_buf = nil
       end
-      probe_buf = buf
     end
-    local deleted, err = pcall(
-      api.nvim_exec2,
-      ("noautocmd call nvim_buf_delete(%d, {'force': v:true})"):format(probe_buf),
-      {}
-    )
-    if deleted then
-      probe_buf = nil
-      return nil
+    if probe_buf then
+      local deleted, err = pcall(api.nvim_buf_delete, probe_buf, { force = true })
+      if deleted then
+        probe_buf = nil
+      else
+        -- "E565: Not allowed to change text or change window": keep the code and its words
+        blocked = tostring(err):match(".*(E%d+: .*)$") or tostring(err)
+      end
     end
-    -- "nvim_exec2(), line 1: Vim(call):E5555: API call: E565: Not allowed ...": keep the last code
-    return tostring(err):match(".*(E%d+: .*)$") or tostring(err)
+    vim.o.eventignore = saved
+    return blocked
   end
 
   ---@internal

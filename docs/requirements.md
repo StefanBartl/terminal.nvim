@@ -32,3 +32,8 @@ quoted like POSIX shells, set `shell`). Specs that only make sense on one platfo
 registered elsewhere; the runner never counts a skip as a pass. The `0xC0000005` crash that
 Neovim 0.12 on Windows shows when a running terminal is closed in the wrong order is guarded by
 the teardown order in `architecture.md`; it cannot be reproduced on the other platforms.
+
+Known, not covered by CI: on **Windows with Neovim 0.11.0** the editor itself died with
+`0xC0000005` in the specs that close running terminals (`bindings_spec`, `native_spec`; measured
+2026-10-14 with the 0.11.0 release build). The CI minimum run is therefore Linux only; on Windows
+use 0.12 or newer.

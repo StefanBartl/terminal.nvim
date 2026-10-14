@@ -822,10 +822,15 @@ describe("terminal bindings", function()
         assert.equals("echo hello world\nghijkl" .. eol(), text)
       end)
 
-      it("a command-line modifier in front of the range changes nothing", function()
-        assert.equals("hello", sent_by("gg0wviw:silent Terminal send selection<CR>"))
-        assert.equals("hello", sent_by("gg0wviw:keepjumps Terminal send selection<CR>"))
-      end)
+      -- Neovim 0.12 files a modifier typed in Visual mode in front of the range (`silent:'<,'>cmd`).
+      -- 0.11 leaves the range first (`'<,'>silent cmd`) and refuses that itself with E481, so there
+      -- is no command line to test there.
+      if vim.fn.has("nvim-0.12") == 1 then
+        it("a command-line modifier in front of the range changes nothing", function()
+          assert.equals("hello", sent_by("gg0wviw:silent Terminal send selection<CR>"))
+          assert.equals("hello", sent_by("gg0wviw:keepjumps Terminal send selection<CR>"))
+        end)
+      end
 
       it("the range typed as * (Neovim's alias for '<,'>) is the selection too", function()
         assert.equals("hello", sent_by("gg0wviw<Esc>:*Terminal send selection<CR>"))
