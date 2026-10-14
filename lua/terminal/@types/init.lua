@@ -333,4 +333,20 @@
 ---@field show? fun(handle: Terminal.Handle, spec: Terminal.SpawnSpec): boolean, string|nil
 ---@field hide? fun(handle: Terminal.Handle): boolean, string|nil
 
+-- ---------------------------------------------------------------------------
+-- pin.lua
+
+---@class Terminal.PinOpts
+---@field backend? "tmux"|"wezterm" Where to start it (default: tmux inside tmux, else wezterm)
+---@field layout? Terminal.Layout Default `pin.layout` ("vsplit")
+
+---@class Terminal.PinPlan
+---@field name string
+---@field cwd string
+---@field root string
+---@field handle Terminal.Handle The native terminal that is replaced
+---@field backend Terminal.Backend The multiplexer that takes over
+---@field spec Terminal.SpawnSpec What the pane is started with
+---@field restore Terminal.SpawnSpec What starts the native terminal again if the pane cannot be
+
 return {}

@@ -18,10 +18,6 @@ local MAX_REMEMBERED = 64
 --- of the old `HEAD` can notice -- so it is asked again after this long.
 local MEMO_MS = 2000
 
----@class Terminal.HeadMemo
----@field path string|false The `.git/HEAD` of the repository that contains the directory; false: there is none (no repository, or its `.git` is a file)
----@field at number `now_ms()` when the walk was made
-
 ---@internal
 --- Directory -> the answer of its last root walk, positive or negative: a directory outside any
 --- repository would otherwise be walked on every status event.
@@ -35,12 +31,6 @@ local head_paths = {}
 local function now_ms()
   return vim.uv.hrtime() / 1e6
 end
-
----@class Terminal.HeadRead
----@field sec integer mtime of the file when it was read
----@field nsec integer
----@field size integer
----@field value string|false The branch, false when `HEAD` names none
 
 ---@internal
 --- What was read from each `HEAD`, valid while the file's mtime and size stay the same. A status

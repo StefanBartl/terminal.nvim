@@ -58,15 +58,6 @@ function M.has_percent_size(major, minor)
   return major > 3 or (major == 3 and (minor or 0) >= 1)
 end
 
----@alias Terminal.TmuxRun Terminal.ExecResult
-
----@alias Terminal.TmuxRunner fun(argv: string[], opts?: Terminal.ExecOpts): Terminal.TmuxRun
-
---- The state of one pane in `list-panes`, as far as focus is concerned.
----@class Terminal.TmuxPane
----@field active boolean The pane is the active one of its window
----@field window_active boolean Its window is the active one of the session
-
 --- The real runner: `terminal.core.exec`, `multiplexer.timeout_ms` (three seconds) by default.
 ---@type Terminal.TmuxRunner
 function M.default_runner(argv, opts)

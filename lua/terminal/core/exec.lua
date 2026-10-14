@@ -12,15 +12,6 @@
 -- result codes below are the same ones (124, 128 + signal).
 local M = {}
 
----@class Terminal.ExecResult
----@field code integer Exit code; 127 when the command could not be started, 124 on a timeout, 128 + the signal when a signal ended it
----@field stdout string
----@field stderr string The program's stderr, or why it could not be started (code 127)
-
----@class Terminal.ExecOpts
----@field stdin? string Text written to the program's standard input
----@field timeout? integer Milliseconds (default `DEFAULT_TIMEOUT_MS`)
-
 --- How long a command may take unless the caller names its own limit. A local multiplexer answers
 --- in milliseconds; three seconds is where a hung one stops being worth waiting for.
 M.DEFAULT_TIMEOUT_MS = 3000

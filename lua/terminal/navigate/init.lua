@@ -14,10 +14,6 @@ local core = require("terminal.core.navigate")
 
 local M = {}
 
----@class Terminal.NavigateRuntime
----@field handoffs Terminal.Handoff[]
----@field run fun(argv: string[])
-
 ---@type Terminal.NavigateRuntime
 local runtime = { handoffs = {}, run = function() end }
 

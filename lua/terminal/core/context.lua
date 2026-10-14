@@ -6,12 +6,6 @@
 
 local M = {}
 
----@class Terminal.ContextDeps
----@field cwd fun(): string Current working directory, spelled the way the user is in it
----@field bufname fun(): string Name of the current buffer ("" when none)
----@field root fun(path: string): string|nil Project root for a path, spelled like the path (nil = none found)
----@field key? fun(path: string): string The canonical form of a directory, for the registry id (default: as given)
-
 --- The canonical spelling of a directory, so that one project has ONE registry key: the real path
 --- (8.3 short names and symlinks resolved), forward slashes, an upper-case drive letter.
 --- `getcwd()` keeps the spelling it was changed with while a file buffer's name arrives in the long

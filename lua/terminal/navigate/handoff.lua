@@ -12,11 +12,6 @@ local Env = require("terminal.core.env")
 
 local M = {}
 
----@class Terminal.Handoff
----@field name string
----@field available fun(env: table<string, string|nil>): boolean, string|nil
----@field argv fun(dir: Terminal.Direction): string[]
-
 ---@type table<string, Terminal.Handoff>
 M.all = {
   tmux = {

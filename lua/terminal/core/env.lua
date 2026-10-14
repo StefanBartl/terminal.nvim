@@ -8,8 +8,6 @@
 
 local M = {}
 
----@alias Terminal.Env table<string, string|nil>
-
 --- Variables that identify a multiplexer or terminal emulator, most specific (innermost) first.
 ---@type { name: "tmux"|"wezterm", var: string }[]
 M.SIGNALS = {

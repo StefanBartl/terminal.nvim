@@ -17,10 +17,6 @@ local Env = require("terminal.core.env")
 
 local M = {}
 
----@alias Terminal.WezTermRun Terminal.ExecResult
-
----@alias Terminal.WezTermRunner fun(argv: string[], opts?: Terminal.ExecOpts): Terminal.WezTermRun
-
 --- The real runner: `terminal.core.exec`, `multiplexer.timeout_ms` (three seconds) by default.
 ---@type Terminal.WezTermRunner
 function M.default_runner(argv, opts)

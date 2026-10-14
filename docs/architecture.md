@@ -27,7 +27,8 @@ lua/terminal/
                         answers "inside the terminal of another running Neovim?")
   bindings/             keymaps (named actions), autocommands, :Terminal
   health.lua            :checkhealth terminal
-  @types/               class definitions
+  @types/               class definitions (shared ones here; core/, backends/, navigate/ and status/
+                        each have their own @types/init.lua, grouped by the file the type belongs to)
 ```
 
 ## How a call travels

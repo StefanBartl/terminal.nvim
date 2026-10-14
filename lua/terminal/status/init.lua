@@ -17,23 +17,6 @@ local status = require("terminal.core.status")
 
 local M = {}
 
----@class Terminal.StatusExporter
----@field name string
----@field available fun(env: table<string, string|nil>): boolean, string|nil
----@field ready? fun(): boolean `false`: cannot publish right now (no UI attached); skipped without a notice, retried on the next event
----@field key? fun(data: Terminal.Status): string What the exporter actually publishes; the delta gate compares this (default: the whole JSON)
----@field publish fun(json: string, data?: Terminal.Status): boolean, string|nil
----@field publish_async? fun(json: string, data: Terminal.Status|nil, done: fun(ok: boolean, err?: string)): boolean, string|nil Like `publish`, without blocking: returns at once (`false, err` when the request is unusable, `done` is not called then); `done` runs later on the main loop for a request that actually ran. A request that was replaced by a newer one is never reported. Used instead of `publish` when present
----@field clear fun(): boolean, string|nil
-
----@class Terminal.StatusRuntime
----@field exporters Terminal.StatusExporter[]
----@field off table<string, true> Exporters that failed once
----@field last table<string, string> Key of the newest request handed to each exporter (an asynchronous exporter may not have applied it yet)
----@field debounce? table
----@field max_bytes integer
----@field oversize boolean A dataset over `max_bytes` was already reported
-
 -- `max_bytes` starts at the default of `config/DEFAULTS.lua`; `setup()` sets the configured one.
 ---@type Terminal.StatusRuntime
 local runtime =

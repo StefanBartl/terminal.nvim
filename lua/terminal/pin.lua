@@ -14,19 +14,6 @@ local backends = require("terminal.backends")
 
 local M = {}
 
----@class Terminal.PinOpts
----@field backend? "tmux"|"wezterm" Where to start it (default: tmux inside tmux, else wezterm)
----@field layout? Terminal.Layout Default `pin.layout` ("vsplit")
-
----@class Terminal.PinPlan
----@field name string
----@field cwd string
----@field root string
----@field handle Terminal.Handle The native terminal that is replaced
----@field backend Terminal.Backend The multiplexer that takes over
----@field spec Terminal.SpawnSpec What the pane is started with
----@field restore Terminal.SpawnSpec What starts the native terminal again if the pane cannot be
-
 ---@internal
 --- The multiplexer backend a pin goes to: the one named, else the first that is usable.
 ---@param host Terminal.Host
