@@ -585,6 +585,14 @@ local function send_impl(text, opts, at)
     fail(("terminal '%s': %s"):format(handle.name, serr or "cannot send"))
     return false, serr
   end
+  if opts.newline or text:find("[\r\n]$") then
+    require("terminal.events").fire("TerminalCommandPost", {
+      name = handle.name,
+      backend = handle.backend,
+      command = (text:gsub("[\r\n]+$", "")),
+      direct = false,
+    })
+  end
   return true, nil
 end
 
@@ -687,12 +695,21 @@ local function run_direct(b, cmd, opts, at)
     layout = opts.layout,
     start_insert = focus and opts.start_insert ~= false,
     focus = focus,
-    on_exit_cb = on_exit and function(code)
-      local ok, e = pcall(on_exit, code)
-      if not ok then
-        fail(("run: on_exit failed: %s"):format(tostring(e)))
+    on_exit_cb = function(code)
+      local events = require("terminal.events")
+      events.fire("TerminalExitPost", {
+        name = name,
+        backend = b.name,
+        command = events.text(cmd),
+        exit_code = code,
+      })
+      if on_exit then
+        local ok, e = pcall(on_exit, code)
+        if not ok then
+          fail(("run: on_exit failed: %s"):format(tostring(e)))
+        end
       end
-    end or nil,
+    end,
   })
   spec.cmd = cmd
   spec.title = opts.title
@@ -712,6 +729,13 @@ local function run_direct(b, cmd, opts, at)
   if opts.focus == false and vim.api.nvim_win_is_valid(previous) then
     vim.api.nvim_set_current_win(previous)
   end
+  local events = require("terminal.events")
+  events.fire("TerminalCommandPost", {
+    name = handle.name,
+    backend = handle.backend,
+    command = events.text(cmd),
+    direct = true,
+  })
   if opts.on_open then
     local ok, e = pcall(opts.on_open, handle)
     if not ok then

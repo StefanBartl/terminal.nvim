@@ -57,3 +57,15 @@ twice does not double a handler.
 
 The `terminal.status` autocommands exist only while status export is on and at least one exporter
 fits the environment (inside tmux or WezTerm, `status.export`); otherwise the group stays empty.
+
+### Events this plugin fires
+
+Any number of plugins can listen (`User` autocommands); nothing has to be registered. A listener that raises is reported by Neovim itself and does not change what `send` or `run` return.
+
+| Event (`User`) | When | `ev.data` |
+|---|---|---|
+| `TerminalCommandPost` | A command was started in a terminal: a line typed **and executed** (`send` with `newline`, text ending in a line ending, `run` without `direct`) or a `direct` job. Text typed without Enter fires nothing. | `{ name, backend, command, direct }` |
+| `TerminalExitPost` | A `direct` job ended. Only native terminals report an exit code; a multiplexer pane outlives Neovim and fires nothing. | `{ name, backend, command, exit_code }` |
+
+`command` is the text as typed (the argv joined with spaces for a `direct` job): for reading, not for running again. A command log such as cmdlog.nvim can follow these two events; terminal.nvim keeps no log of its own.
+
