@@ -98,6 +98,7 @@ function M.setup(cfg)
       "nav_down",
       "nav_up",
       "nav_right",
+      "cheatsheet",
     },
     actions = {
       toggle = {
@@ -167,6 +168,14 @@ function M.setup(cfg)
         mode = "n",
         rhs = from_normal("l"),
         desc = "Window right (count; hands off at the edge)",
+      },
+      cheatsheet = {
+        default = DEFAULTS.cheatsheet or nil,
+        mode = { "n", "t" },
+        rhs = function()
+          terminal.cheatsheet()
+        end,
+        desc = "Cheatsheet of the shell this terminal runs",
       },
     },
   }, cfg.keymaps)

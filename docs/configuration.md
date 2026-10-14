@@ -103,6 +103,13 @@ require("terminal").setup({
     commands = "ask",       -- saved `run` commands: "ask" once | "run" them | "never" (plain shells)
   },
 
+  -- `:Terminal cheat`: a cheatsheet for the shell the terminal runs (see cheatsheet.md).
+  cheatsheet = {
+    shell = "",             -- force a sheet ("bash", "powershell", ...); "" detects it
+    dir = "",               -- folder of <shell>.md files, searched before the built-in sheets
+    shells = {},            -- { fish = "~/notes/fish.md" }: a file for one shell
+  },
+
   -- Keymaps are named actions. A string moves one, a list binds several keys, false drops
   -- it, preset = false binds nothing at all.
   keymaps = {
@@ -118,6 +125,7 @@ require("terminal").setup({
     nav_down = false,
     nav_up = false,
     nav_right = false,
+    cheatsheet = false,                    -- terminal and normal mode: open the cheatsheet; e.g. "<A-?>"
   },
 
   -- Moving between windows past Neovim's edge (see navigation.md).

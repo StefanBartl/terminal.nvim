@@ -560,6 +560,68 @@ function M.pick(opts)
   return require("terminal.picker").open(M, opts)
 end
 
+--- Show the cheatsheet of the shell the cursor's terminal runs (the configured shell outside a
+--- terminal; `common` for a multiplexer pane, whose shell is not known). `opts.shell` forces a sheet
+--- ("powershell", "bash", ...). A float at the right edge of the editor: `]]` / `[[` turn the page, `/`
+--- searches every section, `<CR>` types the command on the line into the terminal (no Enter), `q`
+--- closes. `:Terminal cheat`.
+---@param opts? { shell?: string }
+---@return boolean shown
+function M.cheatsheet(opts)
+  opts = opts or {}
+  backend()
+  local sheets = require("terminal.cheatsheet")
+  local cfg = config.get("cheatsheet")
+  local current_buf = vim.api.nvim_get_current_buf()
+  ---@type Terminal.Handle|nil
+  local from
+  for _, h in ipairs(state.registry:list()) do
+    if h.bufnr == current_buf then
+      from = h
+      break
+    end
+  end
+  local key = require("terminal.cheatsheet.detect").key_for({
+    explicit = opts.shell or cfg.shell,
+    backend = from and from.backend,
+    cmd = from and from.cmd,
+    shell = config.shell_executable(),
+  })
+  local function load(k)
+    return sheets.load(k, cfg)
+  end
+  local sheet, err = load(key)
+  if not sheet then
+    fail(err)
+    return false
+  end
+  local was_terminal = vim.api.nvim_get_mode().mode == "t"
+  local prev_win = vim.api.nvim_get_current_win()
+  if was_terminal then
+    vim.cmd("stopinsert")
+  end
+  local shown = require("terminal.cheatsheet.ui").open(sheet, {
+    load = load,
+    names = function()
+      return sheets.names(cfg)
+    end,
+    type_line = function(text)
+      M.send(text, { name = from and from.name or nil })
+    end,
+    prev_win = prev_win,
+    was_terminal = was_terminal,
+    zindex = (config.get("float.zindex") or 50) + 10,
+    notify = function(msg, level)
+      if level == vim.log.levels.WARN then
+        notify.warn(msg)
+      else
+        notify.info(msg)
+      end
+    end,
+  })
+  return shown ~= nil
+end
+
 ---@internal
 --- `send` with the target already resolved.
 ---@param text string

@@ -12,6 +12,7 @@ One compound command, `:Terminal <action> [args] [flags]`, with `<Tab>` completi
 | `:Terminal pin [name] [--backend=tmux\|wezterm] [--layout=]` | Restart a native terminal as a pane of tmux/WezTerm so it outlives Neovim (see below). |
 | `:Terminal adopt [name]` | Show a tmux/WezTerm terminal's screen in a read-only buffer. |
 | `:Terminal list` | Pick one of this project's terminals: open it, close it (`<C-x>`) or send it a line (`<C-s>`, Enter included); see "Picker" below. |
+| `:Terminal cheat [shell]` | Cheatsheet of the shell this terminal runs, one section at a time; see [cheatsheet.md](cheatsheet.md). |
 | `:Terminal send line [name] [--exec]` | Type the current line. |
 | `:'<,'>Terminal send selection [name] [--exec]` | Type the selection (see below). |
 | `:Terminal send file [name] [--exec]` | Type the whole buffer. |
@@ -121,6 +122,7 @@ terminal.send("ls", { newline = true, name = "repl" })
 terminal.run({ "git", "status" })
 terminal.status()        -- { ready, backend, terminals }
 terminal.pick()          -- the `:Terminal list` picker; false when there is no terminal
+terminal.cheatsheet()    -- the `:Terminal cheat` window; { shell = "bash" } forces a sheet
 terminal.summary()       -- { count, visible, current } for a statusline (registry only)
 terminal.navigate("h", 2)  -- window left x2; at the edge the multiplexer takes over
 terminal.teardown()      -- { views, closed, failed }: see below
