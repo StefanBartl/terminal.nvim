@@ -59,10 +59,11 @@ f:write(([[
 vim.opt.rtp:prepend(%q)
 vim.opt.rtp:append(%q)
 local e = require("terminal.status.exporters.tmux")
+local nested = require("terminal.status.nested")
 local env = { TMUX = vim.env.TMUX or "x", TMUX_PANE = vim.env.TMUX_PANE or "%%0", NVIM = vim.env.NVIM }
 local available, why = e.available(env)
 local o = assert(io.open(vim.env.RESULT_FILE, "w"))
-o:write(("%%s|%%s|%%s"):format(tostring(e.alive(vim.env.NVIM or "")), tostring(available), tostring(why)))
+o:write(("%%s|%%s|%%s"):format(tostring(nested.alive(vim.env.NVIM or "")), tostring(available), tostring(why)))
 o:close()
 vim.cmd("qa!")
 ]]):format(root, lib))
