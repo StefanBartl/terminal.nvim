@@ -49,7 +49,7 @@ end
 --- The reason to show for a failed call: the first line of its output, plus a hint when the failure
 --- is a known one. The complete output is logged at debug level.
 ---@param tool "tmux"|"wezterm"
----@param output string stderr (or stdout when stderr is empty)
+---@param output string|nil stderr (or stdout when stderr is empty)
 ---@return string reason ("no output" when there was none)
 function M.reason(tool, output)
   output = vim.trim(output or "")
