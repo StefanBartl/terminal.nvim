@@ -161,6 +161,23 @@ describe("terminal.picker (rows and actions against a fake facade)", function()
     assert.same({ "send", "make test", "b", true }, calls[3])
   end)
 
+  it("kit: a kit that raises while opening falls back to vim.ui.select", function()
+    local calls = {}
+    local asked = 0
+    local ok = picker.open(fake({ handle("a") }, calls), {
+      kit = {
+        open = function()
+          error("no UI")
+        end,
+      },
+      select = function()
+        asked = asked + 1
+      end,
+    })
+    assert.is_true(ok)
+    assert.equals(1, asked)
+  end)
+
   it("kit: a preview failure does not matter here, the surface receives the lines", function()
     local calls = {}
     local opts

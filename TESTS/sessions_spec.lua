@@ -339,7 +339,20 @@ describe("terminal.sessions (the User events, on the real facade)", function()
     assert.equals(1, vim.fn.filereadable(new_file))
     assert.equals("alpha", sessions.read(new)[1].name)
 
-    -- A rename without a sidecar is a no-op, not an error.
+    -- A rename without a sidecar of the old name is not an error, and an orphan at the new name goes.
+    local orphan = sessions.sidecar_path(dir .. "/y.vim")
+    vim.fn.writefile({ "{}" }, orphan)
+    vim.api.nvim_exec_autocmds("User", {
+      pattern = "SessionsRenamePost",
+      data = {
+        old_name = "none",
+        old_path = dir .. "/none.vim",
+        name = "y",
+        path = dir .. "/y.vim",
+      },
+    })
+    assert.equals(0, vim.fn.filereadable(orphan), "an orphan sidecar must not outlive the rename")
+    -- A rename without any sidecar is a no-op, not an error.
     vim.api.nvim_exec_autocmds("User", {
       pattern = "SessionsRenamePost",
       data = {

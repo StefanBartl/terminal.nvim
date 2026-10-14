@@ -124,17 +124,19 @@ function M.save(api, session_path)
 end
 
 --- A session was renamed: the sidecar goes with it. An existing sidecar of the new name is a
---- leftover of an earlier session of that name and is replaced; no sidecar, nothing to move.
+--- leftover of an earlier session of that name and is removed first; no old sidecar, nothing to move.
 ---@param old_path string
 ---@param new_path string
 ---@return boolean ok
 ---@return string|nil err
 function M.rename(old_path, new_path)
   local old, new = M.sidecar_path(old_path), M.sidecar_path(new_path)
+  -- The new name is free as a session, so a sidecar there is an orphan: it goes even when the old
+  -- session had no terminals, or loading the renamed session would bring the orphan's back.
+  os.remove(new)
   if vim.fn.filereadable(old) == 0 then
     return true, nil
   end
-  os.remove(new)
   local ok, err = os.rename(old, new)
   if not ok then
     return false, err
