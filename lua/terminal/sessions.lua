@@ -107,6 +107,40 @@ function M.snapshot(api)
   return defs
 end
 
+--- Definitions a load did not bring back (skipped by the prompt, a failed start, or a command
+--- replaced by a plain shell), by session file. A save writes the live terminals, so without this
+--- the next save (autosave, leaving Neovim) would delete what this machine could not or did not
+--- want to restore now, and the session would lose it for good.
+---@type table<string, Terminal.SessionDef[]>
+local kept = {}
+
+--- The live terminals plus the definitions a load left behind. A live terminal of the same name
+--- wins, except that it takes over the saved command when it was only opened as a plain shell.
+---@param live Terminal.SessionDef[]
+---@param left_over Terminal.SessionDef[]|nil
+---@return Terminal.SessionDef[]
+function M.merge(live, left_over)
+  if not left_over or #left_over == 0 then
+    return live
+  end
+  local saved = {}
+  for _, def in ipairs(left_over) do
+    saved[def.name] = def
+  end
+  local out, seen = {}, {}
+  for _, def in ipairs(live) do
+    seen[def.name] = true
+    local before = saved[def.name]
+    out[#out + 1] = (before and before.cmd and not def.cmd) and before or def
+  end
+  for _, def in ipairs(left_over) do
+    if not seen[def.name] then
+      out[#out + 1] = def
+    end
+  end
+  return out
+end
+
 --- Write the definitions beside the session file; no terminals, no file (a stale one would bring
 --- back terminals the session no longer has).
 ---@param api Terminal.SessionsApi
@@ -115,7 +149,7 @@ end
 ---@return string|nil err
 function M.save(api, session_path)
   local file = M.sidecar_path(session_path)
-  local defs = M.snapshot(api)
+  local defs = M.merge(M.snapshot(api), kept[session_path])
   if #defs == 0 then
     os.remove(file)
     return true, nil
@@ -134,6 +168,7 @@ function M.rename(old_path, new_path)
   -- The new name is free as a session, so a sidecar there is an orphan: it goes even when the old
   -- session had no terminals, or loading the renamed session would bring the orphan's back.
   os.remove(new)
+  kept[new_path], kept[old_path] = kept[old_path], nil
   if vim.fn.filereadable(old) == 0 then
     return true, nil
   end
@@ -148,6 +183,7 @@ end
 ---@param session_path string
 ---@return nil
 function M.delete(session_path)
+  kept[session_path] = nil
   os.remove(M.sidecar_path(session_path))
 end
 
@@ -165,16 +201,38 @@ function M.read(session_path)
 end
 
 ---@internal
+--- Text of a sidecar for the confirmation prompt, which exists so the user can see what "Start the
+--- commands" would run: a sidecar is untrusted (a shared or cloned session directory), so control
+--- characters are spelled out (no newline can scroll the real command away or fake a harmless
+--- line) and one entry cannot grow without bound.
+---@param s string
+---@return string
+local function esc(s)
+  local out = s:gsub("%c", function(c)
+    return ("\\x%02x"):format(c:byte())
+  end)
+  if vim.fn.strchars(out) > 120 then
+    out = vim.fn.strcharpart(out, 0, 117) .. "..."
+  end
+  return out
+end
+
+---@internal
 ---@param def Terminal.SessionDef
 ---@return string
 local function describe(def)
-  return def.cmd and ("%s: %s"):format(def.name, table.concat(def.cmd, " ")) or def.name
+  if not def.cmd then
+    return esc(def.name)
+  end
+  local line = ("%s: %s"):format(esc(def.name), esc(table.concat(def.cmd, " ")))
+  return def.cwd and ("%s  (in %s)"):format(line, esc(def.cwd)) or line
 end
 
 ---@class Terminal.SessionsRestored
 ---@field opened integer
 ---@field skipped integer Already there: left alone
 ---@field failed string[]
+---@field left_over Terminal.SessionDef[] Not brought back as saved: failed starts, and commands that were opened as plain shells
 
 --- Reopen `defs` (hidden), except the terminals that already exist: loading a session twice, or
 --- with a terminal of the same name open, must not duplicate or replace anything.
@@ -186,7 +244,7 @@ end
 ---@param with_commands boolean
 ---@return Terminal.SessionsRestored
 function M.restore(api, defs, with_commands)
-  local result = { opened = 0, skipped = 0, failed = {} }
+  local result = { opened = 0, skipped = 0, failed = {}, left_over = {} }
   local present = {}
   for _, h in ipairs(api.list()) do
     present[h.name] = true
@@ -209,8 +267,12 @@ function M.restore(api, defs, with_commands)
       if ok then
         api.hide({ name = def.name })
         result.opened = result.opened + 1
+        if def.cmd and not with_commands then
+          result.left_over[#result.left_over + 1] = def
+        end
       else
         result.failed[#result.failed + 1] = ("%s: %s"):format(def.name, err or "failed")
+        result.left_over[#result.left_over + 1] = def
       end
     end
   end
@@ -246,11 +308,20 @@ function M.load(api, session_path, commands, select)
       with_cmd[#with_cmd + 1] = describe(def)
     end
   end
+  ---@param with_commands boolean
+  local function bring_back(with_commands)
+    local result = M.restore(api, defs, with_commands)
+    kept[session_path] = #result.left_over > 0 and result.left_over or nil
+    report(result)
+  end
   if #with_cmd == 0 or commands == "run" then
-    report(M.restore(api, defs, true))
+    bring_back(true)
   elseif commands == "never" then
-    report(M.restore(api, defs, false))
+    bring_back(false)
   else
+    -- Until the user has answered (or never answers, or skips), nothing was restored: a save in
+    -- between must not drop the definitions.
+    kept[session_path] = defs
     local start, shells, skip = "Start the commands", "Open plain shells", "Skip the terminals"
     local ask = select or vim.ui.select
     ask({ start, shells, skip }, {
@@ -258,9 +329,9 @@ function M.load(api, session_path, commands, select)
         .. table.concat(with_cmd, "\n  "),
     }, function(choice)
       if choice == start then
-        report(M.restore(api, defs, true))
+        bring_back(true)
       elseif choice == shells then
-        report(M.restore(api, defs, false))
+        bring_back(false)
       end
     end)
   end

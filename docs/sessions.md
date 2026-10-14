@@ -40,6 +40,8 @@ had.
   | `"never"` | open those terminals as plain shells |
 
   A session whose terminals are all plain shells is never asked about.
+  The prompt lists every command with the directory it would run in; control characters of the file are spelled out (`
+`) and a long entry is cut, so a sidecar from a shared or cloned session directory cannot hide what *Start the commands* runs.
 - What cannot be reopened is reported in one warning, and the rest is reopened anyway.
 
 ## Options
@@ -60,5 +62,6 @@ require("terminal").setup({
   `SessionsDeletePost` events. A sessions.nvim that does not fire them (older versions) leaves the
   sidecar behind; every save writes the file anew (or removes it), so a leftover never brings
   terminals back into a session saved later under that name.
+- A load that did not bring a terminal back as saved (*Skip*, an unanswered prompt, a failed start, or a command replaced by a plain shell) keeps its definition for the rest of this Neovim run: the next save writes it again next to the live terminals, so it is not lost on a machine that cannot start it. A live terminal of the same name wins. The kept definitions are forgotten when Neovim exits; they stay in the sidecar until a save in a run that did not load that session overwrites it.
 - The directory of a `run` with `direct` is restored; a plain shell starts where the `cwd` option
   puts it (`project` by default), which for a session of one project is the same place.
