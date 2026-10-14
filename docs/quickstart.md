@@ -11,7 +11,7 @@
 4. **Send text from a buffer.** `:Terminal send line` types the current line;
    `:'<,'>Terminal send selection` the selection; `:Terminal send file` the buffer. Nothing
    is executed until you add `--exec` (several lines need it, since each would run).
-5. **Look around.** `:Terminal list` picks one of the project's terminals;
+5. **Look around.** `:Terminal list` picks one of the project's terminals (open, close, send a line);
    `:checkhealth terminal` says what is detected.
 
 From Lua: `require("terminal").toggle()`, `.open({ name = "build", layout = "vsplit" })`,

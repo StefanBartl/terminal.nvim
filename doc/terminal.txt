@@ -43,7 +43,8 @@ docs/backends.md, docs/status.md and docs/navigation.md.
                                 pane so it outlives Neovim. Not a transfer:
                                 the old output is gone.
 :Terminal adopt [name]          View a pane's screen in a read-only buffer.
-:Terminal list                  Pick one of this project's terminals.
+:Terminal list                  Pick one of this project's terminals (open,
+                                close, send a line).
 :Terminal send {line|file} [name] [--exec]
 :{range}Terminal send selection [name] [--exec]
                                 Type text into a terminal; --exec adds Enter.
@@ -85,6 +86,8 @@ to 9.
   terminal.navigate("h", 2)
   terminal.pin({ name = "build" }, { backend = "tmux", layout = "vsplit" })
   terminal.adopt({ name = "build" })
+  terminal.pick()          the `:Terminal list` picker
+  terminal.summary()       { count, visible, current } for a statusline
   terminal.status()
   terminal.teardown()    close native terminals and adopt views, stop the status export until setup()
 <

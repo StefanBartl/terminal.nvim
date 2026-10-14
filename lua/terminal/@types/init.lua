@@ -208,6 +208,12 @@
 ---@field layout? Terminal.Layout Overrides the configured layout for this call
 ---@field focus? boolean Take focus (default true)
 
+--- What `summary` reports for a statusline.
+---@class Terminal.Summary
+---@field count integer Live terminals of this project (a native one whose job ended is not counted)
+---@field visible integer Of those, how many are shown in a window right now (native terminals)
+---@field current? string The name of the terminal whose buffer is the current one
+
 --- Options of `send`.
 ---@class Terminal.SendOpts: Terminal.Target
 ---@field newline? boolean Append a line ending (execute the line)
