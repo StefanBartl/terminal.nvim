@@ -16,7 +16,7 @@ local M = {}
 
 ---@class Terminal.PinOpts
 ---@field backend? "tmux"|"wezterm" Where to start it (default: tmux inside tmux, else wezterm)
----@field layout? Terminal.Layout Default "vsplit"
+---@field layout? Terminal.Layout Default `pin.layout` ("vsplit")
 
 ---@class Terminal.PinPlan
 ---@field name string
@@ -78,7 +78,12 @@ local function check(host, target, opts)
   end
 
   local cwd = handle.cwd or root
-  local spec = host.build_spec(name, cwd, root, { layout = opts.layout or "vsplit" })
+  local spec = host.build_spec(
+    name,
+    cwd,
+    root,
+    { layout = opts.layout or require("terminal.config").get("pin.layout") or "vsplit" }
+  )
   if handle.cmd ~= nil and handle.cmd ~= "" then
     spec.cmd = handle.cmd
   end

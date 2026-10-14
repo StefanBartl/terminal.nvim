@@ -71,6 +71,28 @@ local DEFAULTS = {
     debounce_ms = 80,
     -- The dataset is shortened, then refused, above this size.
     max_bytes = 1024,
+    -- How long the tmux exporter waits for tmux before it gives up on a publish (a hung tmux is
+    -- switched off once, with a notice). Milliseconds.
+    timeout_ms = 2000,
+  },
+
+  -- The multiplexer programs (`tmux`, `wezterm cli`) are separate processes; this is how long a
+  -- call may take before it counts as hung. Milliseconds. toggle/open/send wait for the answer, so
+  -- a hung multiplexer blocks the editor for this long, once.
+  multiplexer = {
+    timeout_ms = 3000,
+  },
+
+  -- The read-only view of a multiplexer pane (`:Terminal adopt`).
+  adopt = {
+    -- Pause between two refreshes, counted from the end of the previous one. Milliseconds.
+    refresh_ms = 1000,
+  },
+
+  -- `:Terminal pin`: restart a native terminal as a multiplexer pane.
+  pin = {
+    -- The layout of the new pane when `--layout` is not given: float | split | vsplit | tab.
+    layout = "vsplit",
   },
 
   keymaps = {
@@ -100,6 +122,8 @@ local DEFAULTS = {
   -- WezTerm inside WezTerm; a name, a list of names, or false (never hand off) also work.
   navigate = {
     handoff = "auto",
+    -- How long the hand-off command may run before it is stopped. Milliseconds.
+    timeout_ms = 2000,
   },
 
   commands = true,

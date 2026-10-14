@@ -1177,6 +1177,56 @@ describe("tmux status exporter: publish_async", function()
   end)
 end)
 
+describe("multiplexer.timeout_ms", function()
+  local exec = require("terminal.core.exec")
+  local config = require("terminal.config")
+  local saved_run
+
+  before_each(function()
+    saved_run = exec.run
+  end)
+
+  after_each(function()
+    exec.run = saved_run
+    config.setup({})
+  end)
+
+  it(
+    "is the limit of the real runners; a call's own limit and the caller's table are left alone",
+    function()
+      local seen
+      -- Test double: records the options instead of running a program.
+      ---@diagnostic disable-next-line: duplicate-set-field
+      exec.run = function(_, opts)
+        seen = opts
+        return { code = 0, stdout = "", stderr = "" }
+      end
+      config.setup({ multiplexer = { timeout_ms = 1234 } })
+      local mine = { stdin = "x" }
+      tmux.default_runner({ "tmux", "list-panes" }, mine)
+      assert.equals(1234, seen.timeout)
+      assert.is_nil(mine.timeout, "the caller's options were written to")
+      require("terminal.backends.wezterm").default_runner({ "wezterm", "cli", "list" })
+      assert.equals(1234, seen.timeout)
+      tmux.default_runner({ "tmux", "x" }, { timeout = 50 })
+      assert.equals(50, seen.timeout)
+    end
+  )
+
+  it("status.timeout_ms is the limit of the tmux exporter's own calls", function()
+    local seen
+    -- Test double: records the options instead of running a program.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exec.run = function(_, opts)
+      seen = opts
+      return { code = 0, stdout = "", stderr = "" }
+    end
+    config.setup({ status = { timeout_ms = 777 } })
+    exporter.run({ "tmux", "x" })
+    assert.equals(777, seen.timeout)
+  end)
+end)
+
 describe("terminal.backends.tmux: capture_async", function()
   local exec = require("terminal.core.exec")
   local saved_spawn

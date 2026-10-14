@@ -59,7 +59,7 @@ Differences from `native`, on purpose:
   never calls `fn`, and `close = ...` has no effect; the pane closes when the program ends
   (WezTerm's own setting).
 - A pane the user closed is replaced by a new one on the next `open`/`toggle`.
-- Each call is a short blocking `wezterm cli` process with a timeout (3 s). `toggle`/`open`/`send` need the
+- Each call is a short blocking `wezterm cli` process with a timeout (`multiplexer.timeout_ms`, 3 s). `toggle`/`open`/`send` need the
   answer and stay synchronous; only the `adopt` refresh runs without blocking (`capture_async`).
 
 Specs run against a fake `wezterm cli` (`TESTS/wezterm_backend_spec.lua`); `TESTS/live/wezterm.lua`

@@ -268,6 +268,21 @@ describe("terminal pin / adopt", function()
       assert.equals(1, #terminal.list(), "the native terminal is untouched")
     end)
 
+    it("pin.layout is the layout of the pane when --layout is not given", function()
+      boot(true, { pin = { layout = "split" } })
+      terminal.open({ name = "work" })
+      jobs.settle()
+      terminal.pin({ name = "work" })
+      local seen
+      for _, c in ipairs(state.calls) do
+        if c.argv[1] == "split-pane" then
+          seen = c.argv
+        end
+      end
+      assert.is_not_nil(seen, "no split-pane call")
+      assert.truthy(vim.tbl_contains(seen, "--bottom"), vim.inspect(seen))
+    end)
+
     it("refuses a layout the multiplexer would refuse BEFORE the native terminal ends", function()
       boot(true)
       local native = terminal.open({ name = "work" })
@@ -408,6 +423,19 @@ describe("terminal pin / adopt", function()
         return (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ""):find("not found", 1, true)
           ~= nil
       end, 100))
+    end)
+
+    it("adopt.refresh_ms sets the pause between two refreshes", function()
+      boot(true, { adopt = { refresh_ms = 100 } })
+      terminal.open({ name = "work" })
+      jobs.settle()
+      terminal.pin({ name = "work" })
+      local buf = terminal.adopt({ name = "work" })
+      state.text = "changed\n"
+      -- the default pause is a second: a change shows up well before that only with the key
+      assert.is_true(vim.wait(700, function()
+        return vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "changed"
+      end, 20))
     end)
 
     it("a capture slower than the refresh interval never overlaps the next one", function()

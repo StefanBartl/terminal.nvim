@@ -77,6 +77,23 @@ require("terminal").setup({
     export = "auto",        -- "auto" | "tmux" | "wezterm" | { "tmux", "wezterm" } | false
     debounce_ms = 80,
     max_bytes = 1024,       -- the dataset is shortened, then refused, above this
+    timeout_ms = 2000,      -- how long the tmux exporter waits for tmux before it gives up
+  },
+
+  -- The multiplexer programs are separate processes: how long a call may take before it counts as
+  -- hung. toggle/open/send wait for the answer, so a hung one blocks the editor this long, once.
+  multiplexer = {
+    timeout_ms = 3000,
+  },
+
+  -- The read-only view of a pane (:Terminal adopt).
+  adopt = {
+    refresh_ms = 1000,      -- pause between two refreshes (50 and up)
+  },
+
+  -- :Terminal pin
+  pin = {
+    layout = "vsplit",      -- layout of the new pane when --layout is not given
   },
 
   -- Keymaps are named actions. A string moves one, a list binds several keys, false drops
@@ -99,6 +116,7 @@ require("terminal").setup({
   -- Moving between windows past Neovim's edge (see navigation.md).
   navigate = {
     handoff = "auto",       -- "auto" | "tmux" | "wezterm" | { "wezterm" } | false
+    timeout_ms = 2000,      -- how long the hand-off command may run before it is stopped
   },
 
   commands = true,          -- register :Terminal

@@ -74,7 +74,7 @@ envelope (and tmux needs `set -g allow-passthrough on`).
 
 The tmux exporter publishes **without blocking** Neovim: one `tmux` process runs at a time, a dataset that
 arrives meanwhile replaces any earlier waiting one (the newest wins), and a failed run switches the exporter
-off like a failed synchronous publish. Leaving Neovim waits for a running publish (2 s at most) before the
+off like a failed synchronous publish. Leaving Neovim waits for a running publish (`status.timeout_ms`, 2 s at most) before the
 options are removed, so a late write cannot bring them back.
 
 The tmux exporter writes options of the pane in `$TMUX_PANE`, so only the Neovim that **owns** the pane

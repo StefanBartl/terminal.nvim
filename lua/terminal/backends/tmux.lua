@@ -81,10 +81,14 @@ end
 ---@field active boolean The pane is the active one of its window
 ---@field window_active boolean Its window is the active one of the session
 
---- The real runner: `terminal.core.exec`, three seconds by default.
+--- The real runner: `terminal.core.exec`, `multiplexer.timeout_ms` (three seconds) by default.
 ---@type Terminal.TmuxRunner
 function M.default_runner(argv, opts)
-  return require("terminal.core.exec").run(argv, opts)
+  local exec = require("terminal.core.exec")
+  opts = vim.tbl_extend("force", {}, opts or {}) -- the caller's table stays as it was
+  -- `multiplexer.timeout_ms`, unless the call names its own limit
+  opts.timeout = opts.timeout or exec.configured("multiplexer.timeout_ms", exec.DEFAULT_TIMEOUT_MS)
+  return exec.run(argv, opts)
 end
 
 local REAL_RUNNER = M.default_runner

@@ -33,10 +33,11 @@ local owned = false
 --- Runs a tmux command and waits. The status publish itself does not block (`publish_async`); this
 --- serves `publish` (synchronous, kept for callers that need the answer) and `clear` (at exit, where
 --- the options must be gone before Neovim ends). The editor waits as long as tmux takes, so a hung
---- tmux is given two seconds, not the backend's three.
+--- tmux gets `status.timeout_ms` (two seconds), not the backend's three.
 ---@type fun(argv: string[]): Terminal.ExecResult
 M.run = function(argv)
-  return require("terminal.core.exec").run(argv, { timeout = 2000 })
+  local exec = require("terminal.core.exec")
+  return exec.run(argv, { timeout = exec.configured("status.timeout_ms", 2000) })
 end
 
 --- Whether the Neovim at `address` (the value of `$NVIM`) is still running -- only that; whether
@@ -282,7 +283,8 @@ end
 --- Starts a tmux command without waiting; `on_done(res)` runs on the main loop. Replaceable (specs).
 ---@type fun(argv: string[], on_done: fun(res: Terminal.ExecResult)): vim.SystemObj|nil
 M.spawn = function(argv, on_done)
-  return require("terminal.core.exec").spawn(argv, { timeout = 2000 }, on_done)
+  local exec = require("terminal.core.exec")
+  return exec.spawn(argv, { timeout = exec.configured("status.timeout_ms", 2000) }, on_done)
 end
 
 --- The publish in flight (at most one), the newest request that arrived meanwhile, and a counter
@@ -367,7 +369,7 @@ function M.clear()
   pending = nil
   if type(inflight) == "table" then
     pcall(function()
-      inflight:wait(2000)
+      inflight:wait(require("terminal.core.exec").configured("status.timeout_ms", 2000))
     end)
   end
   inflight = nil

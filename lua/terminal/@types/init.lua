@@ -57,9 +57,20 @@
 ---@field export string|string[]|boolean "auto", an exporter name, a list of names, or false
 ---@field debounce_ms integer
 ---@field max_bytes integer
+---@field timeout_ms integer How long the tmux exporter waits for tmux (ms)
 
 ---@class Terminal.NavigateConfig
 ---@field handoff string|string[]|boolean "auto", a name ("tmux", "wezterm"), a list, or false
+---@field timeout_ms integer How long the hand-off command may run (ms)
+
+---@class Terminal.MultiplexerConfig
+---@field timeout_ms integer How long a tmux / `wezterm cli` call may take before it counts as hung (ms)
+
+---@class Terminal.AdoptConfig
+---@field refresh_ms integer Pause between two refreshes of an adopt view (ms)
+
+---@class Terminal.PinConfig
+---@field layout Terminal.Layout Layout of the new pane when `--layout` is not given
 
 ---@class Terminal.RunConfig
 ---@field name string Name of the terminal `run`/`send` use when none is given.
@@ -81,6 +92,9 @@
 ---@field run Terminal.RunConfig
 ---@field status Terminal.StatusConfig
 ---@field navigate Terminal.NavigateConfig
+---@field multiplexer Terminal.MultiplexerConfig
+---@field adopt Terminal.AdoptConfig
+---@field pin Terminal.PinConfig
 ---@field keymaps Terminal.KeymapsConfig
 ---@field commands boolean
 
@@ -134,9 +148,20 @@
 ---@field export? string|string[]|boolean "auto", an exporter name, a list of names, or false
 ---@field debounce_ms? integer
 ---@field max_bytes? integer
+---@field timeout_ms? integer
 
 ---@class Terminal.NavigateOptions
 ---@field handoff? string|string[]|boolean "auto", a name ("tmux", "wezterm"), a list, or false
+---@field timeout_ms? integer
+
+---@class Terminal.MultiplexerOptions
+---@field timeout_ms? integer
+
+---@class Terminal.AdoptOptions
+---@field refresh_ms? integer
+
+---@class Terminal.PinOptions
+---@field layout? Terminal.Layout
 
 ---@class Terminal.RunOptions
 ---@field name? string Name of the terminal `run`/`send` use when none is given.
@@ -160,6 +185,9 @@
 ---@field run? Terminal.RunOptions
 ---@field status? Terminal.StatusOptions
 ---@field navigate? Terminal.NavigateOptions
+---@field multiplexer? Terminal.MultiplexerOptions
+---@field adopt? Terminal.AdoptOptions
+---@field pin? Terminal.PinOptions
 ---@field keymaps? Terminal.KeymapsOptions
 ---@field commands? boolean
 

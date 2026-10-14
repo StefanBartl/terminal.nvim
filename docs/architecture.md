@@ -12,7 +12,7 @@ lua/terminal/
     registry.lua        the set of terminals (an instance, no module-level table)
     context.lua         project root + terminal name for a call
     navigate.lua        direction and outcome of a window move
-    exec.lua            process runner for the multiplexer CLIs (3 s default timeout)
+    exec.lua            process runner for the multiplexer CLIs (`multiplexer.timeout_ms`, 3 s by default)
     status.lua, osc.lua the status dataset and its terminal escape sequences
   backends/
     init.lua            detection ($TMUX, $WEZTERM_PANE) and resolution

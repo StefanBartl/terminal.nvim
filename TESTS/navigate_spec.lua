@@ -186,6 +186,29 @@ describe("terminal.navigate.go", function()
     assert.same({}, calls)
   end)
 
+  it("navigate.timeout_ms is the limit of the hand-off process", function()
+    local seen_opts, finish
+    local original = vim.system
+    -- Test double: record the options instead of running the multiplexer; restored below.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.system = function(_, opts, on_exit)
+      seen_opts, finish = opts, on_exit
+      return {}
+    end
+    require("terminal.config").setup({ navigate = { timeout_ms = 1500 } })
+    navigate.setup(cfg("auto"), { WEZTERM_PANE = "1" })
+    navigate.go("h")
+    local ok = seen_opts ~= nil and seen_opts.timeout == 1500
+    if finish then
+      finish({ code = 0 })
+      vim.wait(50)
+    end
+    require("terminal.config").setup({})
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.system = original
+    assert.is_true(ok, vim.inspect(seen_opts))
+  end)
+
   it(
     "a held key at the edge runs one process at a time; the latest press waits its turn",
     function()

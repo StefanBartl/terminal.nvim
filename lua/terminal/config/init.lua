@@ -32,6 +32,7 @@ local ENUMS = {
   cwd = { "project", "buffer", "cwd" },
   on_exit = { "close", "close_on_success", "keep" },
   ["float.title_pos"] = { "left", "center", "right" },
+  ["pin.layout"] = require("terminal.backends").LAYOUTS,
 }
 
 ---@internal
@@ -129,6 +130,30 @@ local DOMAINS = {
       return finite(v) and v >= 0
     end,
     want = "a number of milliseconds from 0 up",
+  },
+  ["status.timeout_ms"] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 1
+    end,
+    want = "a whole number of milliseconds from 1 up",
+  },
+  ["multiplexer.timeout_ms"] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 1
+    end,
+    want = "a whole number of milliseconds from 1 up",
+  },
+  ["navigate.timeout_ms"] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 1
+    end,
+    want = "a whole number of milliseconds from 1 up",
+  },
+  ["adopt.refresh_ms"] = {
+    ok = function(v)
+      return finite(v) and whole(v) and v >= 50
+    end,
+    want = "a whole number of milliseconds from 50 up",
   },
   ["status.max_bytes"] = {
     ok = function(v)

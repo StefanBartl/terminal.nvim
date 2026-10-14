@@ -22,7 +22,7 @@ no count was typed) and `nil` both mean one window.
   once and a failure (no pane in that direction, the normal case at the outer edge) is ignored.
 - **Innermost first.** Inside tmux inside WezTerm only tmux is asked.
 - **One process at a time.** A key held down at the edge does not start a process per repeat: while one
-  hand-off runs, the latest press waits behind it (and the process has a 2 s timeout).
+  hand-off runs, the latest press waits behind it (and the process has a timeout, `navigate.timeout_ms`, 2 s).
 
 | Hand-off | Environment | Command |
 |---|---|---|

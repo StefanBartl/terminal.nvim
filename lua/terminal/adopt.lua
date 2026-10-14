@@ -12,8 +12,12 @@
 local M = {}
 
 --- Pause between two refreshes of the view. Started after a refresh ends, not on a fixed beat: a
---- multiplexer that answers slowly (the CLI has a 3 s timeout) must not pile up captures.
-local REFRESH_MS = 1000
+--- multiplexer that answers slowly (the CLI has a 3 s timeout) must not pile up captures. The pause is
+--- `adopt.refresh_ms` (1000 by default).
+---@return integer
+local function refresh_ms()
+  return require("terminal.core.exec").configured("adopt.refresh_ms", 1000)
+end
 
 ---@internal
 --- The views that have a refresh timer: buffer -> the function that stops it. Kept so that
@@ -136,7 +140,7 @@ function M.run(host, target)
     local tick
     local function rearm()
       if not done then
-        timer:start(REFRESH_MS, 0, tick)
+        timer:start(refresh_ms(), 0, tick)
       end
     end
     tick = vim.schedule_wrap(function()
@@ -166,7 +170,7 @@ function M.run(host, target)
         rearm()
       end
     end)
-    timer:start(REFRESH_MS, 0, tick)
+    timer:start(refresh_ms(), 0, tick)
   end
   -- Without a timer (libuv out of handles) the view still shows the screen as of now.
 

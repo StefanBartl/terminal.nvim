@@ -201,6 +201,40 @@ describe("terminal.config", function()
       assert.equals(10, config.get("kitty.leave_margin"))
     end)
 
+    it("has the time-limit keys with their old values, and checks them", function()
+      config.setup({})
+      assert.equals(3000, config.get("multiplexer.timeout_ms"))
+      assert.equals(2000, config.get("navigate.timeout_ms"))
+      assert.equals(2000, config.get("status.timeout_ms"))
+      assert.equals(1000, config.get("adopt.refresh_ms"))
+      assert.equals("vsplit", config.get("pin.layout"))
+      assert.same(
+        {},
+        config.setup({
+          multiplexer = { timeout_ms = 500 },
+          navigate = { timeout_ms = 800 },
+          status = { timeout_ms = 900 },
+          adopt = { refresh_ms = 100 },
+          pin = { layout = "tab" },
+        })
+      )
+      assert.equals(500, config.get("multiplexer.timeout_ms"))
+      assert.equals("tab", config.get("pin.layout"))
+      local problems = config.setup({
+        multiplexer = { timeout_ms = 0 },
+        navigate = { timeout_ms = 1.5 },
+        status = { timeout_ms = -1 },
+        adopt = { refresh_ms = 10 },
+        pin = { layout = "diagonal" },
+      })
+      assert.equals(5, #problems, vim.inspect(problems))
+      assert.equals(3000, config.get("multiplexer.timeout_ms"))
+      assert.equals(2000, config.get("navigate.timeout_ms"))
+      assert.equals(2000, config.get("status.timeout_ms"))
+      assert.equals(1000, config.get("adopt.refresh_ms"))
+      assert.equals("vsplit", config.get("pin.layout"))
+    end)
+
     it("checks float.border: a name nvim_open_win knows, or 1, 2, 4 or 8 pieces", function()
       for _, bad in ipairs({ "foo", "Rounded", {}, { "a", "b", "c" } }) do
         local problems = config.setup({ float = { border = bad } })

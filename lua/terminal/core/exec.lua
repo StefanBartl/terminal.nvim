@@ -25,6 +25,18 @@ local M = {}
 --- in milliseconds; three seconds is where a hung one stops being worth waiting for.
 M.DEFAULT_TIMEOUT_MS = 3000
 
+--- A timeout from the configuration (`multiplexer.timeout_ms` and the like), or `fallback` when the
+--- key is missing.
+---@param key string Dot-path into the config
+---@param fallback integer
+---@return integer
+function M.configured(key, fallback)
+  local ok, v = pcall(function()
+    return require("terminal.config").get(key)
+  end)
+  return ok and type(v) == "number" and v or fallback
+end
+
 --- Run `argv` (never a shell string) and wait for it.
 ---@param argv string[]
 ---@param opts? Terminal.ExecOpts

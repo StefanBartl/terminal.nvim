@@ -38,10 +38,12 @@ local function spawn_detached(argv)
     return
   end
   inflight = true
-  -- Two seconds: a multiplexer answers in milliseconds, so only a hung one runs into the limit.
+  -- `navigate.timeout_ms` (two seconds): a multiplexer answers in milliseconds, so only a hung one
+  -- runs into the limit.
   -- `exec.spawn` asks it to stop at the limit and kills it a second later, and answers (on the
   -- main loop) also when the program could not be started, so the slot is always given back.
-  require("terminal.core.exec").spawn(argv, { timeout = 2000 }, function()
+  local exec = require("terminal.core.exec")
+  exec.spawn(argv, { timeout = exec.configured("navigate.timeout_ms", 2000) }, function()
     inflight = false
     local next_argv = pending
     pending = nil
