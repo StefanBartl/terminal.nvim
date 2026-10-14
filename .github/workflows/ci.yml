@@ -49,6 +49,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        neovim: [stable]
+        include:
+          # The documented minimum (docs/requirements.md): everything but the WezTerm status
+          # export (0.12+) has to work there, and only a run on it can say so.
+          - os: ubuntu-latest
+            neovim: v0.11.0
+    name: tests (${{ matrix.os }}, nvim ${{ matrix.neovim }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -65,7 +72,7 @@ jobs:
       - uses: rhysd/action-setup-vim@v1
         with:
           neovim: true
-          version: stable
+          version: ${{ matrix.neovim }}
       # Checked out from the branch that only moves once the dependency's own CI is green.
       - uses: actions/checkout@v5
         with:
@@ -86,14 +93,14 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: testing-ir-${{ matrix.os }}
+          name: testing-ir-${{ matrix.os }}-${{ matrix.neovim }}
           path: ${{ runner.temp }}/testing-ir.json
           if-no-files-found: ignore
           retention-days: 14
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: test-output-tests-${{ matrix.os }}
+          name: test-output-tests-${{ matrix.os }}-${{ matrix.neovim }}
           path: ${{ runner.temp }}/test-output.log
           if-no-files-found: ignore
           retention-days: 14
