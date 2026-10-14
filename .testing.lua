@@ -25,5 +25,25 @@ return {
     -- at its default; specs for the pure core never start one.
   },
   -- gated: a failed conformance check makes `scripts/test.sh conformance` exit 1 (docs/CONFORMANCE.md of testing.nvim)
-  conformance = { gate = true },
+  conformance = {
+    gate = true,
+    waivers = {
+      {
+        check = "K12",
+        rule = "REL-22",
+        text = "terminal.window_",
+        level = "warn",
+        expires = "2027-04-14",
+        reason = "terminal-mode window navigation keys that hand off to the multiplexer at the edge; the `:Terminal` command is about terminals, window motion is the user's own :wincmd",
+      },
+      {
+        check = "K13",
+        rule = "UI-22",
+        text = "terminal.window_down",
+        level = "warn",
+        expires = "2027-04-14",
+        reason = "<C-j> completes the <C-h>/<C-j>/<C-k> window navigation set in terminal mode; deliberate and configurable (window_down)",
+      },
+    },
+  },
 }
