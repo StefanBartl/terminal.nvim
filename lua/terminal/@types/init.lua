@@ -63,6 +63,10 @@
 ---@field handoff string|string[]|boolean "auto", a name ("tmux", "wezterm"), a list, or false
 ---@field timeout_ms integer How long the hand-off command may run (ms)
 
+---@class Terminal.SessionsConfig
+---@field enable boolean Save and reopen the terminals with a sessions.nvim session
+---@field commands "ask"|"run"|"never" What happens to a saved command: ask once, start it, or open a plain shell
+
 ---@class Terminal.MultiplexerConfig
 ---@field timeout_ms integer How long a tmux / `wezterm cli` call may take before it counts as hung (ms)
 
@@ -95,6 +99,7 @@
 ---@field multiplexer Terminal.MultiplexerConfig
 ---@field adopt Terminal.AdoptConfig
 ---@field pin Terminal.PinConfig
+---@field sessions Terminal.SessionsConfig
 ---@field keymaps Terminal.KeymapsConfig
 ---@field commands boolean
 
@@ -154,6 +159,10 @@
 ---@field handoff? string|string[]|boolean "auto", a name ("tmux", "wezterm"), a list, or false
 ---@field timeout_ms? integer
 
+---@class Terminal.SessionsOptions
+---@field enable? boolean
+---@field commands? "ask"|"run"|"never"
+
 ---@class Terminal.MultiplexerOptions
 ---@field timeout_ms? integer
 
@@ -188,6 +197,7 @@
 ---@field multiplexer? Terminal.MultiplexerOptions
 ---@field adopt? Terminal.AdoptOptions
 ---@field pin? Terminal.PinOptions
+---@field sessions? Terminal.SessionsOptions
 ---@field keymaps? Terminal.KeymapsOptions
 ---@field commands? boolean
 

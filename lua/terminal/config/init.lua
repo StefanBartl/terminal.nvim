@@ -33,6 +33,7 @@ local ENUMS = {
   on_exit = { "close", "close_on_success", "keep" },
   ["float.title_pos"] = { "left", "center", "right" },
   ["pin.layout"] = require("terminal.backends").LAYOUTS,
+  ["sessions.commands"] = { "ask", "run", "never" },
 }
 
 ---@internal

@@ -96,6 +96,13 @@ require("terminal").setup({
     layout = "vsplit",      -- layout of the new pane when --layout is not given
   },
 
+  -- sessions.nvim: a session saves its terminals' definitions beside it and reopens them hidden
+  -- (see sessions.md). No process survives.
+  sessions = {
+    enable = true,
+    commands = "ask",       -- saved `run` commands: "ask" once | "run" them | "never" (plain shells)
+  },
+
   -- Keymaps are named actions. A string moves one, a list binds several keys, false drops
   -- it, preset = false binds nothing at all.
   keymaps = {

@@ -153,6 +153,12 @@ function M.setup(opts)
         require("terminal.navigate").setup(config.get_all(), env)
       end,
     },
+    {
+      "sessions",
+      function()
+        require("terminal.sessions").setup(config.get_all())
+      end,
+    },
   }
   for _, step in ipairs(steps) do
     local ok, err = pcall(step[2])

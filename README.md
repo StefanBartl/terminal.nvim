@@ -73,6 +73,10 @@ answers.
 
 - [Navigation](docs/navigation.md) — one key from Neovim windows into the neighbouring tmux or WezTerm pane.
 
+### Sessions
+
+- [Sessions](docs/sessions.md) — the terminals of a sessions.nvim session are saved with it and reopened (hidden) on load.
+
 ### Backends
 
 - [Backends](docs/backends.md) — native windows, tmux panes or WezTerm panes.

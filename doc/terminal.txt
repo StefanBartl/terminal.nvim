@@ -132,4 +132,12 @@ nothing with `preset = false`.
 
 See docs/configuration.md for every option and its default.
 
+                                                           *terminal-sessions*
+With sessions.nvim a session saves the definitions of the project's native
+terminals (name, layout, directory, and the command of a `run` with `direct`)
+in `.<session>.terminals.json` beside the session file and reopens them,
+hidden, when it is loaded. No process is saved. Terminals that already exist
+are left alone. The commands are asked about once (`sessions.commands`: "ask",
+"run" or "never"); `sessions.enable = false` turns it off. See docs/sessions.md.
+
 vim:tw=78:ts=8:ft=help:norl:

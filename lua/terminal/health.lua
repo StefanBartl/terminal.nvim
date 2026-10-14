@@ -121,6 +121,7 @@ function M.check()
     { "lib.nvim.cross.platform.is_windows", "platform checks" },
     { "lib.nvim.terminal.osc", "escape sequences for the status export" },
     { "lib.nvim.debounce", "status debounce" },
+    { "lib.nvim.fs.json", "terminal definitions saved with a session" },
   }
   for _, r in ipairs(required) do
     if pcall(require, r[1]) then

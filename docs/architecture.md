@@ -5,6 +5,7 @@ lua/terminal/
   init.lua            facade: setup, open, toggle, hide, close, list, send, run, navigate, status
   pin.lua             pin: restart a native terminal as a multiplexer pane (gets the facade's `host`)
   adopt.lua           adopt: a pane's screen in a read-only buffer (gets the facade's `host`)
+  sessions.lua        terminals follow a sessions.nvim session (User events SessionsSavePost / SessionsLoadPost)
   notify.lua          the one notifier, prefix "[terminal]"
   config/             DEFAULTS.lua (single source of truth), validation + store
   core/               logic that does not depend on the backend

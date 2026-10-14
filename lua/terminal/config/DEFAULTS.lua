@@ -126,6 +126,15 @@ local DEFAULTS = {
     timeout_ms = 2000,
   },
 
+  -- sessions.nvim: the terminals of a session are saved beside it and reopened (hidden) when it is
+  -- loaded. Only the definitions: name, layout, directory and the command of a `run` with
+  -- `direct`; no process survives. `commands` says what happens to those commands: "ask" (once,
+  -- when a session has any), "run" (start them) or "never" (open plain shells instead).
+  sessions = {
+    enable = true,
+    commands = "ask",
+  },
+
   commands = true,
 }
 
