@@ -121,7 +121,14 @@ terminal.send("ls", { newline = true, name = "repl" })
 terminal.run({ "git", "status" })
 terminal.status()        -- { ready, backend, terminals }
 terminal.navigate("h", 2)  -- window left x2; at the edge the multiplexer takes over
+terminal.teardown()      -- { views, closed, failed }: see below
 ```
+
+`teardown()` takes down what the plugin started: `adopt` views (timer stopped, buffer wiped), native
+terminals (job stopped, windows and buffer removed) and the status export (what was published to tmux is
+removed). Terminals in a multiplexer pane stay on purpose, and so do keymaps, commands and autocommands
+(`setup()` replaces them). Calling it twice, or before `setup()`, is harmless. Nothing calls it for you:
+at exit Neovim ends the jobs itself, and `setup()` called again keeps the terminals.
 
 Every function returns `nil, err` (or `false, err`) instead of raising. Only a programmer error
 raises: `navigate` with a direction that is not `h`, `j`, `k` or `l`, or with a count that is not a

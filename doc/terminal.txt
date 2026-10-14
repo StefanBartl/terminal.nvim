@@ -86,6 +86,7 @@ to 9.
   terminal.pin({ name = "build" }, { backend = "tmux", layout = "vsplit" })
   terminal.adopt({ name = "build" })
   terminal.status()
+  terminal.teardown()    close native terminals and adopt views, stop the status export
 <
 
 An argv list given to run() is quoted for the terminal's shell; a string is

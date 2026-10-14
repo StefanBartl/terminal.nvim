@@ -16,6 +16,12 @@ local M = {}
 local REFRESH_MS = 1000
 
 ---@internal
+--- The views that have a refresh timer: buffer -> the function that stops it. Kept so that
+--- `close_all` can reach what `run` started; an entry goes when its view ends.
+---@type table<integer, fun()>
+local views = {}
+
+---@internal
 --- Text from a multiplexer pane made safe for a buffer: no control characters.
 ---@param text string
 ---@return string[]
@@ -120,11 +126,13 @@ function M.run(host, target)
         return
       end
       done = true
+      views[buf] = nil
       if not timer:is_closing() then
         timer:stop()
         timer:close()
       end
     end
+    views[buf] = stop
     local tick
     local function rearm()
       if not done then
@@ -163,6 +171,20 @@ function M.run(host, target)
   -- Without a timer (libuv out of handles) the view still shows the screen as of now.
 
   return buf, nil
+end
+
+--- End every view: stop its timer and wipe its buffer. Idempotent; nothing happens to the panes.
+---@return integer count Views that were ended
+function M.close_all()
+  local count = 0
+  for buf, stop in pairs(vim.tbl_extend("force", {}, views)) do
+    count = count + 1
+    stop()
+    if vim.api.nvim_buf_is_valid(buf) then
+      pcall(vim.api.nvim_buf_delete, buf, { force = true })
+    end
+  end
+  return count
 end
 
 return M

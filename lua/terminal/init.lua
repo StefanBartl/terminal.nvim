@@ -798,6 +798,41 @@ function M.adopt(target)
   return require("terminal.adopt").run(host, target)
 end
 
+--- Take down what this plugin started and still holds: the `adopt` views (timers stopped, buffers
+--- wiped), the native terminals (job stopped, windows and buffers removed) and the status export
+--- (what was published to tmux is removed again). Terminals that live in a multiplexer pane stay on
+--- purpose: they are meant to outlive Neovim. Keymaps, commands and autocommands stay too; `setup()`
+--- replaces them. Safe to call twice.
+---@return { views: integer, closed: integer, failed: string[] } result
+function M.teardown()
+  local result = { views = 0, closed = 0, failed = {} }
+  if not state.ready then
+    return result -- never set up: nothing was started
+  end
+  for _, handle in ipairs(state.registry:list()) do
+    if handle.backend == "native" then
+      local ok, err = backend_of(handle).close(handle)
+      if ok then
+        result.closed = result.closed + 1
+      else
+        result.failed[#result.failed + 1] = ("terminal '%s': %s"):format(
+          handle.name,
+          err or "cannot close"
+        )
+      end
+    end
+  end
+  -- The views go last: closing a window changes the layout, and on Windows a job must not be
+  -- stopped right after that (see `LAYOUT_SETTLE_MS` in the native backend).
+  -- `adopt` is loaded only when something was adopted: nothing to end if it never was
+  local adopt = package.loaded["terminal.adopt"]
+  if adopt then
+    result.views = adopt.close_all()
+  end
+  require("terminal.status").clear()
+  return result
+end
+
 --- Read-only snapshot of what is going on, for health checks and bug reports.
 ---@return { ready: boolean, backend?: string, terminals: integer }
 function M.status()

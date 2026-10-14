@@ -332,6 +332,50 @@ describe("terminal pin / adopt", function()
     end)
   end)
 
+  describe("teardown", function()
+    it(
+      "ends the adopt views and their timers, closes native terminals, keeps multiplexer panes",
+      function()
+        boot(true)
+        terminal.open({ name = "work" })
+        jobs.settle()
+        local _, _, pinned = terminal.pin({ name = "work" })
+        terminal.open({ name = "scratch" }) -- stays native
+        jobs.settle()
+        local buf = terminal.adopt({ name = "work" })
+        assert.is_true(vim.api.nvim_buf_is_valid(buf))
+
+        local result = terminal.teardown()
+        assert.equals(1, result.views)
+        assert.equals(1, result.closed, "the native terminal is closed")
+        assert.same({}, result.failed)
+        assert.is_false(vim.api.nvim_buf_is_valid(buf), "the view is wiped")
+        local names = vim.tbl_map(function(h)
+          return h.name .. ":" .. h.backend
+        end, terminal.list(true))
+        assert.same({ "work:wezterm" }, names, "the pane stays on purpose")
+        assert.is_not_nil(state.panes[pinned.pane], "the pane itself was not killed")
+
+        -- the timer is gone with the view: no capture happens any more
+        local before = #state.calls
+        vim.wait(1500)
+        for i = before + 1, #state.calls do
+          assert.not_equals("get-text", state.calls[i].argv[1], "a stopped view captured again")
+        end
+        local again = terminal.teardown()
+        assert.equals(0, again.views)
+        assert.equals(0, again.closed)
+      end
+    )
+
+    it("is a no-op before setup", function()
+      package.loaded["terminal"] = nil
+      local fresh = require("terminal")
+      assert.same({ views = 0, closed = 0, failed = {} }, fresh.teardown())
+      terminal = fresh
+    end)
+  end)
+
   describe("adopt", function()
     it("shows the pane's text in a read-only buffer, control characters replaced", function()
       boot(true)

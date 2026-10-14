@@ -273,10 +273,17 @@ function M.new(registry)
   local layout_changed_at = 0
 
   ---@internal
-  --- Note that a window of this backend was just opened or closed.
+  --- Note that a window was just opened or closed.
   local function layout_changed()
     layout_changed_at = vim.uv.hrtime()
   end
+
+  -- Any window counts, not only this backend's own: the window of an `adopt` view or of another
+  -- plugin resizes the ConPTY of a running terminal just the same.
+  Autocmd.create({ "WinNew", "WinClosed" }, layout_changed, {
+    group = Autocmd.group("terminal.native"),
+    desc = "terminal.nvim: note a layout change before a job is stopped (Windows)",
+  })
 
   ---@internal
   --- Windows only: let the last layout change be `LAYOUT_SETTLE_MS` old before a job is stopped (see
