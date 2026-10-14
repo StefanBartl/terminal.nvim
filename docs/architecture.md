@@ -7,11 +7,12 @@ lua/terminal/
   adopt.lua           adopt: a pane's screen in a read-only buffer (gets the facade's `host`)
   notify.lua          the one notifier, prefix "[terminal]"
   config/             DEFAULTS.lua (single source of truth), validation + store
-  core/               pure logic, no editor state
+  core/               logic that does not depend on the backend
     layout.lua          window geometry (fractions / absolute cells)
     registry.lua        the set of terminals (an instance, no module-level table)
     context.lua         project root + terminal name for a call
     navigate.lua        direction and outcome of a window move
+    exec.lua            process runner for the multiplexer CLIs (3 s default timeout)
     status.lua, osc.lua the status dataset and its terminal escape sequences
   backends/
     init.lua            detection ($TMUX, $WEZTERM_PANE) and resolution
@@ -40,7 +41,7 @@ lua/terminal/
 ## Backends
 
 A backend is a table satisfying `Terminal.Backend`: `available`, `spawn`, `send`, `focus`,
-`list`, `close`, plus `probe` (visible + focused in one answer) and optional `visible`,
+`list`, `close`, plus the optional `probe` (visible + focused in one answer), `visible`,
 `focused`, `show`, `hide`, `capture` (and `capture_async`, used by the `adopt` refresh), `preflight`, `ping`. The
 interface is documented in `lua/terminal/@types/init.lua`. `backends.resolve` picks one from
 the configured name and the environment; a backend that is not available falls back to

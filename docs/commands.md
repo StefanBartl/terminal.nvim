@@ -27,6 +27,8 @@ is not open is reported by the command).
 
 ## Pin and adopt
 
+`pin` takes `--layout=` like `open`; the default is `vsplit` (a pane to the right), and `float` also gives a pane to the right.
+
 `pin` is **not** a transfer: a process cannot move between a Neovim `:terminal` and a pane. The
 native terminal is closed and the same command (and directory) is started again in a pane of tmux
 or WezTerm, under the same name; output and shell history of the old one are gone. The old job ends
@@ -168,4 +170,5 @@ local ok, err, handle = require("terminal").run({ "lazygit", "-p", repo_root }, 
 ```
 
 `close` is `"always"`, `"success"` (only exit code 0, failures stay readable) or `"never"`
-(default). Nothing here is lazygit-specific; the argv is the program.
+(default). `focus = false` keeps the cursor where it was; `start_insert = false` does not enter
+terminal mode. Nothing here is lazygit-specific; the argv is the program.

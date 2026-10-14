@@ -25,7 +25,7 @@ Optional: a Nerd Font is not needed; nothing here draws icons.
 | ubuntu | 0.11.0 (the minimum) | all specs + the conformance gate | CI `tests` |
 | ubuntu | stable | the tmux backend and status exporter against a real tmux server (private socket), including the nested-Neovim ownership checks | CI `tmux-live` |
 
-Not covered by CI, and so a hand check before a release (task `live-check`): the real workflows in
+Not covered by CI, and so a hand check before a release: the real workflows in
 a WezTerm window on Windows (`TESTS/live/wezterm.lua`, `navigate.lua`, `pin.lua`) and tmux on
 Linux and macOS, and shells other than the ones the specs model (`nu`, `csh`; unknown shells are
 quoted like POSIX shells, set `shell`). Specs that only make sense on one platform are not

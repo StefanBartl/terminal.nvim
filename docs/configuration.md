@@ -74,7 +74,7 @@ require("terminal").setup({
   -- Tell the terminal around Neovim what it is doing (see status.md).
   status = {
     enable = true,
-    export = "auto",        -- "auto" | "wezterm" | { "wezterm" } | false
+    export = "auto",        -- "auto" | "tmux" | "wezterm" | { "tmux", "wezterm" } | false
     debounce_ms = 80,
     max_bytes = 1024,       -- the dataset is shortened, then refused, above this
   },
