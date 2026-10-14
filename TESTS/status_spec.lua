@@ -457,6 +457,22 @@ describe("terminal.status (publishing)", function()
     end))
   end)
 
+  it(
+    "FocusGained sends the dataset again although it did not change (another Neovim may have written the pane)",
+    function()
+      publisher.setup(cfg(), { WEZTERM_PANE = "3" })
+      publisher.publish_now()
+      local first = #writes
+      assert.is_true(first >= 1)
+      publisher.publish_now()
+      assert.equals(first, #writes, "an unchanged dataset is not sent twice")
+      vim.api.nvim_exec_autocmds("FocusGained", { group = "terminal.status", modeline = false })
+      assert.is_true(vim.wait(1000, function()
+        return #writes > first
+      end))
+    end
+  )
+
   -- A fake exporter that counts what it was asked to do (used by the two blocks below).
   ---@class Terminal.Spec.FakeExporter: Terminal.StatusExporter
   ---@field publishes? integer How often publish() was called

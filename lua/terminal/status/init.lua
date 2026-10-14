@@ -186,7 +186,6 @@ local EVENTS = {
   "DiagnosticChanged",
   "RecordingEnter",
   "RecordingLeave",
-  "FocusGained",
   "WinEnter",
 }
 
@@ -233,6 +232,16 @@ function M.setup(cfg, env)
   end, {
     group = group,
     desc = "terminal.nvim: send the status to a newly attached UI",
+  })
+  -- Another Neovim may have written this pane since (a nested editor that could not be told from the owner
+  -- exports too and clears the options when it ends): the delta gate must not keep the unchanged dataset back
+  -- once the pane is looked at again.
+  autocmd.create("FocusGained", function()
+    runtime.last = {}
+    runtime.debounce.call()
+  end, {
+    group = group,
+    desc = "terminal.nvim: send the status again when the pane gets the focus",
   })
   autocmd.create("VimLeavePre", M.clear, {
     group = group,

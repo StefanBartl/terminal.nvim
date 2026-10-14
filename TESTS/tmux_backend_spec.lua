@@ -695,13 +695,22 @@ describe("terminal.status.exporters.tmux", function()
     end)
   end)
 
-  it("nested: an unknown ancestry exports anyway and warns once, in every mode", function()
+  ---Run `available` twice with an unknown ancestry; what was warned (the warning is scheduled: it is waited for).
+  ---@param with_ui boolean Whether a UI is attached
+  ---@return boolean first
+  ---@return boolean second
+  ---@return string[] warned
+  local function unknown_ancestry(with_ui)
     local notify = require("terminal.notify")
     local warned = {}
-    local saved_warn = notify.warn
+    local saved_warn, saved_uis = notify.warn, vim.api.nvim_list_uis
     ---@diagnostic disable-next-line: duplicate-set-field
     notify.warn = function(text)
       warned[#warned + 1] = text
+    end
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.api.nvim_list_uis = function()
+      return with_ui and { {} } or {}
     end
     exporter.reset_unknown_warning()
     local result = {}
@@ -717,12 +726,27 @@ describe("terminal.status.exporters.tmux", function()
       result.first = exporter.available(env)
       result.second = exporter.available(env)
     end)
-    notify.warn = saved_warn
+    vim.wait(with_ui and 1000 or 100, function()
+      return #warned >= 1
+    end)
+    vim.wait(50) -- a second one would arrive in this time
+    notify.warn, vim.api.nvim_list_uis = saved_warn, saved_uis
     exporter.reset_unknown_warning()
-    assert.is_true(result.first, "unknown ancestry: the pane gets its status")
-    assert.is_true(result.second)
+    return result.first, result.second, warned
+  end
+
+  it("nested: an unknown ancestry exports anyway and warns once, in every mode", function()
+    local first, second, warned = unknown_ancestry(true)
+    assert.is_true(first, "unknown ancestry: the pane gets its status")
+    assert.is_true(second)
     assert.equals(1, #warned, "told once, not on every call")
     assert.truthy(warned[1]:find("could not tell whether $NVIM owns", 1, true))
+  end)
+
+  it("nested: a Neovim without a UI does not warn (it never exports)", function()
+    local first, _, warned = unknown_ancestry(false)
+    assert.is_true(first)
+    assert.same({}, warned)
   end)
 
   it(

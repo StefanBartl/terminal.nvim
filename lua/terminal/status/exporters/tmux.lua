@@ -83,14 +83,17 @@ local warned_unknown = false
 --- One warning per session (in `auto` too) that $NVIM is set but the nesting could not be found out.
 ---@return nil
 function M.warn_unknown_once()
-  if warned_unknown then
+  -- Not for a Neovim without a UI (a script child, `--headless`): it never exports, there is nothing to warn of.
+  if warned_unknown or not M.ready() then
     return
   end
   warned_unknown = true
-  require("terminal.notify").warn(
-    "status: could not tell whether $NVIM owns this tmux pane (the outer Neovim did not answer or the "
-      .. "process tree is unreadable); exporting the status anyway"
-  )
+  vim.schedule(function()
+    require("terminal.notify").warn(
+      "status: could not tell whether $NVIM owns this tmux pane (the outer Neovim did not answer or the "
+        .. "process tree is unreadable); exporting the status anyway"
+    )
+  end)
 end
 
 --- Forget the warning that was given (specs).
