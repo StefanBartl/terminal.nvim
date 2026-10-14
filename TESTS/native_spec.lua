@@ -548,12 +548,18 @@ describe("terminal.backends.native", function()
       it("hide and close work although a BufNew autocommand of the user fails", function()
         local h = backend.spawn(spec({ layout = "vsplit" }))
         jobs.settle()
+        local seen = 0
+        local ignore_before = vim.o.eventignore
         local id = vim.api.nvim_create_autocmd("BufNew", {
           callback = function()
+            seen = seen + 1
             error("a plugin with a bug")
           end,
         })
         local hidden = { pcall(backend.hide, h) }
+        -- the probe of `hide` made and deleted a scratch buffer: no handler may have seen it
+        assert.equals(0, seen, "the probe buffer was visible to a BufNew autocommand")
+        assert.equals(ignore_before, vim.o.eventignore, "'eventignore' was not restored")
         local closed = { pcall(backend.close, h) }
         pcall(vim.api.nvim_del_autocmd, id)
         assert.is_true(hidden[1] and hidden[2] == true, tostring(hidden[2]) .. tostring(hidden[3]))

@@ -183,6 +183,16 @@ function M.clear()
   runtime.last = {}
 end
 
+--- Stop the status export altogether: what was published is removed (`clear`), the autocommands go
+--- and no exporter is left, so no later event publishes again. `setup()` starts it anew.
+---@return nil
+function M.stop()
+  M.clear()
+  pcall(vim.api.nvim_del_augroup_by_name, "terminal.status")
+  runtime.exporters = {}
+  runtime.off = {}
+end
+
 ---@internal
 local EVENTS = {
   "ModeChanged",

@@ -699,6 +699,21 @@ describe("terminal.status with an asynchronous exporter", function()
     assert.equals(1, fake.requests)
   end)
 
+  it("stop removes the exporters and the autocommands: no later event publishes", function()
+    start()
+    publisher.publish_now()
+    assert.equals(1, fake.requests)
+    publisher.stop()
+    assert.same({}, publisher.active())
+    -- asking for the autocommands of a group that no longer exists raises
+    assert.is_false(
+      (pcall(vim.api.nvim_get_autocmds, { group = "terminal.status" })),
+      "the autocommand group is still there"
+    )
+    publisher.publish_now()
+    assert.equals(1, fake.requests, "published after stop")
+  end)
+
   it("an unusable request switches it off at once", function()
     start()
     fake.publish_async = function()

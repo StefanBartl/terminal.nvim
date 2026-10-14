@@ -306,7 +306,13 @@ local function start(argv, done)
     pending = nil
     if res.code ~= 0 then
       -- The caller switches the exporter off: a queued request would only repeat the failure.
-      done(false, vim.trim(res.stderr))
+      -- A hung tmux ends by timeout with nothing on stderr: say that instead of an empty reason.
+      local why = vim.trim(res.stderr)
+      if why == "" then
+        why = res.code == 124 and "tmux did not answer in time"
+          or ("tmux exited with code %d"):format(res.code)
+      end
+      done(false, why)
       return
     end
     done(true)

@@ -800,7 +800,8 @@ end
 
 --- Take down what this plugin started and still holds: the `adopt` views (timers stopped, buffers
 --- wiped), the native terminals (job stopped, windows and buffers removed) and the status export
---- (what was published to tmux is removed again). Terminals that live in a multiplexer pane stay on
+--- (what was published to tmux is removed again, and the export stays off until the next
+--- `setup()`). Terminals that live in a multiplexer pane stay on
 --- purpose: they are meant to outlive Neovim. Keymaps, commands and autocommands stay too; `setup()`
 --- replaces them. Safe to call twice.
 ---@return { views: integer, closed: integer, failed: string[] } result
@@ -829,7 +830,7 @@ function M.teardown()
   if adopt then
     result.views = adopt.close_all()
   end
-  require("terminal.status").clear()
+  require("terminal.status").stop()
   return result
 end
 

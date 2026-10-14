@@ -315,8 +315,10 @@ function M.new(registry)
   ---@return string|nil reason Neovim's own words
   local function editing_blocked()
     -- No autocommand may see the probe buffer: 'eventignore' is what `:noautocmd` sets, and unlike
-    -- parsing the output of an `:echo` (empty on Neovim 0.11, which left the question unasked and
-    -- the job stopped before the refusal came) it works the same on every version.
+    -- parsing the output of an `:echo` (empty on Neovim 0.11 inside the command-line window, which
+    -- left the question unasked and the job stopped before the refusal came) it works the same on every version.
+    -- (An `OptionSet` handler for 'eventignore' itself does run, twice; `:noautocmd set` cannot be
+    -- used instead: it puts 'eventignore' back right after the command.)
     local saved = vim.o.eventignore
     vim.o.eventignore = "all"
     local blocked

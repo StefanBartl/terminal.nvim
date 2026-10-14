@@ -126,7 +126,7 @@ terminal.teardown()      -- { views, closed, failed }: see below
 
 `teardown()` takes down what the plugin started: `adopt` views (timer stopped, buffer wiped), native
 terminals (job stopped, windows and buffer removed) and the status export (what was published to tmux is
-removed). Terminals in a multiplexer pane stay on purpose, and so do keymaps, commands and autocommands
+removed, and the export stays off until the next `setup()`). Terminals in a multiplexer pane stay on purpose, and so do keymaps, commands and autocommands
 (`setup()` replaces them). Calling it twice, or before `setup()`, is harmless. Nothing calls it for you:
 at exit Neovim ends the jobs itself, and `setup()` called again keeps the terminals.
 

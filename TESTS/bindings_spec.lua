@@ -822,9 +822,14 @@ describe("terminal bindings", function()
         assert.equals("echo hello world\nghijkl" .. eol(), text)
       end)
 
+      it("a modifier typed after the range (valid on every version) changes nothing", function()
+        assert.equals("hello", sent_by("gg0wviw<Esc>:silent '<,'>Terminal send selection<CR>"))
+        assert.equals("hello", sent_by("gg0wviw<Esc>:keepjumps '<,'>Terminal send selection<CR>"))
+      end)
+
       -- Neovim 0.12 files a modifier typed in Visual mode in front of the range (`silent:'<,'>cmd`).
       -- 0.11 leaves the range first (`'<,'>silent cmd`) and refuses that itself with E481, so there
-      -- is no command line to test there.
+      -- is nothing to type there; the variant that is valid everywhere is the case above.
       if vim.fn.has("nvim-0.12") == 1 then
         it("a command-line modifier in front of the range changes nothing", function()
           assert.equals("hello", sent_by("gg0wviw:silent Terminal send selection<CR>"))

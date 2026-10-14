@@ -142,7 +142,9 @@ describe("terminal.core.exec.spawn contract", function()
     assert.is_true(vim.wait(10000, function()
       return got ~= nil
     end, 20))
-    assert.is_true(got.code ~= 0, vim.inspect(got))
+    -- 124 is the code of the polite stop at the limit (vim.system); a kill after the grace period
+    -- (the follow-up timer) would give 128 + 9 instead
+    assert.equals(124, got.code, vim.inspect(got))
     assert.is_true((vim.uv.hrtime() - started) / 1e6 < 8000, "the timeout did not stop the process")
   end)
 

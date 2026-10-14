@@ -1100,6 +1100,21 @@ describe("tmux status exporter: publish_async", function()
     assert.equals(1, #started, "a request was started after a failure")
   end)
 
+  it("a timeout is reported with a reason, not an empty message", function()
+    local seen
+    publish("n", function(ok, err)
+      seen = { ok, err }
+    end)
+    started[1].finish(124) -- no stderr: tmux hung until the limit
+    assert.is_false(seen[1])
+    assert.truthy(seen[2]:find("did not answer in time", 1, true), tostring(seen[2]))
+    publish("i", function(ok, err)
+      seen = { ok, err }
+    end)
+    started[2].finish(3)
+    assert.truthy(seen[2]:find("code 3", 1, true), tostring(seen[2]))
+  end)
+
   it("an unusable dataset is refused at once", function()
     local ok, err = exporter.publish_async("not json", nil, function() end)
     assert.is_false(ok)
