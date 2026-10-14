@@ -80,6 +80,7 @@ jobs:
           scripts/test.sh --json "$RUNNER_TEMP/testing-ir.json"
         shell: bash
       - name: Conformance gate
+        shell: bash
         run: scripts/test.sh conformance
       # The IR is what a reporter or a person reads to find out WHICH case failed on WHICH platform.
       - uses: actions/upload-artifact@v7
