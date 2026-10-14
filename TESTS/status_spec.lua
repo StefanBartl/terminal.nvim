@@ -596,17 +596,17 @@ describe("terminal.status (publishing)", function()
   end)
 
   it("choose: a nested Neovim ($NVIM) is skipped by auto, but a name asks for it anyway", function()
-    local tmux_exporter = require("terminal.status.exporters.tmux")
-    local saved = tmux_exporter.alive
+    local nested = require("terminal.status.nested")
+    local saved = nested.alive
     -- Test double: the outer Neovim counts as running.
     ---@diagnostic disable-next-line: duplicate-set-field
-    tmux_exporter.alive = function()
+    nested.alive = function()
       return true -- the outer Neovim is running
     end
     local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1", NVIM = "/tmp/nvim.sock" }
     local auto = publisher.choose("auto", env)
     local named = publisher.choose("tmux", env)
-    tmux_exporter.alive = saved
+    nested.alive = saved
     assert.same({}, auto)
     assert.equals(1, #named)
     assert.equals("tmux", named[1].name)

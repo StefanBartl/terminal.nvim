@@ -8,6 +8,8 @@
 --- they are testable without a real terminal.
 ---@see terminal
 
+local Env = require("terminal.core.env")
+
 local M = {}
 
 --- Every layout a terminal can have. A multiplexer backend has no floating pane: it opens `float`
@@ -20,23 +22,14 @@ M.LAYOUTS = { "float", "split", "vsplit", "tab" }
 ---@type string[]
 M.MULTIPLEXERS = { "tmux", "wezterm" }
 
----@internal
---- Variables that identify a multiplexer or terminal emulator, most specific first.
----@type { name: string, var: string }[]
-local SIGNALS = {
-  { name = "tmux", var = "TMUX" },
-  { name = "wezterm", var = "WEZTERM_PANE" },
-}
-
 --- Which backends the environment makes available, most specific first; `native` is always last.
 --- Nested environments (tmux inside WezTerm) report both.
 ---@param env table<string, string|nil>
 ---@return string[]
 function M.detect(env)
   local found = {}
-  for _, signal in ipairs(SIGNALS) do
-    local v = env[signal.var]
-    if v ~= nil and v ~= "" then
+  for _, signal in ipairs(Env.SIGNALS) do
+    if Env.set(env[signal.var]) then
       found[#found + 1] = signal.name
     end
   end

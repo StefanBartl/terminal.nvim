@@ -8,6 +8,7 @@ dofile((debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/sup
 local registry_mod = require("terminal.core.registry")
 local tmux = require("terminal.backends.tmux")
 local exporter = require("terminal.status.exporters.tmux")
+local nested = require("terminal.status.nested")
 
 local fake = dofile(
   (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".") .. "/support/fakes.lua"
@@ -507,17 +508,17 @@ describe("terminal.status.exporters.tmux", function()
   )
 
   it("available refuses a Neovim inside another LIVE Neovim's terminal ($NVIM)", function()
-    local saved = exporter.alive
+    local saved = nested.alive
     -- Test double: the outer Neovim counts as running.
     ---@diagnostic disable-next-line: duplicate-set-field
-    exporter.alive = function()
+    nested.alive = function()
       return true
     end
     local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1" }
     assert.is_true((exporter.available(env)))
-    local nested = vim.tbl_extend("force", env, { NVIM = "/tmp/nvim.sock" })
-    local ok, why = exporter.available(nested)
-    exporter.alive = saved
+    local inside_neovim = vim.tbl_extend("force", env, { NVIM = "/tmp/nvim.sock" })
+    local ok, why = exporter.available(inside_neovim)
+    nested.alive = saved
     assert.is_false(ok)
     assert.truthy(why:find("NVIM", 1, true))
   end)
@@ -531,7 +532,7 @@ describe("terminal.status.exporters.tmux", function()
         TMUX_PANE = "%1",
         NVIM = vim.fn.tempname() .. "-gone.sock",
       }
-      assert.is_false(exporter.alive(env.NVIM))
+      assert.is_false(nested.alive(env.NVIM))
       assert.is_true((exporter.available(env)))
     end
   )
@@ -552,7 +553,7 @@ describe("terminal.status.exporters.tmux", function()
       address,
     })
     vim.wait(8000, function()
-      return exporter.alive(address)
+      return nested.alive(address)
     end, 50)
     return job
   end
@@ -570,11 +571,11 @@ describe("terminal.status.exporters.tmux", function()
         and ("\\\\.\\pipe\\terminal-nvim-spec-" .. vim.uv.os_getpid())
       or (vim.fn.tempname() .. ".sock")
     local job = outer_neovim(address)
-    local up = exporter.alive(address)
+    local up = nested.alive(address)
     vim.fn.jobstop(job)
     vim.fn.jobwait({ job }, 3000)
     assert.is_true(up)
-    assert.is_false(exporter.alive(address), "stopped: nobody answers")
+    assert.is_false(nested.alive(address), "stopped: nobody answers")
   end)
 
   it(
@@ -582,34 +583,34 @@ describe("terminal.status.exporters.tmux", function()
     function()
       local address = "127.0.0.1:" .. free_port()
       local job = outer_neovim(address)
-      local up = exporter.alive(address)
+      local up = nested.alive(address)
       vim.fn.jobstop(job)
       vim.fn.jobwait({ job }, 3000)
       assert.is_true(up, "judged dead: sockconnect needs the tcp mode for host:port")
-      assert.is_false(exporter.alive(address), "stopped: nobody answers")
+      assert.is_false(nested.alive(address), "stopped: nobody answers")
     end
   )
 
   --- The process lookups of the tmux exporter that `with_stubs` can replace.
   ---@class Terminal.Spec.ExporterStubs
-  ---@field alive? fun(address: string): boolean Replaces `exporter.alive`
-  ---@field server_pid? fun(address: string): integer|nil Replaces `exporter.server_pid`
-  ---@field parent_of? fun(pid: integer): integer|nil Replaces `exporter.parent_of`
+  ---@field alive? fun(address: string): boolean Replaces `nested.alive`
+  ---@field server_pid? fun(address: string): integer|nil Replaces `nested.server_pid`
+  ---@field parent_of? fun(pid: integer): integer|nil Replaces `nested.parent_of`
 
-  --- Run `body` with the exporter's process lookups replaced; always restore them.
+  --- Run `body` with the process lookups of `terminal.status.nested` replaced; always restore them.
   ---@param stubs Terminal.Spec.ExporterStubs
   ---@param body fun()
   local function with_stubs(stubs, body)
     local saved = {
-      alive = exporter.alive,
-      server_pid = exporter.server_pid,
-      parent_of = exporter.parent_of,
+      alive = nested.alive,
+      server_pid = nested.server_pid,
+      parent_of = nested.parent_of,
     }
     for name, fn in pairs(stubs) do
-      exporter[name] = fn
+      nested[name] = fn
     end
     local ok, err = pcall(body)
-    exporter.alive, exporter.server_pid, exporter.parent_of =
+    nested.alive, nested.server_pid, nested.parent_of =
       saved.alive, saved.server_pid, saved.parent_of
     assert(ok, err)
   end
@@ -630,13 +631,13 @@ describe("terminal.status.exporters.tmux", function()
         return pids[address]
       end,
     }, function()
-      assert.is_true(exporter.nested("outer"), "an ancestor: this Neovim is nested")
+      assert.is_true(nested.nested("outer"), "an ancestor: this Neovim is nested")
       assert.is_false(
-        exporter.nested("elsewhere"),
+        nested.nested("elsewhere"),
         "running but not an ancestor (a tmux server that was started from its terminal): owns its pane"
       )
       assert.is_true(
-        exporter.nested("silent"),
+        nested.nested("silent"),
         "the server does not tell its pid in time: assume nested"
       )
     end)
@@ -666,7 +667,7 @@ describe("terminal.status.exporters.tmux", function()
           "\\\\.\\pipe\\nvim.999.0",
           "/tmp/plain-socket",
         }) do
-          assert.is_true(exporter.nested(address), address)
+          assert.is_true(nested.nested(address), address)
         end
       end)
     end
@@ -684,13 +685,13 @@ describe("terminal.status.exporters.tmux", function()
         return nil
       end,
     }, function()
-      assert.is_true(exporter.nested("outer"), "chain unreadable: assume nested")
+      assert.is_true(nested.nested("outer"), "chain unreadable: assume nested")
       -- Test double: the outer Neovim is gone.
       ---@diagnostic disable-next-line: duplicate-set-field
-      exporter.alive = function()
+      nested.alive = function()
         return false
       end
-      assert.is_false(exporter.nested("outer"), "outer Neovim gone")
+      assert.is_false(nested.nested("outer"), "outer Neovim gone")
     end)
   end)
 
@@ -734,7 +735,7 @@ describe("terminal.status.exporters.tmux", function()
           address,
         })
         vim.wait(8000, function()
-          return exporter.alive(address)
+          return nested.alive(address)
         end, 50)
         return job
       end
@@ -752,7 +753,7 @@ describe("terminal.status.exporters.tmux", function()
       local found = {}
       for _, address in ipairs({ named, "127.0.0.1:" .. port }) do
         local job = listen(address)
-        found[address] = { pid = exporter.server_pid(address), job = vim.fn.jobpid(job) }
+        found[address] = { pid = nested.server_pid(address), job = vim.fn.jobpid(job) }
         vim.fn.jobstop(job)
         vim.fn.jobwait({ job }, 3000)
       end
@@ -760,18 +761,18 @@ describe("terminal.status.exporters.tmux", function()
         assert.is_not_nil(f.pid, address)
         assert.equals(f.job, f.pid, address)
       end
-      assert.is_nil(exporter.server_pid(named), "stopped: nothing answers")
+      assert.is_nil(nested.server_pid(named), "stopped: nothing answers")
     end
   )
 
   it("parse_stat takes the parent from after the LAST ')' of the process name", function()
     -- the same on every platform: it is a pure function of the line
-    assert.equals(45, exporter.parse_stat("123 (bash) S 45 123 123 0 -1"))
-    assert.equals(77, exporter.parse_stat("123 (x) R 1 (y) S 77 123 123 0 -1"))
-    assert.equals(9, exporter.parse_stat("5 (a b (c d)) Z 9 5 5 0 -1"))
-    assert.is_nil(exporter.parse_stat("not a stat line"))
-    assert.is_nil(exporter.parse_stat(""))
-    assert.is_nil(exporter.parse_stat(nil))
+    assert.equals(45, nested.parse_stat("123 (bash) S 45 123 123 0 -1"))
+    assert.equals(77, nested.parse_stat("123 (x) R 1 (y) S 77 123 123 0 -1"))
+    assert.equals(9, nested.parse_stat("5 (a b (c d)) Z 9 5 5 0 -1"))
+    assert.is_nil(nested.parse_stat("not a stat line"))
+    assert.is_nil(nested.parse_stat(""))
+    assert.is_nil(nested.parse_stat(nil))
   end)
 
   -- Linux only by nature: it needs /proc and a program whose name looks like a stat line. It is
@@ -784,7 +785,7 @@ describe("terminal.status.exporters.tmux", function()
       vim.uv.fs_symlink(vim.fn.exepath("sleep"), crafted)
       local job = vim.fn.jobstart({ crafted, "5" })
       local pid = vim.fn.jobpid(job)
-      local parent = exporter.parent_of(pid)
+      local parent = nested.parent_of(pid)
       vim.fn.jobstop(job)
       vim.fn.jobwait({ job }, 3000)
       vim.fn.delete(dir, "rf")
@@ -799,7 +800,7 @@ describe("terminal.status.exporters.tmux", function()
     local job =
       vim.fn.jobstart({ vim.v.progpath, "--headless", "-u", "NONE", "-i", "NONE", "-c", "sleep 5" })
     local pid = vim.fn.jobpid(job)
-    local parent = exporter.parent_of(pid)
+    local parent = nested.parent_of(pid)
     vim.fn.jobstop(job)
     vim.fn.jobwait({ job }, 3000)
     if vim.fn.has("win32") == 1 then
@@ -810,7 +811,7 @@ describe("terminal.status.exporters.tmux", function()
   end)
 
   it("parent_of agrees with the OS where it can read the process tree", function()
-    local parent = exporter.parent_of(vim.uv.os_getpid())
+    local parent = nested.parent_of(vim.uv.os_getpid())
     -- nil where the tree cannot be read (Windows); the real parent everywhere else
     assert.is_true(parent == nil or parent == vim.uv.os_getppid(), tostring(parent))
   end)

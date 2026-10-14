@@ -37,12 +37,7 @@ local state = {
 ---@internal
 ---@return table<string, string|nil>
 local function environment()
-  return {
-    TMUX = vim.env.TMUX,
-    WEZTERM_PANE = vim.env.WEZTERM_PANE,
-    TMUX_PANE = vim.env.TMUX_PANE,
-    NVIM = vim.env.NVIM,
-  }
+  return require("terminal.core.env").read()
 end
 
 ---@internal

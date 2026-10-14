@@ -13,6 +13,7 @@
 ---@see terminal.backends.tmux
 
 local registry_mod = require("terminal.core.registry")
+local Env = require("terminal.core.env")
 
 local M = {}
 
@@ -81,7 +82,7 @@ end
 ---@return boolean ok
 ---@return string|nil reason
 function M.available(env)
-  if env.WEZTERM_PANE == nil or env.WEZTERM_PANE == "" then
+  if not Env.inside(env, "wezterm") then
     return false, "not running inside WezTerm ($WEZTERM_PANE is not set)"
   end
   if vim.fn.executable("wezterm") ~= 1 then

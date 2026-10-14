@@ -14,26 +14,12 @@
 ---@see terminal.backends.wezterm
 
 local registry_mod = require("terminal.core.registry")
+local Env = require("terminal.core.env")
 
 local M = {}
 
---- One data word as a tmux argument: typed text, a directory, the words of a command, an option
---- value. tmux's command parser ends a command at an argument that ends in `;` and turns a
---- trailing `\;` into `;`; a backslash in front of the final `;` makes it a literal again: `a;`
---- -> `a\;` (read as `a;`), `a\;` -> `a\\;` (read as `a\;`). Without it a bare word like
---- `select 1;` would lose its `;`, and a word like `notes;` followed by `run-shell` would start
---- another tmux command.
----
---- That is the escape for the *command parser*. The value of `-c` (the start directory) is also a
---- tmux *format*, which `M.word` does not know about: see `start_directory`.
----@param s string
----@return string
-function M.word(s)
-  if s:sub(-1) == ";" then
-    return s:sub(1, -2) .. "\\;"
-  end
-  return s
-end
+--- One data word as a tmux argument (`terminal.core.tmux_word`, shared with the status exporter).
+M.word = require("terminal.core.tmux_word")
 
 ---@internal
 --- A start directory as the value of `-c`. tmux expands that value as a format (`#S`, `#{...}`,
@@ -98,10 +84,10 @@ local REAL_RUNNER = M.default_runner
 ---@return boolean ok
 ---@return string|nil reason
 function M.available(env)
-  if env.TMUX == nil or env.TMUX == "" then
+  if not Env.inside(env, "tmux") then
     return false, "not running inside tmux ($TMUX is not set)"
   end
-  if env.TMUX_PANE == nil or env.TMUX_PANE == "" then
+  if not Env.set(env.TMUX_PANE) then
     return false, "$TMUX_PANE is not set"
   end
   if vim.fn.executable("tmux") ~= 1 then

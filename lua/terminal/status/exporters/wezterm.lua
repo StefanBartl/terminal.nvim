@@ -14,6 +14,7 @@
 ---@see terminal.core.osc
 
 local osc = require("terminal.core.osc")
+local Env = require("terminal.core.env")
 
 local M = {}
 
@@ -24,7 +25,7 @@ M.name = "wezterm"
 ---@return boolean ok
 ---@return string|nil reason
 function M.available(env)
-  if env.WEZTERM_PANE == nil or env.WEZTERM_PANE == "" then
+  if not Env.inside(env, "wezterm") then
     return false, "not running inside WezTerm ($WEZTERM_PANE is not set)"
   end
   -- `nvim_ui_send` exists since Neovim 0.12; before that there is no way to write to the host
@@ -50,7 +51,7 @@ local function send(vars)
   if #vim.api.nvim_list_uis() == 0 then
     return false, "no UI attached"
   end
-  local payload, err = osc.user_vars(vars, vim.env.TMUX ~= nil and vim.env.TMUX ~= "")
+  local payload, err = osc.user_vars(vars, Env.inside(Env.read(), "tmux"))
   if not payload then
     return false, err
   end

@@ -222,13 +222,7 @@ function M.setup(cfg, env)
     return
   end
 
-  env = env
-    or {
-      WEZTERM_PANE = vim.env.WEZTERM_PANE,
-      TMUX = vim.env.TMUX,
-      TMUX_PANE = vim.env.TMUX_PANE,
-      NVIM = vim.env.NVIM,
-    }
+  env = env or require("terminal.core.env").read()
   local chosen, notes = M.choose(cfg.status.export, env)
   for _, note in ipairs(notes) do
     warn(note)

@@ -12,6 +12,9 @@ lua/terminal/
     registry.lua        the set of terminals (an instance, no module-level table)
     context.lua         project root + terminal name for a call
     navigate.lua        direction and outcome of a window move
+    env.lua             the one reader of $TMUX / $TMUX_PANE / $WEZTERM_PANE / $NVIM and "inside tmux?"
+    errors.lua          how a failed multiplexer call is worded (first line, hint, debug log)
+    tmux_word.lua       a data word as a tmux argument (shared by the backend and the exporter)
     exec.lua            process runner for the multiplexer CLIs (`multiplexer.timeout_ms`, 3 s by default)
     status.lua, osc.lua the status dataset and its terminal escape sequences
   backends/
@@ -20,7 +23,8 @@ lua/terminal/
     tmux.lua            panes of the tmux server around Neovim
     wezterm.lua         panes of the WezTerm mux around Neovim
   navigate/             window moves and the hand-off to the multiplexer at the edge
-  status/               status export to the terminal around Neovim (collector + exporters)
+  status/               status export to the terminal around Neovim (collector + exporters; nested.lua
+                        answers "inside the terminal of another running Neovim?")
   bindings/             keymaps (named actions), autocommands, :Terminal
   health.lua            :checkhealth terminal
   @types/               class definitions
@@ -54,6 +58,13 @@ multiple setups cannot leak into each other.
 
 - **Quoting is its own pure module.** `run` with an argv never builds a line from an
   unquoted string; `lib.nvim.cross.shell_quote` (the quoting itself, shared with other plugins) is tested against hostile words for each shell family, here with property specs and a real PowerShell.
+- **Dependencies are explicit where it pays.** The environment is read once (`core/env.lua`) and
+  handed down as a table (`setup()`, `available(env)`, `reliance`), backends and navigation take
+  their runner and registry as arguments, and the specs replace single functions (`exporter.run`,
+  `default_runner`, `nested.alive`) rather than whole modules. A constructor-injection layer for the
+  facade and the exporters (a deps table in `setup()`) was considered and not built: it would add a
+  public surface that only the specs use, and the seams above already let them run without a real
+  multiplexer.
 - **Errors are display strings.** Every function answers `nil, err` or `false, err` with text a person
   can read; there is no error object, and nobody inside the plugin or among its callers branches on
   the kind of failure. A structured type (`lib.lua.error`, kinds such as unavailable / refused / failed)

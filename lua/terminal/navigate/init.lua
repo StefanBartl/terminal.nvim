@@ -59,7 +59,7 @@ end
 ---@param run? fun(argv: string[]) Command runner (default: detached `vim.system`)
 ---@return nil
 function M.setup(cfg, env, run)
-  env = env or { TMUX = vim.env.TMUX, WEZTERM_PANE = vim.env.WEZTERM_PANE }
+  env = env or require("terminal.core.env").read()
   runtime.run = run or spawn_detached
   if cfg.navigate.handoff == false then
     -- nothing to choose: the hand-off module is not even loaded

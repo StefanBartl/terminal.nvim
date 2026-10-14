@@ -7,6 +7,8 @@
 --- it is `info`.
 ---@see terminal.config
 
+local Env = require("terminal.core.env")
+
 local M = {}
 
 ---@internal
@@ -69,7 +71,7 @@ end
 local function reliance(cfg, name, env)
   local explicit, auto = picks(cfg.navigate.handoff, name)
   -- "auto" asks the innermost multiplexer only: inside tmux inside WezTerm that is tmux.
-  local innermost = name == "tmux" or env.TMUX == nil or env.TMUX == ""
+  local innermost = name == "tmux" or not Env.inside(env, "tmux")
   local export_explicit, export_auto = picks(cfg.status.export, name)
   return {
     cli = cfg.backend == name or explicit or (auto and innermost),
@@ -150,7 +152,7 @@ function M.check()
 
   health.start("terminal.nvim: environment")
   local backends = require("terminal.backends")
-  local env = { TMUX = vim.env.TMUX, WEZTERM_PANE = vim.env.WEZTERM_PANE }
+  local env = Env.read()
   health.info("Detected: " .. table.concat(backends.detect(env), ", "))
 
   if ok and terminal.status().ready then
@@ -246,7 +248,7 @@ end
 ---@param env table<string, string|nil>
 ---@param cfg? Terminal.Config
 function M.check_wezterm(health, env, cfg)
-  if env.WEZTERM_PANE == nil or env.WEZTERM_PANE == "" then
+  if not Env.inside(env, "wezterm") then
     health.info("WezTerm: not inside it")
     return
   end
@@ -305,7 +307,7 @@ end
 ---@param env table<string, string|nil>
 ---@param cfg? Terminal.Config
 function M.check_tmux(health, env, cfg)
-  if env.TMUX == nil or env.TMUX == "" then
+  if not Env.inside(env, "tmux") then
     health.info("tmux: not inside it")
     return
   end
@@ -332,8 +334,7 @@ function M.check_tmux(health, env, cfg)
     -- everything else work without it.
     local wezterm = reliance(cfg, "wezterm", env)
     local needed = wezterm.export
-      and env.WEZTERM_PANE ~= nil
-      and env.WEZTERM_PANE ~= ""
+      and Env.inside(env, "wezterm")
       and type(vim.api.nvim_ui_send) == "function"
     report(health, needed, "tmux allow-passthrough is " .. tostring(value or "unknown"), {
       "Add `set -g allow-passthrough on` to tmux.conf; without it the WezTerm status export is silent",

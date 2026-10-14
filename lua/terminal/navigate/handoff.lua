@@ -8,6 +8,7 @@
 ---@see terminal.navigate
 
 local navigate = require("terminal.core.navigate")
+local Env = require("terminal.core.env")
 
 local M = {}
 
@@ -21,7 +22,7 @@ M.all = {
   tmux = {
     name = "tmux",
     available = function(env)
-      if env.TMUX == nil or env.TMUX == "" then
+      if not Env.inside(env, "tmux") then
         return false, "not inside tmux ($TMUX is not set)"
       end
       return true, nil
@@ -44,7 +45,7 @@ M.all = {
   wezterm = {
     name = "wezterm",
     available = function(env)
-      if env.WEZTERM_PANE == nil or env.WEZTERM_PANE == "" then
+      if not Env.inside(env, "wezterm") then
         return false, "not running inside WezTerm ($WEZTERM_PANE is not set)"
       end
       return true, nil
