@@ -74,7 +74,11 @@ end
 ---@return string[]
 function M.preview_lines(h)
   if h.bufnr and vim.api.nvim_buf_is_valid(h.bufnr) then
-    local lines = vim.api.nvim_buf_get_lines(h.bufnr, 0, -1, false)
+    -- Only the tail: a terminal buffer can hold thousands of lines of scrollback, and the rows
+    -- below the cursor are blank padding up to the window height (cut below).
+    local total = vim.api.nvim_buf_line_count(h.bufnr)
+    local from = math.max(0, total - M.PREVIEW_LINES * 4)
+    local lines = vim.api.nvim_buf_get_lines(h.bufnr, from, -1, false)
     while #lines > 0 and lines[#lines] == "" do
       lines[#lines] = nil
     end
@@ -120,7 +124,7 @@ local function open_kit(api, opts)
       p.set_items(M.items(api.list(opts.all)))
     end
   end
-  p = kit.open({
+  local opened, handle = pcall(kit.open, {
     title = "Terminals",
     items = M.items(api.list(opts.all)),
     key = function(item)
@@ -155,6 +159,7 @@ local function open_kit(api, opts)
       end,
     },
   })
+  p = opened and handle or nil
   return p ~= nil
 end
 
