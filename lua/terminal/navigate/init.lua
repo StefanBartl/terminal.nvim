@@ -24,8 +24,8 @@ local runtime = { handoffs = {}, run = function() end }
 ---@internal
 --- At most one hand-off process runs at a time (the multiplexer may be slow or hung); a press
 --- that arrives meanwhile replaces the one waiting behind it, so a held key at the edge costs
---- one process per round trip instead of one per key repeat. The process has a timeout, so a
---- hung multiplexer is reaped.
+--- one process per round trip instead of one per key repeat. The process has a timeout and is killed
+--- for good if it ignores the polite stop, so a hung multiplexer is reaped.
 local inflight = false
 ---@type string[]|nil
 local pending = nil
@@ -39,19 +39,16 @@ local function spawn_detached(argv)
   end
   inflight = true
   -- Two seconds: a multiplexer answers in milliseconds, so only a hung one runs into the limit.
-  local ok = pcall(vim.system, argv, { text = true, timeout = 2000 }, function()
+  -- `exec.spawn` asks it to stop at the limit and kills it a second later, and answers (on the
+  -- main loop) also when the program could not be started, so the slot is always given back.
+  require("terminal.core.exec").spawn(argv, { timeout = 2000 }, function()
     inflight = false
     local next_argv = pending
     pending = nil
     if next_argv then
-      vim.schedule(function()
-        spawn_detached(next_argv)
-      end)
+      spawn_detached(next_argv)
     end
   end)
-  if not ok then
-    inflight = false
-  end
 end
 
 --- Choose the hand-offs from the config.
