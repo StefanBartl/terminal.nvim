@@ -55,10 +55,10 @@ require("terminal").setup({
 
 ## Trade-offs
 
-- The sidecar belongs to the session file by name. `:Session rename` and `:Session delete` of
-  sessions.nvim move and remove the sidecars they know, and this one is not among them: after a
-  rename the session starts without terminals until it is saved once more, and a deleted session
-  leaves its small file behind. Every save writes the file anew (or removes it), so a leftover never
-  brings terminals back into a session saved later under that name.
+- The sidecar belongs to the session file by name and follows `:Session rename` (moved, replacing a
+  leftover of the new name) and `:Session delete` (removed) through the `SessionsRenamePost` /
+  `SessionsDeletePost` events. A sessions.nvim that does not fire them (older versions) leaves the
+  sidecar behind; every save writes the file anew (or removes it), so a leftover never brings
+  terminals back into a session saved later under that name.
 - The directory of a `run` with `direct` is restored; a plain shell starts where the `cwd` option
   puts it (`project` by default), which for a session of one project is the same place.

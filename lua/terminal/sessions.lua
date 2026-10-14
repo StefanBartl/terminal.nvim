@@ -4,9 +4,10 @@
 --- reopened when it is loaded. No process is saved: a reopened terminal is a fresh shell (or a fresh
 --- start of the command), and it comes back hidden, so `toggle` shows it.
 ---
---- The coupling is two `User` events and nothing else: sessions.nvim fires `SessionsSavePost` /
---- `SessionsLoadPost` (`ev.data = { name, path, tab }`), this module listens. Neither plugin
---- requires the other. Tab snapshots carry no terminals.
+--- The coupling is `User` events and nothing else: sessions.nvim fires `SessionsSavePost` /
+--- `SessionsLoadPost` (`ev.data = { name, path, tab }`), `SessionsRenamePost` (`{ old_name,
+--- old_path, name, path }`) and `SessionsDeletePost` (`{ name, path }`), this module listens.
+--- Neither plugin requires the other. Tab snapshots carry no terminals.
 ---
 --- The sidecar `.<session>.terminals.json` sits beside the session file, like sessions.nvim's own
 --- `.<session>.meta.json` and `.<session>.bufs.json`. Only the project's native terminals are
@@ -120,6 +121,32 @@ function M.save(api, session_path)
     return true, nil
   end
   return require("lib.nvim.fs.json").write(file, { version = 1, terminals = defs })
+end
+
+--- A session was renamed: the sidecar goes with it. An existing sidecar of the new name is a
+--- leftover of an earlier session of that name and is replaced; no sidecar, nothing to move.
+---@param old_path string
+---@param new_path string
+---@return boolean ok
+---@return string|nil err
+function M.rename(old_path, new_path)
+  local old, new = M.sidecar_path(old_path), M.sidecar_path(new_path)
+  if vim.fn.filereadable(old) == 0 then
+    return true, nil
+  end
+  os.remove(new)
+  local ok, err = os.rename(old, new)
+  if not ok then
+    return false, err
+  end
+  return true, nil
+end
+
+--- A session was deleted: its sidecar goes too.
+---@param session_path string
+---@return nil
+function M.delete(session_path)
+  os.remove(M.sidecar_path(session_path))
 end
 
 --- The definitions saved for the session file `path` (none when there is no sidecar or it is
@@ -272,6 +299,31 @@ function M.setup(cfg, api)
         return
       end
       M.load(facade(), ev.data.path, require("terminal.config").get("sessions.commands"))
+    end,
+  })
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = "SessionsRenamePost",
+    desc = "terminal.nvim: move the terminal definitions with a renamed session",
+    callback = function(ev)
+      local d = ev.data
+      if type(d) ~= "table" or type(d.old_path) ~= "string" or type(d.path) ~= "string" then
+        return
+      end
+      local ok, err = M.rename(d.old_path, d.path)
+      if not ok then
+        require("terminal.notify").warn("sessions: terminals not moved: " .. tostring(err))
+      end
+    end,
+  })
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = "SessionsDeletePost",
+    desc = "terminal.nvim: remove the terminal definitions of a deleted session",
+    callback = function(ev)
+      if type(ev.data) == "table" and type(ev.data.path) == "string" then
+        M.delete(ev.data.path)
+      end
     end,
   })
 end
