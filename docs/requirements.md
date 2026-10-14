@@ -31,4 +31,4 @@ Linux and macOS, and shells other than the ones the specs model (`nu`, `csh`; un
 quoted like POSIX shells, set `shell`). Specs that only make sense on one platform are not
 registered elsewhere; the runner never counts a skip as a pass. The `0xC0000005` crash that
 Neovim 0.12 on Windows shows when a running terminal is closed in the wrong order is guarded by
-`architecture.md#teardown`; it cannot be reproduced on the other platforms.
+the teardown order in `architecture.md`; it cannot be reproduced on the other platforms.
