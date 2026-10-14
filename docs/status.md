@@ -88,7 +88,9 @@ answers; nothing is read from the address, so `NVIM_APPNAME`, a custom `--listen
 the process tree comes from `/proc` (or `ps`). Where either cannot be found out — the outer Neovim is busy
 and does not answer in time, no readable process tree (Windows) — the nesting is *unknown*: this Neovim
 exports anyway and warns once per session (also in `auto`), instead of leaving the pane without a status in
-silence. Only a nesting that is positively known keeps it out. A name (`export = "tmux"`) forces the exporter, and the options are removed on exit only by the
+silence. Only a nesting that is positively known keeps it out. A nested editor that is taken for the owner clears
+the pane's options when it ends; the outer Neovim sends its status again when the pane gets the focus
+(`FocusGained`), and at its next change. A name (`export = "tmux"`) forces the exporter, and the options are removed on exit only by the
 instance that wrote them. `set-environment -gu NVIM` in `tmux.conf` (the Configs repo has it) keeps the variable
 out of the panes altogether.
 
