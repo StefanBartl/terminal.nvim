@@ -216,6 +216,124 @@ describe("terminal.sessions (definitions and a fake facade)", function()
       assert.same({ "open:sh", "hide:sh", "open:build", "hide:build" }, kinds(calls))
     end)
 
+    it("ask: the prompt shows the directory and spells out control characters", function()
+      local f = assert(io.open(sessions.sidecar_path(path), "w"))
+      f:write(vim.json.encode({
+        terminals = {
+          {
+            name = "evil\nbuild: make",
+            layout = "float",
+            cmd = { "sh", "-c", "a\nb" },
+            cwd = "/x",
+          },
+        },
+      }))
+      f:close()
+      local prompt
+      sessions.load(fake({}, {}), path, "ask", function(_, opts, on_choice)
+        prompt = opts.prompt
+        on_choice(nil)
+      end)
+      assert.is_nil(prompt:find("evil\n", 1, true), "no raw newline of an entry reaches the prompt")
+      assert.truthy(prompt:find("evil\\x0abuild", 1, true))
+      assert.truthy(prompt:find("a\\x0ab", 1, true))
+      assert.truthy(prompt:find("(in /x)", 1, true), "the directory it would run in is shown")
+      local _, lines = prompt:gsub("\n", "")
+      assert.equals(1, lines, "the prompt keeps its own two lines only")
+    end)
+
+    it("ask: one very long entry is cut", function()
+      local f = assert(io.open(sessions.sidecar_path(path), "w"))
+      f:write(vim.json.encode({
+        terminals = { { name = "x", layout = "float", cmd = { string.rep("a", 5000) } } },
+      }))
+      f:close()
+      local prompt
+      sessions.load(fake({}, {}), path, "ask", function(_, opts, on_choice)
+        prompt = opts.prompt
+        on_choice(nil)
+      end)
+      assert.is_true(#prompt < 400)
+    end)
+
+    describe("what a load did not bring back survives the next save", function()
+      local function names(file_path)
+        local out = {}
+        for _, d in ipairs(sessions.read(file_path)) do
+          out[#out + 1] = d.name .. (d.cmd and "+cmd" or "")
+        end
+        table.sort(out)
+        return out
+      end
+
+      it("skipping keeps both definitions", function()
+        sessions.load(fake({}, {}), path, "ask", function(items, _, on_choice)
+          on_choice(items[3])
+        end)
+        assert.is_true((sessions.save(fake({}), path)))
+        assert.same({ "build+cmd", "sh" }, names(path))
+      end)
+
+      it("an unanswered prompt keeps them too", function()
+        sessions.load(fake({}, {}), path, "ask", function() end)
+        assert.is_true((sessions.save(fake({}), path)))
+        assert.same({ "build+cmd", "sh" }, names(path))
+      end)
+
+      it("plain shells keep the command of the terminal they replaced", function()
+        local shells = {
+          { name = "sh", backend = "native", layout = "float" },
+          { name = "build", backend = "native", layout = "float" },
+        }
+        -- Nothing is live while the load runs; the plain shells it opens are what `shells` lists.
+        sessions.load(fake({}, {}), path, "never")
+        assert.is_true((sessions.save(fake(shells), path)))
+        assert.same({ "build+cmd", "sh" }, names(path))
+      end)
+
+      it("a failed start is kept, the started one is written as it is", function()
+        local live = { { name = "sh", backend = "native", layout = "float" } }
+        sessions.load(fake({}, {}, { build = true }), path, "run")
+        assert.is_true((sessions.save(fake(live), path)))
+        assert.same({ "build+cmd", "sh" }, names(path))
+      end)
+
+      it("a full restore keeps nothing: closing the terminals removes the file", function()
+        sessions.load(fake({}, {}), path, "run")
+        assert.is_true((sessions.save(fake({}), path)))
+        assert.equals(0, vim.fn.filereadable(sessions.sidecar_path(path)))
+      end)
+
+      it(
+        "a live terminal of the same name wins, rename moves what was kept, delete drops it",
+        function()
+          sessions.load(fake({}, {}), path, "ask", function(items, _, on_choice)
+            on_choice(items[3])
+          end)
+          local renamed = dir .. "/renamed.vim"
+          sessions.rename(path, renamed)
+          assert.is_true((sessions.save(fake({}), renamed)))
+          assert.same({ "build+cmd", "sh" }, names(renamed))
+          assert.is_true(
+            (
+              sessions.save(
+                fake({ { name = "sh", backend = "native", layout = "split" } }),
+                renamed
+              )
+            )
+          )
+          assert.equals(
+            "split",
+            sessions.read(renamed)[1].layout,
+            "the live one is the newer truth"
+          )
+          sessions.delete(renamed)
+          assert.is_true((sessions.save(fake({}), renamed)))
+          assert.equals(0, vim.fn.filereadable(sessions.sidecar_path(renamed)))
+        end
+      )
+    end)
+
     it("a session without commands is not asked about", function()
       local f = assert(io.open(sessions.sidecar_path(path), "w"))
       f:write(vim.json.encode({ terminals = { { name = "sh", layout = "float" } } }))
