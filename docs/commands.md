@@ -11,7 +11,7 @@ One compound command, `:Terminal <action> [args] [flags]`, with `<Tab>` completi
 | `:Terminal close [name]` | Stop the job and remove the terminal. |
 | `:Terminal pin [name] [--backend=tmux\|wezterm] [--layout=]` | Restart a native terminal as a pane of tmux/WezTerm so it outlives Neovim (see below). |
 | `:Terminal adopt [name]` | Show a tmux/WezTerm terminal's screen in a read-only buffer. |
-| `:Terminal list` | Pick one of this project's terminals (`vim.ui.select`). |
+| `:Terminal list` | Pick one of this project's terminals: open it, close it (`<C-x>`) or send it a line (`<C-s>`, Enter included); see "Picker" below. |
 | `:Terminal send line [name] [--exec]` | Type the current line. |
 | `:'<,'>Terminal send selection [name] [--exec]` | Type the selection (see below). |
 | `:Terminal send file [name] [--exec]` | Type the whole buffer. |
@@ -120,6 +120,8 @@ terminal.names()         -- their names, straight from the registry (no multiple
 terminal.send("ls", { newline = true, name = "repl" })
 terminal.run({ "git", "status" })
 terminal.status()        -- { ready, backend, terminals }
+terminal.pick()          -- the `:Terminal list` picker; false when there is no terminal
+terminal.summary()       -- { count, visible, current } for a statusline (registry only)
 terminal.navigate("h", 2)  -- window left x2; at the edge the multiplexer takes over
 terminal.teardown()      -- { views, closed, failed }: see below
 ```
@@ -179,3 +181,20 @@ local ok, err, handle = require("terminal").run({ "lazygit", "-p", repo_root }, 
 `close` is `"always"`, `"success"` (only exit code 0, failures stay readable) or `"never"`
 (default). `focus = false` keeps the cursor where it was; `start_insert = false` does not enter
 terminal mode. Nothing here is lazygit-specific; the argv is the program.
+
+## Picker
+
+`:Terminal list` (and `require("terminal").pick()`) lists this project's terminals. With the kit of
+lib.nvim it is an interactive picker: the words you type filter the list, the preview shows the last
+40 lines of a native terminal, `<CR>` opens it, `<C-x>` closes it and refreshes the list, `<C-s>`
+asks for a line and sends it with its Enter. A multiplexer pane has no buffer, so its preview only
+names the pane (asking the multiplexer on every cursor move would block). Without the kit (an
+older lib.nvim, no UI) `vim.ui.select` asks for the terminal and then for the action.
+
+## Statusline
+
+`terminal.summary()` returns `{ count, visible, current }` for the project: the live terminals, how
+many are shown in a window, and the name of the one whose buffer is current. It reads the registry only
+(no multiplexer is asked, the plugin is not set up by calling it), so a statusline may call it on every
+redraw. ui.nvim renders it as the `terminal_count` module (see its `docs/modules.md`).
+

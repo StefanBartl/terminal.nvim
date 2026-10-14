@@ -500,23 +500,11 @@ function M.setup()
       },
       {
         path = { "list" },
-        desc = "Pick one of this project's terminals",
+        desc = "Pick one of this project's terminals: open, close or send a line",
         run = function()
-          local items = terminal.list()
-          if #items == 0 then
+          if not terminal.pick() then
             notify.info("no terminals in this project")
-            return
           end
-          vim.ui.select(items, {
-            prompt = "Terminal",
-            format_item = function(h)
-              return ("%s%s"):format(h.name, h.exited and " (exited)" or "")
-            end,
-          }, function(choice)
-            if choice then
-              terminal.open({ name = choice.name })
-            end
-          end)
         end,
       },
       send_route("line"),

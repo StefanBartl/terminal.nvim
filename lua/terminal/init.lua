@@ -524,6 +524,42 @@ function M.names(all)
   end, state.registry:list(root))
 end
 
+--- What an in-editor statusline shows ("2 terminals", the active name). Built to be called on every
+--- redraw: it reads the registry only and never asks a multiplexer, never sets the plugin up (before
+--- `setup` there is nothing to count) and never formats; ui.nvim renders it.
+---@return Terminal.Summary
+function M.summary()
+  local out = { count = 0, visible = 0 }
+  if not state.ready then
+    return out
+  end
+  local _, root = context.resolve(config.get("cwd"), state.deps)
+  local current_buf = vim.api.nvim_get_current_buf()
+  for _, h in ipairs(state.registry:list(root)) do
+    if not h.exited and not h.disposed then
+      out.count = out.count + 1
+      if h.bufnr and vim.api.nvim_buf_is_valid(h.bufnr) then
+        if vim.fn.bufwinid(h.bufnr) ~= -1 then
+          out.visible = out.visible + 1
+        end
+        if h.bufnr == current_buf then
+          out.current = h.name
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- Pick one of this project's terminals: open it, close it or send it a line (a picker of the lib.nvim
+--- kit, `vim.ui.select` without it). `:Terminal list`.
+---@param opts? Terminal.PickerOpts
+---@return boolean listed # false: there is no terminal to pick
+function M.pick(opts)
+  backend()
+  return require("terminal.picker").open(M, opts)
+end
+
 ---@internal
 --- `send` with the target already resolved.
 ---@param text string
