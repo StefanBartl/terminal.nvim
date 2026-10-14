@@ -41,6 +41,19 @@ M.run = function(argv)
   return exec.run(argv, { timeout = exec.configured("status.timeout_ms", 2000) })
 end
 
+--- Why a tmux call failed, for the notice: its first stderr line, or the cause when it printed
+--- nothing (a hung tmux ends by timeout with code 124).
+---@param res Terminal.ExecResult
+---@return string
+local function failure(res)
+  local why = require("terminal.core.errors").reason("tmux", res.stderr)
+  if why == "no output" then
+    why = res.code == 124 and "tmux did not answer in time"
+      or ("tmux exited with code %d"):format(res.code)
+  end
+  return why
+end
+
 ---@param env table<string, string|nil>
 ---@return boolean ok
 ---@return string|nil reason
@@ -144,7 +157,7 @@ function M.publish(json, data)
   owned = true
   local res = M.run(command(pane, M.fields(data), false))
   if res.code ~= 0 then
-    return false, require("terminal.core.errors").reason("tmux", res.stderr)
+    return false, failure(res)
   end
   return true, nil
 end
@@ -177,13 +190,7 @@ local function start(argv, done)
     pending = nil
     if res.code ~= 0 then
       -- The caller switches the exporter off: a queued request would only repeat the failure.
-      -- A hung tmux ends by timeout with nothing on stderr: say that instead of an empty reason.
-      local why = require("terminal.core.errors").reason("tmux", res.stderr)
-      if why == "no output" then
-        why = res.code == 124 and "tmux did not answer in time"
-          or ("tmux exited with code %d"):format(res.code)
-      end
-      done(false, why)
+      done(false, failure(res))
       return
     end
     done(true)
@@ -245,7 +252,7 @@ function M.clear()
   local pane = vim.env.TMUX_PANE
   local res = M.run(command(pane, M.fields({}), true))
   if res.code ~= 0 then
-    return false, require("terminal.core.errors").reason("tmux", res.stderr)
+    return false, failure(res)
   end
   return true, nil
 end

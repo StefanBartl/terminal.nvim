@@ -57,18 +57,22 @@ function M.reason(tool, output)
     return "no output"
   end
   local why = first_line(output)
-  local lowered = output:lower()
+  -- The hint is for what the first line says; a later line of a chain may mention anything.
+  local lowered = why:lower()
+  local shown = why
   for _, known in ipairs(KNOWN) do
     if known.tool == tool and lowered:find(known.fragment, 1, true) then
-      why = ("%s (%s)"):format(why, known.hint)
+      shown = ("%s (%s)"):format(why, known.hint)
       break
     end
   end
-  if output ~= why and output:find("[\r\n]") then
+  -- Whatever the notice leaves out goes to the log: further lines, or the cut-off end of a line.
+  if output ~= why then
     pcall(function()
       require("terminal.notify").debug(("%s: %s"):format(tool, output))
     end)
   end
+  why = shown
   return why
 end
 

@@ -820,6 +820,21 @@ describe("terminal.status.exporters.tmux", function()
     assert.equals(#vim.api.nvim_list_uis() > 0, exporter.ready())
   end)
 
+  it("a synchronous publish that times out says why, not 'no output'", function()
+    local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
+    vim.env.TMUX_PANE = "%9"
+    -- Test double: a hung tmux ends by timeout (code 124) with nothing on stderr.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exporter.run = function()
+      return { code = 124, stdout = "", stderr = "" }
+    end
+    local ok, why = exporter.publish(vim.json.encode({ mode = "n" }))
+    exporter.clear() -- gives the pane back, as the next spec expects
+    exporter.run, vim.env.TMUX_PANE = saved_run, saved_pane
+    assert.is_false(ok)
+    assert.equals("tmux did not answer in time", why)
+  end)
+
   it("clear touches the pane only when this instance published", function()
     local saved_run, saved_pane = exporter.run, vim.env.TMUX_PANE
     vim.env.TMUX_PANE = "%9"

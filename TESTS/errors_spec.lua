@@ -61,4 +61,28 @@ describe("terminal.core.errors.reason", function()
     assert.is_true(#r <= 210, #r)
     assert.truthy(r:find("...", 1, true))
   end)
+
+  it("a hint comes from the first line, not from a later line of a chain", function()
+    local chr10 = string.char(10)
+    local r = errors.reason(
+      "wezterm",
+      "Error: something broke" .. chr10 .. "Caused by:" .. chr10 .. "    0: pane not found"
+    )
+    assert.is_nil(r:find("the pane is gone", 1, true), r)
+  end)
+
+  it("logs the whole output when a long single line is cut", function()
+    local logged = {}
+    local notify = require("terminal.notify")
+    local original = notify.debug
+    -- Test double: collects the debug messages; restored below.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    notify.debug = function(msg)
+      logged[#logged + 1] = msg
+    end
+    errors.reason("tmux", string.rep("x", 500))
+    notify.debug = original
+    assert.equals(1, #logged)
+    assert.truthy(logged[1]:find(string.rep("x", 500), 1, true))
+  end)
 end)
