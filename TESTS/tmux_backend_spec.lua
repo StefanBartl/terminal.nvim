@@ -1195,6 +1195,8 @@ describe("terminal.backends.tmux: capture_async", function()
   it("runs capture-pane through exec.spawn and hands the screen text over", function()
     local backend, argvs = with_spawn({ code = 0, stdout = "line one\nline two\n", stderr = "" })
     local text, err, called
+    -- Only the pane id is read; the rest of the handle is irrelevant here.
+    ---@diagnostic disable-next-line: missing-fields
     backend.capture_async({ pane = "%7" }, function(t, e)
       text, err, called = t, e, true
     end)
@@ -1210,6 +1212,8 @@ describe("terminal.backends.tmux: capture_async", function()
   it("a failing tmux is nil and the reason", function()
     local backend = with_spawn({ code = 1, stdout = "", stderr = "can't find pane: %7" })
     local text, err, called
+    -- Only the pane id is read; the rest of the handle is irrelevant here.
+    ---@diagnostic disable-next-line: missing-fields
     backend.capture_async({ pane = "%7" }, function(t, e)
       text, err, called = t, e, true
     end)

@@ -10,6 +10,9 @@ exclude_files = {
   ".luarocks/",
   ".deps/",
   ".claude/",
+  -- type declarations for the language server, never loaded: its `function describe()` lines
+  -- would read as setting globals
+  "TESTS/support/busted_meta.lua",
 }
 
 -- `vim` is writable (we set vim.o.*, vim.bo[buf].* etc.); `read_globals` would

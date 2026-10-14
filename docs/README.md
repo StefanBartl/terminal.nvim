@@ -13,3 +13,4 @@
 | Where can terminals live? | [backends.md](backends.md) |
 | What does it tell WezTerm? | [status.md](status.md) |
 | How is it built? | [architecture.md](architecture.md) |
+| How do I check a change? | [development.md](development.md) |

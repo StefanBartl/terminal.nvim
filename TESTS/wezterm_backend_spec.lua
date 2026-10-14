@@ -210,7 +210,7 @@ describe("terminal.backends.wezterm", function()
       end, "7")
       -- A partial handle on purpose: send() only looks at `pane`.
       local partial = { pane = "99" }
-      local ok, err = gone.send(partial --[[@as Terminal.Handle]], "x")
+      local ok, err = gone.send(partial, "x")
       assert.is_false(ok)
       assert.truthy(err:find("pane not found", 1, true))
     end)
@@ -780,6 +780,8 @@ describe("terminal.backends.wezterm: capture_async", function()
   it("runs get-text through exec.spawn and hands the screen text over", function()
     local backend, argvs = with_spawn({ code = 0, stdout = "screen\n", stderr = "" })
     local text, err, called
+    -- Only the pane id is read; the rest of the handle is irrelevant here.
+    ---@diagnostic disable-next-line: missing-fields
     backend.capture_async({ pane = "12" }, function(t, e)
       text, err, called = t, e, true
     end)
@@ -795,6 +797,8 @@ describe("terminal.backends.wezterm: capture_async", function()
   it("a failing wezterm is nil and the reason", function()
     local backend = with_spawn({ code = 1, stdout = "", stderr = "pane 12 not found" })
     local text, err, called
+    -- Only the pane id is read; the rest of the handle is irrelevant here.
+    ---@diagnostic disable-next-line: missing-fields
     backend.capture_async({ pane = "12" }, function(t, e)
       text, err, called = t, e, true
     end)
