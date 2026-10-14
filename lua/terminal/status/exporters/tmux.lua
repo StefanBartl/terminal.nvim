@@ -15,7 +15,8 @@
 --- (`core.tmux_word`): tmux would otherwise read it as the end of the command.
 ---
 --- Whose pane it is: the options belong to `$TMUX_PANE`, so only the Neovim that *owns* the pane
---- may write them. `available()` refuses a Neovim inside another Neovim's terminal (`$NVIM`), `ready()`
+--- may write them. `available()` refuses a Neovim known to run inside another Neovim's terminal (`$NVIM`;
+--- when that cannot be found out it exports and warns once), `ready()`
 --- refuses one without an attached UI (a headless child), and `clear()` removes the options only
 --- when this instance wrote them.
 ---@see terminal.backends.tmux
@@ -64,11 +65,38 @@ function M.available(env)
   if not Env.set(env.TMUX_PANE) then
     return false, "$TMUX_PANE is not set"
   end
-  if Env.set(env.NVIM) and require("terminal.status.nested").nested(env.NVIM) then
-    return false,
-      "this Neovim runs inside another Neovim's terminal ($NVIM is set); the outer one owns the pane"
+  if Env.set(env.NVIM) then
+    local nested = require("terminal.status.nested").nested(env.NVIM)
+    if nested then
+      return false,
+        "this Neovim runs inside another Neovim's terminal ($NVIM is set); the outer one owns the pane"
+    elseif nested == nil then
+      -- Unknown ancestry is not a reason to leave the pane without a status: publish, and say so once.
+      M.warn_unknown_once()
+    end
   end
   return true, nil
+end
+
+local warned_unknown = false
+
+--- One warning per session (in `auto` too) that $NVIM is set but the nesting could not be found out.
+---@return nil
+function M.warn_unknown_once()
+  if warned_unknown then
+    return
+  end
+  warned_unknown = true
+  require("terminal.notify").warn(
+    "status: could not tell whether $NVIM owns this tmux pane (the outer Neovim did not answer or the "
+      .. "process tree is unreadable); exporting the status anyway"
+  )
+end
+
+--- Forget the warning that was given (specs).
+---@return nil
+function M.reset_unknown_warning()
+  warned_unknown = false
 end
 
 --- Only a Neovim with an attached UI shows anything to the pane's user; a headless one (a
