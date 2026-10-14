@@ -508,17 +508,17 @@ describe("terminal.status.exporters.tmux", function()
   )
 
   it("available refuses a Neovim inside another LIVE Neovim's terminal ($NVIM)", function()
-    local saved = nested.alive
-    -- Test double: the outer Neovim counts as running.
+    local saved = nested.nested
+    -- Test double: the outer Neovim is running and an ancestor (a positively known nesting).
     ---@diagnostic disable-next-line: duplicate-set-field
-    nested.alive = function()
+    nested.nested = function()
       return true
     end
     local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1" }
     assert.is_true((exporter.available(env)))
     local inside_neovim = vim.tbl_extend("force", env, { NVIM = "/tmp/nvim.sock" })
     local ok, why = exporter.available(inside_neovim)
-    nested.alive = saved
+    nested.nested = saved
     assert.is_false(ok)
     assert.truthy(why:find("NVIM", 1, true))
   end)
@@ -636,9 +636,9 @@ describe("terminal.status.exporters.tmux", function()
         nested.nested("elsewhere"),
         "running but not an ancestor (a tmux server that was started from its terminal): owns its pane"
       )
-      assert.is_true(
+      assert.is_nil(
         nested.nested("silent"),
-        "the server does not tell its pid in time: assume nested"
+        "the server does not tell its pid in time: unknown, not nested"
       )
     end)
   end)
@@ -685,7 +685,7 @@ describe("terminal.status.exporters.tmux", function()
         return nil
       end,
     }, function()
-      assert.is_true(nested.nested("outer"), "chain unreadable: assume nested")
+      assert.is_nil(nested.nested("outer"), "chain unreadable: unknown, not nested")
       -- Test double: the outer Neovim is gone.
       ---@diagnostic disable-next-line: duplicate-set-field
       nested.alive = function()
@@ -693,6 +693,36 @@ describe("terminal.status.exporters.tmux", function()
       end
       assert.is_false(nested.nested("outer"), "outer Neovim gone")
     end)
+  end)
+
+  it("nested: an unknown ancestry exports anyway and warns once, in every mode", function()
+    local notify = require("terminal.notify")
+    local warned = {}
+    local saved_warn = notify.warn
+    ---@diagnostic disable-next-line: duplicate-set-field
+    notify.warn = function(text)
+      warned[#warned + 1] = text
+    end
+    exporter.reset_unknown_warning()
+    local result = {}
+    with_stubs({
+      alive = function()
+        return true
+      end,
+      server_pid = function()
+        return nil -- the outer Neovim does not answer
+      end,
+    }, function()
+      local env = { TMUX = "/tmp/tmux-1/default,1,0", TMUX_PANE = "%1", NVIM = "/tmp/outer.sock" }
+      result.first = exporter.available(env)
+      result.second = exporter.available(env)
+    end)
+    notify.warn = saved_warn
+    exporter.reset_unknown_warning()
+    assert.is_true(result.first, "unknown ancestry: the pane gets its status")
+    assert.is_true(result.second)
+    assert.equals(1, #warned, "told once, not on every call")
+    assert.truthy(warned[1]:find("could not tell whether $NVIM owns", 1, true))
   end)
 
   it(
@@ -796,7 +826,7 @@ describe("terminal.status.exporters.tmux", function()
   it("parent_of: a child this process started has this process as its parent", function()
     -- /proc on Linux, `ps` on macOS and the BSDs. Windows has neither (its `ps`, from Git Bash,
     -- numbers processes in another namespace): there the answer is nil on purpose, which the
-    -- ownership test treats as "cannot tell" and stays out.
+    -- ownership test treats as "cannot tell" (it exports and warns once).
     local job =
       vim.fn.jobstart({ vim.v.progpath, "--headless", "-u", "NONE", "-i", "NONE", "-c", "sleep 5" })
     local pid = vim.fn.jobpid(job)

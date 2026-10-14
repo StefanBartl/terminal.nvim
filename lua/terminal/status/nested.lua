@@ -93,7 +93,7 @@ end
 --- <address> --remote-expr getpid()` with a timeout, never by an RPC call in this process: a
 --- server that is busy (the outer Neovim sits in a blocking `:!`) must not freeze this one's start.
 --- nil when it does not answer within 1.5 s: the limit bounds how long this start can wait, and
---- a server that stays silent is taken to own the pane anyway (`M.nested`).
+--- a server that stays silent leaves the nesting unknown (`M.nested` answers nil).
 ---@type fun(address: string): integer|nil
 M.server_pid = function(address)
   local res = require("terminal.core.exec").run({
@@ -121,23 +121,20 @@ end
 --- terminal has the same `$NVIM` but is not a descendant of it -- it owns its pane. So a running
 --- outer Neovim counts when it is an ancestor of this process (its pid asked of the server, the
 --- process tree read from /proc or `ps`). When either cannot be found out -- the server does not
---- answer in time, no readable process tree (Windows) -- the outer Neovim is taken to own the pane
---- and this one stays out.
+--- answer in time, no readable process tree (Windows) -- the answer is `nil`, unknown: the caller
+--- decides (the tmux exporter publishes anyway and warns once; fail-closed would leave the pane
+--- without a status and without a word).
 ---@param address string
----@return boolean
+---@return boolean|nil nested  true / false when known, nil when it cannot be found out
 function M.nested(address)
   if not M.alive(address) then
     return false
   end
   local pid = M.server_pid(address)
   if pid == nil then
-    return true
+    return nil
   end
-  local ancestor = is_ancestor(pid)
-  if ancestor == nil then
-    return true
-  end
-  return ancestor
+  return is_ancestor(pid)
 end
 
 return M

@@ -86,8 +86,9 @@ owns its pane and exports. The outer Neovim's process id is **asked of the serve
 `nvim --headless --server <address> --remote-expr getpid()` with a 1.5 s timeout, only when `$NVIM` is set and
 answers; nothing is read from the address, so `NVIM_APPNAME`, a custom `--listen` name or a TCP address all work),
 the process tree comes from `/proc` (or `ps`). Where either cannot be found out — the outer Neovim is busy
-and does not answer in time, no readable process tree (Windows) — it is taken to own the pane and this one
-stays out. A name (`export = "tmux"`) forces the exporter, and the options are removed on exit only by the
+and does not answer in time, no readable process tree (Windows) — the nesting is *unknown*: this Neovim
+exports anyway and warns once per session (also in `auto`), instead of leaving the pane without a status in
+silence. Only a nesting that is positively known keeps it out. A name (`export = "tmux"`) forces the exporter, and the options are removed on exit only by the
 instance that wrote them. `set-environment -gu NVIM` in `tmux.conf` (the Configs repo has it) keeps the variable
 out of the panes altogether.
 
