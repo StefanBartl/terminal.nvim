@@ -29,6 +29,7 @@ the plugin manager's folder) and exits non-zero when anything is missing or red.
 | `collector_spec.lua` | the branch lookup (`.git/HEAD` mtime cache, the root memo, buffers that have no directory) |
 | `context_spec.lua` | project root and registry key against the real editor (8.3 short names, symlinks) |
 | `exec_spec.lua` | the shared process runner: exit codes, stdin, timeouts, signals, no shell |
+| `errors_spec.lua` | how a failed multiplexer call is worded: first line, hints for known causes, debug log of the rest |
 | `limits_spec.lua` | input without a length of its own: the linear replacements against the old pattern code, timing bounds |
 
 `support/fakes.lua` is a fake `wezterm cli` (with tabs and `list-clients`) and a fake `tmux` that parses

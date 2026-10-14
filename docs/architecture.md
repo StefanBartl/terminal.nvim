@@ -54,6 +54,13 @@ multiple setups cannot leak into each other.
 
 - **Quoting is its own pure module.** `run` with an argv never builds a line from an
   unquoted string; `lib.nvim.cross.shell_quote` (the quoting itself, shared with other plugins) is tested against hostile words for each shell family, here with property specs and a real PowerShell.
+- **Errors are display strings.** Every function answers `nil, err` or `false, err` with text a person
+  can read; there is no error object, and nobody inside the plugin or among its callers branches on
+  the kind of failure. A structured type (`lib.lua.error`, kinds such as unavailable / refused / failed)
+  would change the documented contract of every function while this is a beta, for no caller that
+  needs it. What a failed tmux or WezTerm call says is decided in one place, `core/errors.lua`: the
+  first line of the output, plus a short hint where the cause is known ("no server running" -> start
+  tmux); the complete output goes to the debug log.
 - **`send` types, it does not execute**, unless asked (`newline = true` / `--exec`).
 - **Teardown order:** closing a terminal first asks whether Neovim will let its windows and its
   buffer go (a text lock, the command-line window, `winfixbuf` on the window that would have to

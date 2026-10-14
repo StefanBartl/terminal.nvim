@@ -147,9 +147,11 @@ function M.new(registry, runner, own_pane, opts)
   ---@return string|nil err
   local function checked(args, res)
     if res.code ~= 0 then
-      local why = vim.trim(res.stderr ~= "" and res.stderr or res.stdout)
-      return nil,
-        ("tmux %s failed (%d): %s"):format(args[1], res.code, why ~= "" and why or "no output")
+      local why = require("terminal.core.errors").reason(
+        "tmux",
+        res.stderr ~= "" and res.stderr or res.stdout
+      )
+      return nil, ("tmux %s failed (%d): %s"):format(args[1], res.code, why)
     end
     return res, nil
   end

@@ -275,7 +275,7 @@ function M.publish(json, data)
   owned = true
   local res = M.run(command(pane, M.fields(data), false))
   if res.code ~= 0 then
-    return false, vim.trim(res.stderr)
+    return false, require("terminal.core.errors").reason("tmux", res.stderr)
   end
   return true, nil
 end
@@ -309,8 +309,8 @@ local function start(argv, done)
     if res.code ~= 0 then
       -- The caller switches the exporter off: a queued request would only repeat the failure.
       -- A hung tmux ends by timeout with nothing on stderr: say that instead of an empty reason.
-      local why = vim.trim(res.stderr)
-      if why == "" then
+      local why = require("terminal.core.errors").reason("tmux", res.stderr)
+      if why == "no output" then
         why = res.code == 124 and "tmux did not answer in time"
           or ("tmux exited with code %d"):format(res.code)
       end
@@ -376,7 +376,7 @@ function M.clear()
   local pane = vim.env.TMUX_PANE
   local res = M.run(command(pane, M.fields({}), true))
   if res.code ~= 0 then
-    return false, vim.trim(res.stderr)
+    return false, require("terminal.core.errors").reason("tmux", res.stderr)
   end
   return true, nil
 end
