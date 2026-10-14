@@ -26,7 +26,7 @@ require("terminal").setup({
     height = 0.8,           -- fraction or absolute lines
     border = "rounded",     -- none | single | double | rounded | solid | shadow | bold (0.12+), or a
                             -- list of 1, 2, 4 or 8 pieces (:h nvim_open_win()); "none" removes it
-    title = true,           -- show the terminal's name in a bordered float
+    title = true,           -- show the terminal's name (`default_name`, "main" unless set; or `run`'s `title`) in a bordered float
     title_pos = "center",   -- "left" | "center" | "right"
     winblend = 0,           -- 0 opaque .. 100 transparent
     zindex = 50,
