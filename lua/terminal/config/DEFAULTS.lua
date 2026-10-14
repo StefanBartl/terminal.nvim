@@ -115,6 +115,9 @@ local DEFAULTS = {
     nav_down = false,
     nav_up = false,
     nav_right = false,
+    -- Off by default: opens the cheatsheet of the shell the terminal runs (`:Terminal cheat`).
+    -- Set a key (e.g. "<A-?>") to have it in terminal and normal mode.
+    cheatsheet = false,
   },
 
   -- Moving between windows past Neovim's edge: when nothing is further in that direction, the
@@ -133,6 +136,16 @@ local DEFAULTS = {
   sessions = {
     enable = true,
     commands = "ask",
+  },
+
+  -- `:Terminal cheat`: a cheatsheet for the shell the terminal runs (docs/cheatsheets/<shell>.md,
+  -- one section at a time). `shell` forces a sheet ("powershell", "bash", ...; "" = detect it),
+  -- `dir` is a folder of `<shell>.md` files searched before the built-in ones, `shells` maps a
+  -- shell name to a sheet file.
+  cheatsheet = {
+    shell = "",
+    dir = "",
+    shells = {},
   },
 
   commands = true,

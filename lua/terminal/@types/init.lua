@@ -51,6 +51,12 @@
 ---@field nav_down string|string[]|false
 ---@field nav_up string|string[]|false
 ---@field nav_right string|string[]|false
+---@field cheatsheet string|string[]|false
+
+---@class Terminal.CheatsheetConfig
+---@field shell string Force a sheet by shell name; `""` detects it.
+---@field dir string Folder of `<shell>.md` files, searched before the built-in sheets.
+---@field shells table<string, string> Sheet file by shell name.
 
 ---@class Terminal.StatusConfig
 ---@field enable boolean
@@ -100,6 +106,7 @@
 ---@field adopt Terminal.AdoptConfig
 ---@field pin Terminal.PinConfig
 ---@field sessions Terminal.SessionsConfig
+---@field cheatsheet Terminal.CheatsheetConfig
 ---@field keymaps Terminal.KeymapsConfig
 ---@field commands boolean
 
@@ -147,6 +154,12 @@
 ---@field nav_down? string|string[]|false
 ---@field nav_up? string|string[]|false
 ---@field nav_right? string|string[]|false
+---@field cheatsheet? string|string[]|false
+
+---@class Terminal.CheatsheetOptions
+---@field shell? string Force a sheet by shell name; `""` detects it.
+---@field dir? string Folder of `<shell>.md` files, searched before the built-in sheets.
+---@field shells? table<string, string> Sheet file by shell name.
 
 ---@class Terminal.StatusOptions
 ---@field enable? boolean
@@ -198,6 +211,7 @@
 ---@field adopt? Terminal.AdoptOptions
 ---@field pin? Terminal.PinOptions
 ---@field sessions? Terminal.SessionsOptions
+---@field cheatsheet? Terminal.CheatsheetOptions
 ---@field keymaps? Terminal.KeymapsOptions
 ---@field commands? boolean
 

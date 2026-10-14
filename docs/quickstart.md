@@ -12,7 +12,7 @@
    `:'<,'>Terminal send selection` the selection; `:Terminal send file` the buffer. Nothing
    is executed until you add `--exec` (several lines need it, since each would run).
 5. **Look around.** `:Terminal list` picks one of the project's terminals (open, close, send a line);
-   `:checkhealth terminal` says what is detected.
+   `:Terminal cheat` shows a cheatsheet for the shell the terminal runs; `:checkhealth terminal` says what is detected.
 
 From Lua: `require("terminal").toggle()`, `.open({ name = "build", layout = "vsplit" })`,
 `.send(text, { newline = true })`, `.run({ "git", "status" })`.

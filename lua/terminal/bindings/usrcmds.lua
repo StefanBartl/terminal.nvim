@@ -105,6 +105,23 @@ local function register_name_types(composer)
 end
 
 ---@internal
+--- The shell argument of `cheat`: the keys that have a sheet right now.
+---@param composer table `lib.nvim.bindings.usercmd.composer`
+---@return nil
+local function register_cheatsheet_type(composer)
+  composer.register_type("CHEATSHEET", {
+    desc = "shell with a cheatsheet (bash, powershell, common, ...)",
+    validate = function(raw)
+      return true, raw, nil
+    end,
+    complete = function(lead)
+      local sheets = require("terminal.cheatsheet")
+      return starting_with(sheets.names(require("terminal.config").get("cheatsheet")), lead)
+    end,
+  })
+end
+
+---@internal
 --- What each layout looks like, for the option float. The table is fixed when the command is
 --- registered, but the backend that opens the terminal is not (`backend = "tmux"` / `"wezterm"`,
 --- or `native` after a fallback), so every text is true for all of them: Neovim's own windows
@@ -396,6 +413,7 @@ function M.setup()
   local composer = require("lib.nvim.bindings.usercmd.composer")
   local terminal = require("terminal")
   register_name_types(composer)
+  register_cheatsheet_type(composer)
   line_names_marks = false
   local autocmd = require("lib.nvim.bindings.autocmd")
   autocmd.create("CmdlineLeave", note_command_line, {
@@ -505,6 +523,21 @@ function M.setup()
           if not terminal.pick() then
             notify.info("no terminals in this project")
           end
+        end,
+      },
+      {
+        path = { "cheat" },
+        args = {
+          {
+            name = "shell",
+            type = "CHEATSHEET",
+            optional = true,
+            desc = "Sheet to show (default: the shell this terminal runs)",
+          },
+        },
+        desc = "Show the cheatsheet of the shell (]] [[ pages, / searches, <CR> types the line)",
+        run = function(ctx)
+          terminal.cheatsheet({ shell = ctx.args.shell })
         end,
       },
       send_route("line"),

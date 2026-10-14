@@ -20,11 +20,12 @@ set on the same key afterwards stays), then binds again.
 | `window_up` | `<C-k>` | terminal | Window up (hands off at the edge). |
 | `window_right` | off | terminal | Window right. Off by default so `<C-l>` stays the shell's clear-screen. |
 | `nav_left` `nav_down` `nav_up` `nav_right` | off | normal | The same navigation from normal mode, with a count (`3<C-h>`). Off by default: bind them to the keys you use, e.g. `nav_left = "<C-h>"`. |
+| `cheatsheet` | off | normal, terminal | Open the cheatsheet of the shell this terminal runs ([cheatsheet.md](cheatsheet.md)). Off by default: bind it, e.g. `cheatsheet = "<A-?>"`. |
 
 ## Commands
 
 One command, created unless `commands = false`; see [commands.md](commands.md): bare `:Terminal`
-toggles the default terminal, and `:Terminal` with `toggle open hide close pin adopt list send run`
+toggles the default terminal, and `:Terminal` with `toggle open hide close pin adopt list cheat send run`
 does the rest.
 
 `<Tab>` completes the terminal name from the terminals that are open in this project (read when

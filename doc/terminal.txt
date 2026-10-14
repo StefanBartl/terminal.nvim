@@ -45,6 +45,9 @@ docs/backends.md, docs/status.md and docs/navigation.md.
 :Terminal adopt [name]          View a pane's screen in a read-only buffer.
 :Terminal list                  Pick one of this project's terminals (open,
                                 close, send a line).
+:Terminal cheat [shell]         Cheatsheet of the shell the terminal runs
+                                (]] [[ pages, / searches, <CR> types the
+                                command, q closes).
 :Terminal send {line|file} [name] [--exec]
 :{range}Terminal send selection [name] [--exec]
                                 Type text into a terminal; --exec adds Enter.
@@ -87,6 +90,7 @@ to 9.
   terminal.pin({ name = "build" }, { backend = "tmux", layout = "vsplit" })
   terminal.adopt({ name = "build" })
   terminal.pick()          the `:Terminal list` picker
+  terminal.cheatsheet()    the `:Terminal cheat` window ({ shell = "bash" } forces a sheet)
   terminal.summary()       { count, visible, current } for a statusline
   terminal.status()
   terminal.teardown()    close native terminals and adopt views, stop the status export until setup()
@@ -126,6 +130,7 @@ and adopt also show the message; hide and close only answer.
                                       OS)
   nav_*            normal             (off) the same moves from Normal mode:
                                       nav_left/down/up/right, with a count
+  cheatsheet       normal, terminal   (off) open the cheatsheet of the shell
 
 Move one with `keymaps = { toggle = "<A-x>" }`, drop one with `false`, bind
 nothing with `preset = false`.

@@ -69,6 +69,10 @@ answers.
 - [All options](docs/configuration.md) — every `setup()` option and its default.
 - [Commands](docs/commands.md) / [Bindings cheatsheet](docs/BINDINGS.md) — `:Terminal`, and every key and autocommand the plugin binds.
 
+### Cheatsheet
+
+- [Cheatsheet](docs/cheatsheet.md) — `:Terminal cheat`: pipes, filters, variables, loops and more for the shell the terminal runs (PowerShell, bash, common), one section at a time, searchable, your own sheets welcome.
+
 ### Navigation
 
 - [Navigation](docs/navigation.md) — one key from Neovim windows into the neighbouring tmux or WezTerm pane.

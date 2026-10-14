@@ -50,7 +50,7 @@ local WIDE_TYPES = {
 --- Tables whose own keys are the user's (not part of the schema): not descended into.
 --- `keymaps` is checked by `lib.nvim.bindings.keymap.register`, which names a wrong action.
 ---@type table<string, true>
-local OPEN_TABLES = { env = true, keymaps = true }
+local OPEN_TABLES = { env = true, keymaps = true, ["cheatsheet.shells"] = true }
 
 ---@internal
 --- Lists of autocommand event names: every entry must be an event Neovim knows. A bad name would
