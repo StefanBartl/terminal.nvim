@@ -320,6 +320,56 @@ describe("terminal.sessions (the User events, on the real facade)", function()
     end
   )
 
+  it("SessionsRenamePost moves the sidecar, SessionsDeletePost removes it", function()
+    boot()
+    local sessions = require("terminal.sessions")
+    local old, new = dir .. "/old.vim", dir .. "/new.vim"
+    assert.truthy(terminal.open({ name = "alpha" }))
+    fire("SessionsSavePost", old)
+    local old_file, new_file = sessions.sidecar_path(old), sessions.sidecar_path(new)
+    assert.equals(1, vim.fn.filereadable(old_file))
+
+    -- A leftover sidecar of the new name must not survive the move.
+    vim.fn.writefile({ "{}" }, new_file)
+    vim.api.nvim_exec_autocmds("User", {
+      pattern = "SessionsRenamePost",
+      data = { old_name = "old", old_path = old, name = "new", path = new },
+    })
+    assert.equals(0, vim.fn.filereadable(old_file))
+    assert.equals(1, vim.fn.filereadable(new_file))
+    assert.equals("alpha", sessions.read(new)[1].name)
+
+    -- A rename without a sidecar is a no-op, not an error.
+    vim.api.nvim_exec_autocmds("User", {
+      pattern = "SessionsRenamePost",
+      data = {
+        old_name = "none",
+        old_path = dir .. "/none.vim",
+        name = "x",
+        path = dir .. "/x.vim",
+      },
+    })
+    assert.equals(0, vim.fn.filereadable(sessions.sidecar_path(dir .. "/x.vim")))
+
+    vim.api.nvim_exec_autocmds("User", {
+      pattern = "SessionsDeletePost",
+      data = { name = "new", path = new },
+    })
+    assert.equals(0, vim.fn.filereadable(new_file))
+  end)
+
+  it("sessions.enable = false does not touch the sidecar on rename or delete", function()
+    boot({ sessions = { enable = false } })
+    local sessions = require("terminal.sessions")
+    local old = dir .. "/old.vim"
+    vim.fn.writefile({ "{}" }, sessions.sidecar_path(old))
+    vim.api.nvim_exec_autocmds("User", {
+      pattern = "SessionsDeletePost",
+      data = { name = "old", path = old },
+    })
+    assert.equals(1, vim.fn.filereadable(sessions.sidecar_path(old)))
+  end)
+
   it("a shell configured as an argv is not recorded as a command", function()
     boot()
     assert.truthy(terminal.open({ name = "alpha" }))
