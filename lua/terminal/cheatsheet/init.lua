@@ -22,14 +22,19 @@ local M = {}
 ---@field title? string
 ---@field sections Terminal.CheatSection[]
 
----@internal
---- The folder of the sheets that ship with the plugin, from the position of this file
---- (`<root>/lua/terminal/cheatsheet/init.lua`): independent of the runtimepath.
----@return string
-local function builtin_dir()
-  local source = debug.getinfo(1, "S").source:sub(2):gsub("\\", "/")
+--- The folder of the sheets that ship with the plugin: from the position of this file
+--- (`<root>/lua/terminal/cheatsheet/init.lua`), else from the runtimepath (a plugin manager that
+--- loads the module from somewhere that does not look like that).
+---@param source? string The chunk name of this file (a spec feeds its own)
+---@return string|nil
+function M.builtin_dir(source)
+  source = (source or debug.getinfo(1, "S").source):sub(2):gsub("\\", "/")
   local root = source:match("^(.*)/lua/terminal/cheatsheet/init%.lua$")
-  return (root or ".") .. "/docs/cheatsheets"
+  if root then
+    return root .. "/docs/cheatsheets"
+  end
+  local found = vim.api.nvim_get_runtime_file("docs/cheatsheets/common.md", false)[1]
+  return found and (found:gsub("\\", "/"):match("^(.*)/common%.md$")) or nil
 end
 
 ---@internal
@@ -69,9 +74,9 @@ function M.paths(key, opts)
       out[#out + 1] = path
     end
   end
-  local path = builtin_dir() .. "/" .. key .. ".md"
-  if readable(path) then
-    out[#out + 1] = path
+  local builtin = M.builtin_dir()
+  if builtin and readable(builtin .. "/" .. key .. ".md") then
+    out[#out + 1] = builtin .. "/" .. key .. ".md"
   end
   return out
 end
@@ -127,7 +132,10 @@ function M.names(opts)
       end
     end
   end
-  add_dir(builtin_dir())
+  local builtin = M.builtin_dir()
+  if builtin then
+    add_dir(builtin)
+  end
   if type(opts.dir) == "string" and opts.dir ~= "" then
     add_dir(vim.fn.expand(opts.dir))
   end

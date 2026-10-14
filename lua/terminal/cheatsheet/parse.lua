@@ -131,8 +131,10 @@ function M.command_of(line)
     return nil
   end
   code = code:gsub("\\|", "|")
-  -- Not a command: an empty span, a key (`<C-r>`) or a Neovim command (`:Terminal list`).
-  if code:match("^%s*$") or code:match("^<[%w%-]+>$") or code:match("^:") then
+  -- Not a command: an empty span, a key (`<C-r>`) or a Neovim command (`:Terminal list`). And
+  -- nothing with a control character: it would be typed into the shell as that key (`^O` runs the
+  -- line in readline), and a sheet can come from a folder someone else filled.
+  if code:match("^%s*$") or code:match("^<[%w%-]+>$") or code:match("^:") or code:find("%c") then
     return nil
   end
   return code

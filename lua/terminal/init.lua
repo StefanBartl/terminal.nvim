@@ -564,11 +564,16 @@ end
 --- terminal; `common` for a multiplexer pane, whose shell is not known). `opts.shell` forces a sheet
 --- ("powershell", "bash", ...). A float at the right edge of the editor: `]]` / `[[` turn the page, `/`
 --- searches every section, `<CR>` types the command on the line into the terminal (no Enter), `q`
---- closes. `:Terminal cheat`.
+--- closes. `:Terminal cheat`. Called while the window is open (also by its own key), it closes it.
 ---@param opts? { shell?: string }
----@return boolean shown
+---@return boolean shown # true also for the call that closes the window
 function M.cheatsheet(opts)
   opts = opts or {}
+  local open_window = require("terminal.cheatsheet.ui").active()
+  if open_window then
+    open_window.close()
+    return true
+  end
   backend()
   local sheets = require("terminal.cheatsheet")
   local cfg = config.get("cheatsheet")
