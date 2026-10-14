@@ -7,8 +7,9 @@
 --- that is gone is replaced), `env` is refused and the exit of the command is not reported
 --- (`on_exit_cb` is never called). The differences from `native`: docs/backends.md.
 ---
---- Every call is a short blocking `wezterm cli` process with a timeout. The runner is injected
---- (`new(registry, runner)`), so the specs run against a fake `wezterm` instead of a real one.
+--- Every call is a short blocking `wezterm cli` process with a timeout, except `capture_async` (the
+--- `adopt` refresh), which does not block. The runner is injected (`new(registry, runner)`), so the
+--- specs run against a fake `wezterm` instead of a real one.
 ---@see terminal.backends.tmux
 
 local registry_mod = require("terminal.core.registry")
@@ -101,8 +102,9 @@ function M.new(registry, runner, own_pane)
   }
 
   ---@internal
+  --- Turn a finished process into the result or the reason it failed.
   ---@param args string[] Arguments after `wezterm cli`
-  ---@param opts? Terminal.ExecOpts
+  ---@param res Terminal.ExecResult
   ---@return Terminal.WezTermRun|nil run
   ---@return string|nil err
   local function checked(args, res)

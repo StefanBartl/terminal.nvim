@@ -9,7 +9,6 @@ lua/terminal/
   config/             DEFAULTS.lua (single source of truth), validation + store
   core/               pure logic, no editor state
     layout.lua          window geometry (fractions / absolute cells)
-    quote.lua           shell quoting for POSIX, fish, PowerShell, cmd.exe
     registry.lua        the set of terminals (an instance, no module-level table)
     context.lua         project root + terminal name for a call
     navigate.lua        direction and outcome of a window move
@@ -42,7 +41,7 @@ lua/terminal/
 
 A backend is a table satisfying `Terminal.Backend`: `available`, `spawn`, `send`, `focus`,
 `list`, `close`, plus `probe` (visible + focused in one answer) and optional `visible`,
-`focused`, `show`, `hide`, `capture`, `preflight`, `ping`. The
+`focused`, `show`, `hide`, `capture` (and `capture_async`, used by the `adopt` refresh), `preflight`, `ping`. The
 interface is documented in `lua/terminal/@types/init.lua`. `backends.resolve` picks one from
 the configured name and the environment; a backend that is not available falls back to
 `native` with a notice. A backend keeps its handles in the registry it is given; nothing is

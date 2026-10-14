@@ -52,7 +52,7 @@ needed five seconds for 40,000 slashes).
 
 Only on events that can change a field — mode, buffer, directory, diagnostics, macro
 recording, the modified flag, focus — debounced (`status.debounce_ms`, 80), and **only when
-what an exporter publishes differs from what it sent last** (the tmux exporter carries mode, file, branch,
+what an exporter publishes differs from what was last handed to it** (for the tmux exporter, which answers later, that is the newest request, not the last answer) (the tmux exporter carries mode, file, branch,
 E/W counts, macro and modified flag: a change in `cwd`, filetype or the info and hint counts costs it no
 process). An exporter that fails is switched off once, with one notice — and still cleaned up when
 Neovim exits. A Neovim **without a UI** (a headless script) publishes nothing and leaves nothing behind to clean

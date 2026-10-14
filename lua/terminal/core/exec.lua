@@ -63,6 +63,11 @@ function M.result(res)
   return { code = code, stdout = res.stdout or "", stderr = res.stderr or "" }
 end
 
+--- How long after the timeout a program that ignored the polite stop (SIGTERM) is killed for good.
+--- `vim.system` only asks; without this a program that ignores it would keep `spawn`'s callback away
+--- for ever, and whoever allows one process at a time would never start another.
+local KILL_GRACE_MS = 1000
+
 --- Start `argv` (never a shell string) without waiting. `on_done` gets the same result as `run`,
 --- on the main loop (never inside a fast event), also when the command could not be started.
 ---@param argv string[]
@@ -71,19 +76,43 @@ end
 ---@return vim.SystemObj|nil process # nil when it could not be started
 function M.spawn(argv, opts, on_done)
   opts = opts or {}
-  local ok, proc = pcall(
+  local timeout = opts.timeout or M.DEFAULT_TIMEOUT_MS
+  local finished = false
+  local timer = vim.uv.new_timer()
+  local function stop_timer()
+    if timer and not timer:is_closing() then
+      timer:stop()
+      timer:close()
+    end
+  end
+  local proc
+  local ok, started = pcall(
     vim.system,
     argv,
-    { text = true, stdin = opts.stdin, timeout = opts.timeout or M.DEFAULT_TIMEOUT_MS },
-    vim.schedule_wrap(function(res)
-      on_done(M.result(res))
-    end)
+    { text = true, stdin = opts.stdin, timeout = timeout },
+    function(res)
+      finished = true
+      stop_timer()
+      vim.schedule(function()
+        on_done(M.result(res))
+      end)
+    end
   )
   if not ok then
+    stop_timer()
     vim.schedule(function()
-      on_done({ code = 127, stdout = "", stderr = tostring(proc) })
+      on_done({ code = 127, stdout = "", stderr = tostring(started) })
     end)
     return nil
+  end
+  proc = started
+  if timer then
+    timer:start(timeout + KILL_GRACE_MS, 0, function()
+      stop_timer()
+      if not finished then
+        pcall(proc.kill, proc, 9)
+      end
+    end)
   end
   return proc
 end

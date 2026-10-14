@@ -23,12 +23,13 @@ local M = {}
 ---@field ready? fun(): boolean `false`: cannot publish right now (no UI attached); skipped without a notice, retried on the next event
 ---@field key? fun(data: Terminal.Status): string What the exporter actually publishes; the delta gate compares this (default: the whole JSON)
 ---@field publish fun(json: string, data?: Terminal.Status): boolean, string|nil
+---@field publish_async? fun(json: string, data: Terminal.Status|nil, done: fun(ok: boolean, err?: string)): boolean, string|nil Like `publish`, without blocking: returns at once (`false, err` when the request is unusable, `done` is not called then); `done` runs later on the main loop for a request that actually ran. A request that was replaced by a newer one is never reported. Used instead of `publish` when present
 ---@field clear fun(): boolean, string|nil
 
 ---@class Terminal.StatusRuntime
 ---@field exporters Terminal.StatusExporter[]
 ---@field off table<string, true> Exporters that failed once
----@field last table<string, string> Last published key per exporter
+---@field last table<string, string> Key of the newest request handed to each exporter (an asynchronous exporter may not have applied it yet)
 ---@field debounce? table
 ---@field max_bytes integer
 ---@field oversize boolean A dataset over `max_bytes` was already reported
@@ -134,23 +135,32 @@ function M.publish_now()
     if not runtime.off[exporter.name] and (exporter.ready == nil or exporter.ready()) then
       local key = exporter.key and exporter.key(data) or json
       if runtime.last[exporter.name] ~= key then
-        local function settle(ok, perr)
+        local function fail(perr)
+          runtime.off[exporter.name] = true
+          warn(("status exporter '%s' switched off: %s"):format(exporter.name, perr or "?"))
+        end
+        if exporter.publish_async then
+          -- Not blocking. The key counts as sent as soon as the request is handed over: the gate
+          -- must compare with the NEWEST request, not with the last answer, or a change that goes
+          -- back to the old value while a process is still running (A -> B -> A) would be skipped
+          -- and B would stay on screen. Only a failure comes back later.
+          local started, aerr = exporter.publish_async(json, data, function(ok, perr)
+            if not ok then
+              fail(perr)
+            end
+          end)
+          if started then
+            runtime.last[exporter.name] = key
+          else
+            fail(aerr)
+          end
+        else
+          local ok, perr = exporter.publish(json, data)
           if ok then
             runtime.last[exporter.name] = key
           else
-            runtime.off[exporter.name] = true
-            warn(("status exporter '%s' switched off: %s"):format(exporter.name, perr or "?"))
+            fail(perr)
           end
-        end
-        if exporter.publish_async then
-          -- Not blocking: the answer arrives later and `settle` runs then. An unusable request is
-          -- answered at once.
-          local started, aerr = exporter.publish_async(json, data, settle)
-          if not started then
-            settle(false, aerr)
-          end
-        else
-          settle(exporter.publish(json, data))
         end
       end
     end

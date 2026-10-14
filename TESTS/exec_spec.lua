@@ -120,3 +120,62 @@ describe("terminal.core.exec.spawn", function()
     assert.is_true(#got.stderr > 0)
   end)
 end)
+
+describe("terminal.core.exec.spawn contract", function()
+  it("answers on the main loop, never inside a fast event", function()
+    local fast
+    exec.spawn(nvim("qa!"), SLOW, function()
+      fast = vim.in_fast_event()
+    end)
+    assert.is_true(vim.wait(20000, function()
+      return fast ~= nil
+    end, 20))
+    assert.is_false(fast)
+  end)
+
+  it("a command that outlives its timeout is stopped and reported as failed", function()
+    local got
+    local started = vim.uv.hrtime()
+    exec.spawn(nvim("sleep 20"), { timeout = 300 }, function(res)
+      got = res
+    end)
+    assert.is_true(vim.wait(10000, function()
+      return got ~= nil
+    end, 20))
+    assert.is_true(got.code ~= 0, vim.inspect(got))
+    assert.is_true((vim.uv.hrtime() - started) / 1e6 < 8000, "the timeout did not stop the process")
+  end)
+
+  it("passes stdin on", function()
+    local got
+    exec.spawn({ "sort" }, { stdin = "b\na\n" }, function(res)
+      got = res
+    end)
+    assert.is_true(vim.wait(10000, function()
+      return got ~= nil
+    end, 20))
+    assert.equals(0, got.code)
+    assert.same({ "a", "b" }, vim.split(vim.trim(got.stdout), "%s+", { trimempty = true }))
+  end)
+
+  -- A program that ignores SIGTERM: only the follow-up kill ends it. POSIX only.
+  if vim.fn.has("win32") == 0 and vim.fn.executable("sh") == 1 then
+    it("a program that ignores the polite stop is killed after the grace period", function()
+      local got
+      exec.spawn(
+        { "sh", "-c", "trap '' TERM; while :; do sleep 1; done" },
+        { timeout = 300 },
+        function(res)
+          got = res
+        end
+      )
+      assert.is_true(
+        vim.wait(10000, function()
+          return got ~= nil
+        end, 20),
+        "the callback never came: the slot would stay taken for ever"
+      )
+      assert.is_true(got.code ~= 0, vim.inspect(got))
+    end)
+  end
+end)

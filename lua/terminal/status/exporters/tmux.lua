@@ -30,8 +30,10 @@ M.name = "tmux"
 --- Whether this instance wrote the pane options (and so has to remove them).
 local owned = false
 
---- Runs a tmux command. A status publish blocks the editor for as long as tmux takes (it runs
---- from the debounced event), so a hung tmux is given two seconds, not the backend's three.
+--- Runs a tmux command and waits. The status publish itself does not block (`publish_async`); this
+--- serves `publish` (synchronous, kept for callers that need the answer) and `clear` (at exit, where
+--- the options must be gone before Neovim ends). The editor waits as long as tmux takes, so a hung
+--- tmux is given two seconds, not the backend's three.
 ---@type fun(argv: string[]): Terminal.ExecResult
 M.run = function(argv)
   return require("terminal.core.exec").run(argv, { timeout = 2000 })

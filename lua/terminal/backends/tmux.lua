@@ -124,9 +124,9 @@ function M.new(registry, runner, own_pane, opts)
   }
 
   ---@internal
+  --- The full command: `tmux`, the socket option when one is configured, then `args`.
   ---@param args string[] Arguments after `tmux`
-  ---@return Terminal.TmuxRun|nil
-  ---@return string|nil err
+  ---@return string[] argv
   local function argv_of(args)
     local argv = { "tmux" }
     if opts.socket then

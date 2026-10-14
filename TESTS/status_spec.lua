@@ -660,15 +660,34 @@ describe("terminal.status with an asynchronous exporter", function()
     )
   end
 
-  it("takes the dataset as published only once the answer says so", function()
+  it("counts a dataset as sent once the request is handed over, whatever the answer", function()
     start()
     publisher.publish_now()
     assert.equals(1, fake.requests)
-    publisher.publish_now() -- the answer is still out: the same dataset is asked for again
+    publisher.publish_now() -- the answer is still out, but the same dataset was already asked for
+    assert.equals(1, fake.requests)
+    answers[1](true)
+    publisher.publish_now()
+    assert.equals(1, fake.requests)
+  end)
+
+  it("a change that goes back to the old value while a request runs is published again", function()
+    -- A -> B -> A with B's process still running: comparing with the last ANSWER would skip the
+    -- second A and leave B on screen.
+    local shown = "a"
+    fake.key = function()
+      return shown
+    end
+    start()
+    publisher.publish_now()
+    assert.equals(1, fake.requests)
+    answers[1](true) -- A is applied
+    shown = "b"
+    publisher.publish_now() -- B's request; no answer yet
     assert.equals(2, fake.requests)
-    answers[2](true)
-    publisher.publish_now() -- now it is the last published one
-    assert.equals(2, fake.requests)
+    shown = "a"
+    publisher.publish_now()
+    assert.equals(3, fake.requests, "the return to A was skipped; B would stay on screen")
   end)
 
   it("switches the exporter off when the answer is a failure", function()

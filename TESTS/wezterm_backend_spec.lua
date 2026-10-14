@@ -746,3 +746,63 @@ describe("terminal facade with the wezterm backend", function()
     assert.truthy(last.stdin:find("^ls"))
   end)
 end)
+
+describe("terminal.backends.wezterm: capture_async", function()
+  local exec = require("terminal.core.exec")
+  local saved_spawn
+
+  before_each(function()
+    saved_spawn = exec.spawn
+  end)
+
+  after_each(function()
+    exec.spawn = saved_spawn
+  end)
+
+  --- The real wiring: no injected runner, so the backend goes through `exec.spawn`.
+  ---@param answer Terminal.ExecResult
+  ---@return Terminal.Backend backend
+  ---@return string[][] argvs
+  local function with_spawn(answer)
+    local argvs = {}
+    -- Test double: records the argv and answers at once from a scheduled callback.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exec.spawn = function(argv, _, on_done)
+      argvs[#argvs + 1] = argv
+      vim.schedule(function()
+        on_done(answer)
+      end)
+      return {}
+    end
+    return wezterm.new(registry_mod.new(), nil, "7"), argvs
+  end
+
+  it("runs get-text through exec.spawn and hands the screen text over", function()
+    local backend, argvs = with_spawn({ code = 0, stdout = "screen\n", stderr = "" })
+    local text, err, called
+    backend.capture_async({ pane = "12" }, function(t, e)
+      text, err, called = t, e, true
+    end)
+    assert.is_nil(called, "answered before the process could have ended")
+    assert.is_true(vim.wait(1000, function()
+      return called
+    end, 10))
+    assert.same({ "wezterm", "cli", "get-text", "--pane-id", "12" }, argvs[1])
+    assert.equals("screen\n", text)
+    assert.is_nil(err)
+  end)
+
+  it("a failing wezterm is nil and the reason", function()
+    local backend = with_spawn({ code = 1, stdout = "", stderr = "pane 12 not found" })
+    local text, err, called
+    backend.capture_async({ pane = "12" }, function(t, e)
+      text, err, called = t, e, true
+    end)
+    assert.is_true(vim.wait(1000, function()
+      return called
+    end, 10))
+    assert.is_nil(text)
+    assert.truthy(err:find("get-text failed (1)", 1, true), err)
+    assert.truthy(err:find("pane 12 not found", 1, true), err)
+  end)
+end)

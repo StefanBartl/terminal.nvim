@@ -1042,7 +1042,15 @@ describe("tmux status exporter: publish_async", function()
   end)
 
   after_each(function()
+    local saved_run = exporter.run
+    -- Test double: clear() must not run a real tmux (the pane id %9 may exist in a developer's
+    -- own tmux server); restored right after.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exporter.run = function()
+      return { code = 0, stdout = "", stderr = "" }
+    end
     exporter.clear()
+    exporter.run = saved_run
     exporter.spawn, vim.env.TMUX_PANE = saved_spawn, saved_pane
   end)
 
@@ -1099,9 +1107,20 @@ describe("tmux status exporter: publish_async", function()
     assert.equals(0, #started)
   end)
 
-  it("clear waits for the running process and ignores its late answer", function()
-    local waited, reported = false, false
-    -- Test double: a process that can be waited for.
+  it("an idle exporter starts a new process after an answer and after a failure", function()
+    publish("n")
+    started[1].finish(0)
+    publish("i")
+    assert.equals(2, #started, "after an answer the next request must start at once")
+    started[2].finish(1, "no server")
+    publish("v")
+    assert.equals(3, #started, "after a failure the slot must be free again")
+    assert.truthy(vim.tbl_contains(started[3].argv, "v"), vim.inspect(started[3].argv))
+  end)
+
+  it("clear waits for the running process before it unsets, and drops what was waiting", function()
+    local events, reported = {}, false
+    -- Test double: a process that can be waited for; the wait is recorded.
     ---@diagnostic disable-next-line: duplicate-set-field
     exporter.spawn = function(argv, on_done)
       started[#started + 1] = {
@@ -1112,28 +1131,93 @@ describe("tmux status exporter: publish_async", function()
       }
       return {
         wait = function()
-          waited = true
+          events[#events + 1] = "wait"
         end,
       }
     end
     local saved_run = exporter.run
-    local unset
     -- Test double: records the unset command instead of running tmux.
     ---@diagnostic disable-next-line: duplicate-set-field
     exporter.run = function(argv)
-      unset = argv
+      events[#events + 1] = vim.tbl_contains(argv, "-u") and "unset" or "set"
       return { code = 0, stderr = "" }
     end
     publish("n", function()
       reported = true
     end)
-    publish("i", function() end)
+    publish("i", function() end) -- waits behind the first
     exporter.clear()
     exporter.run = saved_run
-    assert.is_true(waited)
-    assert.truthy(unset and vim.tbl_contains(unset, "-u"), vim.inspect(unset))
-    started[1].finish(0)
+    assert.same({ "wait", "unset" }, events, "the options were removed before the process ended")
+    started[1].finish(0) -- the late answer of the process from before the clear
     assert.is_false(reported, "an answer from before the clear was acted on")
     assert.equals(1, #started, "the waiting request started after the clear")
+
+    -- The slot is free after the clear and nothing stale is left over: a new request starts at
+    -- once, and when it ends no old request starts behind it.
+    publish("v")
+    assert.equals(2, #started, "the first request after a clear must not wait behind a dead one")
+    started[2].finish(0)
+    assert.equals(2, #started, "a request from before the clear started after it")
+  end)
+end)
+
+describe("terminal.backends.tmux: capture_async", function()
+  local exec = require("terminal.core.exec")
+  local saved_spawn
+
+  before_each(function()
+    saved_spawn = exec.spawn
+  end)
+
+  after_each(function()
+    exec.spawn = saved_spawn
+  end)
+
+  --- The real wiring: no injected runner, so the backend goes through `exec.spawn`.
+  ---@param answer Terminal.ExecResult
+  ---@return Terminal.Backend backend
+  ---@return string[][] argvs
+  local function with_spawn(answer)
+    local argvs = {}
+    -- Test double: records the argv and answers at once from a scheduled callback.
+    ---@diagnostic disable-next-line: duplicate-set-field
+    exec.spawn = function(argv, _, on_done)
+      argvs[#argvs + 1] = argv
+      vim.schedule(function()
+        on_done(answer)
+      end)
+      return {}
+    end
+    return tmux.new(registry_mod.new(), nil, "%0"), argvs
+  end
+
+  it("runs capture-pane through exec.spawn and hands the screen text over", function()
+    local backend, argvs = with_spawn({ code = 0, stdout = "line one\nline two\n", stderr = "" })
+    local text, err, called
+    backend.capture_async({ pane = "%7" }, function(t, e)
+      text, err, called = t, e, true
+    end)
+    assert.is_nil(called, "answered before the process could have ended")
+    assert.is_true(vim.wait(1000, function()
+      return called
+    end, 10))
+    assert.same({ "tmux", "capture-pane", "-p", "-t", "%7" }, argvs[1])
+    assert.equals("line one\nline two\n", text)
+    assert.is_nil(err)
+  end)
+
+  it("a failing tmux is nil and the reason", function()
+    local backend = with_spawn({ code = 1, stdout = "", stderr = "can't find pane: %7" })
+    local text, err, called
+    backend.capture_async({ pane = "%7" }, function(t, e)
+      text, err, called = t, e, true
+    end)
+    assert.is_true(vim.wait(1000, function()
+      return called
+    end, 10))
+    assert.is_nil(text)
+    assert.truthy(err:find("capture-pane failed (1)", 1, true), err)
+    assert.truthy(err:find("can't find pane", 1, true), err)
   end)
 end)
