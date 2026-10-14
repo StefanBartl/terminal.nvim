@@ -7,7 +7,7 @@
 :Terminal cheat powershell   " force a sheet
 ```
 
-From Lua: `require("terminal").cheatsheet({ shell = "bash" })`. A key is off by default; give the action one to have it in terminal and normal mode: `keymaps = { cheatsheet = "<A-?>" }`.
+From Lua: `require("terminal").cheatsheet({ shell = "bash" })`. A key is off by default; give the action one to have it in terminal and normal mode: `keymaps = { cheatsheet = "<A-?>" }`. Called while the window is open (the key works inside it too), the command closes it instead of opening a second one.
 
 ## Keys in the window
 
@@ -22,7 +22,7 @@ From Lua: `require("terminal").cheatsheet({ shell = "bash" })`. A key is off by 
 | `<CR>` | type the command of a table row into the terminal (no Enter, nothing runs) and close |
 | `q` `<Esc>` | close; the cursor goes back where it was, in terminal mode when it came from there |
 
-`<CR>` types the first code span of the row's first cell. Rows whose span is a key (`<C-r>`) or a Neovim command (`:Terminal list`) have nothing to type; prose is never typed. The command goes to the terminal the sheet was opened from, else to the `run` terminal.
+`<CR>` types the first code span of the row's first cell. Rows whose span is a key (`<C-r>`) or a Neovim command (`:Terminal list`) have nothing to type; prose is never typed, and neither is a span with a control character in it (a sheet can come from a folder someone else filled, and `^O` would run the line in readline). The command goes to the terminal the sheet was opened from, else to the `run` terminal.
 
 ## Which sheet
 

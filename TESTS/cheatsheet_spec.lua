@@ -150,6 +150,12 @@ describe("terminal.cheatsheet.parse", function()
       assert.is_nil(parse.command_of(nil))
     end)
 
+    it("a span with a control character is not typed (^O would run the line)", function()
+      assert.is_nil(parse.command_of("| `a" .. string.char(15) .. "b` | text |"))
+      assert.is_nil(parse.command_of("| `a" .. string.char(27) .. "[2Jb` | text |"))
+      assert.is_nil(parse.command_of("| `a" .. string.char(9) .. "b` | text |"), "not even a tab")
+    end)
+
     it("keeps a command that starts with <, like a process substitution", function()
       assert.equals("<(cmd) x", parse.command_of("| `<(cmd) x` | text |"))
     end)
@@ -222,6 +228,28 @@ describe("terminal.cheatsheet (finding and loading sheets)", function()
       end
     end
   end)
+
+  it("no built-in sheet holds a control character", function()
+    for _, key in ipairs(sheets.names()) do
+      for number, line in ipairs(vim.fn.readfile(assert(sheets.find(key)))) do
+        assert.is_nil(line:find("%c"), ("%s line %d"):format(key, number))
+      end
+    end
+  end)
+
+  it(
+    "builtin_dir finds the sheets from the runtimepath when the module's path says nothing",
+    function()
+      local root = sheets.builtin_dir():gsub("/docs/cheatsheets$", "")
+      local rtp = vim.o.runtimepath
+      vim.opt.runtimepath:prepend(root)
+      local found = sheets.builtin_dir("@=[C]")
+      vim.o.runtimepath = rtp
+      assert.truthy(found)
+      assert.equals(1, vim.fn.filereadable(found .. "/common.md"))
+      assert.equals(sheets.builtin_dir(), found)
+    end
+  )
 
   it("a command in the built-in sheets is something to type", function()
     local sheet = assert(sheets.load("bash"))
@@ -490,6 +518,38 @@ describe("terminal.cheatsheet.ui (the window)", function()
     assert.truthy(log.messages[1]:find("no command", 1, true))
   end)
 
+  it("an answer that comes after the window is gone does nothing and raises nothing", function()
+    local sheet = assert(sheets.load("bash"))
+    local late = {}
+    local ctx = context({
+      input = function(_, on_confirm)
+        late.input = on_confirm
+      end,
+      select = function(_, _, on_choice)
+        late.select = on_choice
+      end,
+    })
+    win = ui.open(sheet, ctx)
+    press("/")
+    press("s")
+    local float = win.win
+    win.close()
+    assert.is_false(api.nvim_win_is_valid(float))
+    assert.has_no.errors(function()
+      late.input("uniq")
+      late.select("powershell")
+    end)
+    assert.is_nil(ui.active())
+  end)
+
+  it("active is the open window, and nothing once it is closed", function()
+    local sheet = assert(sheets.load("bash"))
+    win = ui.open(sheet, context())
+    assert.equals(win.win, ui.active().win)
+    win.close()
+    assert.is_nil(ui.active())
+  end)
+
   it("q and <Esc> close it and give the cursor back", function()
     local sheet = assert(sheets.load("bash"))
     for _, lhs in ipairs({ "q", "<Esc>" }) do
@@ -566,6 +626,23 @@ describe("terminal.cheatsheet on a real terminal (the facade)", function()
     vim.api.nvim_win_close(win, true)
     assert.equals(before, vim.api.nvim_get_current_win())
   end)
+
+  it(
+    "called again while the window is open, it closes the window instead of opening a second",
+    function()
+      assert.is_true(terminal.cheatsheet())
+      local win = cheat_window()
+      assert.truthy(win)
+      assert.is_true(terminal.cheatsheet())
+      assert.is_false(vim.api.nvim_win_is_valid(win))
+      assert.is_nil(cheat_window())
+      -- and the key inside the float does the same
+      assert.is_true(terminal.cheatsheet())
+      assert.truthy(cheat_window())
+      assert.is_true(terminal.cheatsheet({ shell = "powershell" }))
+      assert.is_nil(cheat_window())
+    end
+  )
 
   it("the argument forces another sheet; an unknown shell shows the common one", function()
     assert.is_true(terminal.cheatsheet({ shell = "powershell" }))

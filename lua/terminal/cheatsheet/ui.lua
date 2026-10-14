@@ -13,6 +13,20 @@ local api = vim.api
 
 local M = {}
 
+---@type { close: fun(), buf: integer, win: integer }|nil
+local current
+
+--- The open cheatsheet window, if there is one. `terminal.cheatsheet()` closes it instead of opening
+--- a second one on top of it.
+---@return { close: fun(), buf: integer, win: integer }|nil
+function M.active()
+  if current and api.nvim_win_is_valid(current.win) then
+    return current
+  end
+  current = nil
+  return nil
+end
+
 --- What the window needs from the caller: the sheet to show and how to reach the rest.
 ---@class Terminal.CheatContext
 ---@field load fun(key: string): Terminal.CheatSheet|nil, string|nil Load another sheet
@@ -96,7 +110,16 @@ function M.open(sheet, ctx)
     return state.sheet.sections[state.index]
   end
 
+  -- `vim.ui.input` / `vim.ui.select` may answer later (a floating or asynchronous UI), and the
+  -- window can be closed in between (`:q`, `<C-w>c`, `q`): an answer then has nothing to act on.
+  local function alive()
+    return api.nvim_buf_is_valid(buf) and api.nvim_win_is_valid(win)
+  end
+
   local function render()
+    if not alive() then
+      return
+    end
     local sec = section()
     vim.bo[buf].modifiable = true
     api.nvim_buf_set_lines(buf, 0, -1, false, sec.lines)
@@ -155,7 +178,7 @@ function M.open(sheet, ctx)
   local function search()
     local ask = ctx.input or vim.ui.input
     ask({ prompt = "Search all sections: " }, function(query)
-      if not query or query == "" then
+      if not alive() or not query or query == "" then
         return
       end
       state.query = query
@@ -193,7 +216,7 @@ function M.open(sheet, ctx)
   local function pick_shell()
     local ask = ctx.select or vim.ui.select
     ask(ctx.names(), { prompt = "Cheatsheet for" }, function(choice)
-      if choice then
+      if choice and alive() then
         switch(choice)
       end
     end)
@@ -243,7 +266,18 @@ function M.open(sheet, ctx)
   map("<Esc>", close, "close")
 
   render()
-  return { close = close, buf = buf, win = win, state = state }
+  local handle = { close = close, buf = buf, win = win, state = state }
+  current = handle
+  api.nvim_create_autocmd("BufWipeout", {
+    buffer = buf,
+    once = true,
+    callback = function()
+      if current == handle then
+        current = nil
+      end
+    end,
+  })
+  return handle
 end
 
 return M
