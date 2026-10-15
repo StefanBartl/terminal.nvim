@@ -213,15 +213,25 @@ local function esc(s)
       return ("\\x%02x"):format(c:byte())
     end))
   end
-  -- ASCII control characters, and the Unicode ones that change what is shown: C1 controls
-  -- (U+0080-009F), zero-width and direction marks (U+200B-200F), bidirectional embeddings and
-  -- overrides (U+202A-202E, U+2066-2069), which can show a command in another order than it runs.
-  -- Written as byte ranges (decimal escapes) so it also works where Lua has no `\x`.
+  -- ASCII control characters, and the Unicode ones that change what is shown or are invisible:
+  -- C1 controls and the soft hyphen (U+0080-009F, U+00AD), the Arabic letter mark (U+061C),
+  -- zero-width and direction marks (U+200B-200F), line and paragraph separators and bidirectional
+  -- embeddings and overrides (U+2028-202E, U+2066-2069), word joiner and invisible operators
+  -- (U+2060-2064), the byte order mark / zero width no-break space (U+FEFF) and the tag characters
+  -- (U+E0000-E007F, invisible text smuggled into a string). A command can be shown in another order
+  -- or with parts missing from what it runs. Written as byte ranges (decimal escapes) so it also
+  -- works where Lua has no `\x`.
   local out = s:gsub("%c", spell)
-  out = out:gsub("\194[\128-\159]", spell)
-  out = out:gsub("\226\128[\139-\143]", spell)
-  out = out:gsub("\226\128[\170-\174]", spell)
-  out = out:gsub("\226\129[\166-\169]", spell)
+  for _, pattern in ipairs({
+    "\194[\128-\159\173]", -- U+0080-009F, U+00AD
+    "\216\156", -- U+061C
+    "\226\128[\139-\143\168-\174]", -- U+200B-200F, U+2028-202E
+    "\226\129[\160-\169]", -- U+2060-2069
+    "\239\187\191", -- U+FEFF
+    "\243\160[\128\129][\128-\191]", -- U+E0000-E007F
+  }) do
+    out = out:gsub(pattern, spell)
+  end
   if vim.fn.strchars(out) > 120 then
     out = vim.fn.strcharpart(out, 0, 117) .. "..."
   end
