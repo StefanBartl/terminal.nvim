@@ -89,6 +89,23 @@ describe("terminal.picker (rows and actions against a fake facade)", function()
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
 
+  it("preview_lines: output above a tall blank padding is still found", function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    local lines = { "one", "two", "three" }
+    for _ = 1, 500 do
+      lines[#lines + 1] = ""
+    end
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    assert.same({ "one", "two", "three" }, picker.preview_lines(handle("main", { bufnr = buf })))
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it("preview_lines: an empty terminal previews nothing", function()
+    local buf = vim.api.nvim_create_buf(false, true)
+    assert.same({}, picker.preview_lines(handle("main", { bufnr = buf })))
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
   it("preview_lines: a pane has no buffer and says so without asking the multiplexer", function()
     local got = picker.preview_lines(handle("remote", { backend = "tmux", pane = "%3" }))
     assert.equals("tmux pane %3", got[1])

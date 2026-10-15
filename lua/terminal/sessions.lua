@@ -208,9 +208,20 @@ end
 ---@param s string
 ---@return string
 local function esc(s)
-  local out = s:gsub("%c", function(c)
-    return ("\\x%02x"):format(c:byte())
-  end)
+  local function spell(m)
+    return (m:gsub(".", function(c)
+      return ("\\x%02x"):format(c:byte())
+    end))
+  end
+  -- ASCII control characters, and the Unicode ones that change what is shown: C1 controls
+  -- (U+0080-009F), zero-width and direction marks (U+200B-200F), bidirectional embeddings and
+  -- overrides (U+202A-202E, U+2066-2069), which can show a command in another order than it runs.
+  -- Written as byte ranges (decimal escapes) so it also works where Lua has no `\x`.
+  local out = s:gsub("%c", spell)
+  out = out:gsub("\194[\128-\159]", spell)
+  out = out:gsub("\226\128[\139-\143]", spell)
+  out = out:gsub("\226\128[\170-\174]", spell)
+  out = out:gsub("\226\129[\166-\169]", spell)
   if vim.fn.strchars(out) > 120 then
     out = vim.fn.strcharpart(out, 0, 117) .. "..."
   end

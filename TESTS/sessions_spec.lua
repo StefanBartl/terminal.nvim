@@ -242,6 +242,47 @@ describe("terminal.sessions (definitions and a fake facade)", function()
       assert.equals(1, lines, "the prompt keeps its own two lines only")
     end)
 
+    it("ask: Unicode controls that reorder or hide text are spelled out too", function()
+      local f = assert(io.open(sessions.sidecar_path(path), "w"))
+      -- U+202E right-to-left override, U+200B zero width space, U+0085 C1 control, U+2066 isolate
+      local rlo, zwsp, c1, lri = "\226\128\174", "\226\128\139", "\194\133", "\226\129\166"
+      f:write(vim.json.encode({
+        terminals = {
+          {
+            name = "a" .. rlo .. "b" .. zwsp .. "c",
+            layout = "float",
+            cmd = { "make" .. c1, "x" .. lri .. "y" },
+          },
+        },
+      }))
+      f:close()
+      local prompt
+      sessions.load(fake({}, {}), path, "ask", function(_, opts, on_choice)
+        prompt = opts.prompt
+        on_choice(nil)
+      end)
+      for _, raw in ipairs({ rlo, zwsp, c1, lri }) do
+        assert.is_nil(prompt:find(raw, 1, true), "a raw control reached the prompt")
+      end
+      assert.truthy(prompt:find("\\xe2\\x80\\xae", 1, true))
+      assert.truthy(prompt:find("\\xc2\\x85", 1, true))
+      assert.truthy(prompt:find("\\xe2\\x81\\xa6", 1, true))
+    end)
+
+    it("ask: ordinary non-ASCII text is not touched", function()
+      local f = assert(io.open(sessions.sidecar_path(path), "w"))
+      f:write(vim.json.encode({
+        terminals = { { name = "Bäume", layout = "float", cmd = { "echo", "größe" } } },
+      }))
+      f:close()
+      local prompt
+      sessions.load(fake({}, {}), path, "ask", function(_, opts, on_choice)
+        prompt = opts.prompt
+        on_choice(nil)
+      end)
+      assert.truthy(prompt:find("Bäume: echo größe", 1, true))
+    end)
+
     it("ask: one very long entry is cut", function()
       local f = assert(io.open(sessions.sidecar_path(path), "w"))
       f:write(vim.json.encode({
