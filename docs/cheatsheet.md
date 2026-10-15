@@ -30,11 +30,11 @@ From Lua: `require("terminal").cheatsheet({ shell = "bash" })`. A key is off by 
 2. A multiplexer pane (tmux, WezTerm backend): `common`, because its shell is not known here.
 3. A native terminal: by the program it runs, else by the configured `shell` / Neovim's `'shell'`.
 
-`pwsh` and `powershell` give the PowerShell sheet; `bash`, `sh`, `dash`, `ash` and `ksh` the bash sheet; `zsh` uses the bash sheet too; `fish`, `cmd` and any other program the `common` sheet. A shell without a sheet of its own is answered by the related one and, last, by `common`.
+`pwsh` and `powershell` give the PowerShell sheet; `bash`, `sh`, `dash`, `ash` and `ksh` the bash sheet; `zsh`, `fish` and `cmd` have a sheet of their own; any other program the `common` sheet. A shell whose sheet is missing (a file you removed from your own folder) is answered by the related one (`zsh`: `bash`) and, last, by `common`.
 
 ## Sheets are Markdown files
 
-`docs/cheatsheets/<shell>.md` in the plugin: `common`, `bash`, `powershell`. A sheet is `# Title`, an optional introduction (shown as the section `About`) and one `## Section` per topic; the commands sit in tables, in the first cell, as code:
+`docs/cheatsheets/<shell>.md` in the plugin: `common`, `bash`, `powershell`, `zsh`, `fish`, `cmd`. A sheet is `# Title`, an optional introduction (shown as the section `About`) and one `## Section` per topic; the commands sit in tables, in the first cell, as code:
 
 ```markdown
 # fish

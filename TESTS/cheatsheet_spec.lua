@@ -183,15 +183,15 @@ describe("terminal.cheatsheet (finding and loading sheets)", function()
     return dir .. "/" .. name
   end
 
-  it("ships a sheet for bash, powershell and common", function()
-    for _, key in ipairs({ "bash", "powershell", "common" }) do
+  it("ships a sheet for bash, powershell, zsh, fish, cmd and common", function()
+    for _, key in ipairs({ "bash", "powershell", "zsh", "fish", "cmd", "common" }) do
       local sheet = assert(sheets.load(key))
       assert.equals(key, sheet.key)
       assert.is_true(#sheet.sections >= 4, key)
     end
   end)
 
-  it("bash and powershell have the eight areas, in the same order", function()
+  it("every shell sheet has the eight areas, in the same order", function()
     local want = {
       "About",
       "Pipes and redirection",
@@ -203,7 +203,7 @@ describe("terminal.cheatsheet (finding and loading sheets)", function()
       "History and line editing",
       "Useful shortcuts",
     }
-    for _, key in ipairs({ "bash", "powershell" }) do
+    for _, key in ipairs({ "bash", "powershell", "zsh", "fish", "cmd" }) do
       local titles = vim.tbl_map(function(s)
         return s.title
       end, assert(sheets.load(key)).sections)
@@ -263,11 +263,45 @@ describe("terminal.cheatsheet (finding and loading sheets)", function()
     assert.is_true(commands >= 8)
   end)
 
-  it("zsh and sh use the bash sheet, an unknown shell the common one", function()
-    assert.equals("bash", assert(sheets.load("zsh")).key)
-    assert.equals("zsh", sheets.load("zsh").asked)
-    assert.equals("common", assert(sheets.load("nu")).key)
-    assert.equals("common", assert(sheets.load("fish")).key)
+  it("every section of a shell sheet offers commands to type", function()
+    for _, key in ipairs({ "bash", "powershell", "zsh", "fish", "cmd" }) do
+      for i, section in ipairs(assert(sheets.load(key)).sections) do
+        if i > 1 then -- the first page is the introduction
+          local commands = 0
+          for _, line in ipairs(section.lines) do
+            if parse.command_of(line) then
+              commands = commands + 1
+            end
+          end
+          assert.is_true(commands >= 3, ("%s / %s has %d"):format(key, section.title, commands))
+        end
+      end
+    end
+  end)
+
+  it("zsh, fish and cmd have a sheet of their own, an unknown shell gets the common one", function()
+    for _, key in ipairs({ "zsh", "fish", "cmd" }) do
+      local sheet = assert(sheets.load(key))
+      assert.equals(key, sheet.key)
+      assert.equals(key, sheet.asked)
+    end
+    local unknown = assert(sheets.load("nu"))
+    assert.equals("common", unknown.key)
+    assert.equals("nu", unknown.asked)
+  end)
+
+  it("each shell program reaches its sheet", function()
+    local detect = require("terminal.cheatsheet.detect")
+    local wants = {
+      ["C:/Windows/System32/cmd.exe"] = "cmd",
+      ["/usr/bin/zsh"] = "zsh",
+      ["/usr/bin/fish"] = "fish",
+      ["pwsh"] = "powershell",
+      ["/bin/dash"] = "bash",
+    }
+    for exe, want in pairs(wants) do
+      assert.equals(want, assert(sheets.load(detect.detect(exe))).key, exe)
+    end
   end)
 
   it("a folder of the user wins over the built-in sheet", function()
@@ -312,7 +346,7 @@ describe("terminal.cheatsheet (finding and loading sheets)", function()
     write("notes.txt", "x")
     local names =
       sheets.names({ dir = dir, shells = { nu = "/x.md", bash = "/y.md", ["bad key"] = "/z.md" } })
-    assert.same({ "bash", "common", "fish", "nu", "powershell" }, names)
+    assert.same({ "bash", "cmd", "common", "fish", "nu", "powershell", "zsh" }, names)
   end)
 end)
 
