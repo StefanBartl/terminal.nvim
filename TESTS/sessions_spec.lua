@@ -269,10 +269,22 @@ describe("terminal.sessions (definitions and a fake facade)", function()
       assert.truthy(prompt:find("\\xe2\\x81\\xa6", 1, true))
     end)
 
-    it("ask: ordinary non-ASCII text is not touched", function()
+    it("ask: invisible characters and separators are spelled out as well", function()
+      local invisible = {
+        ["\\xef\\xbb\\xbf"] = "\239\187\191", -- U+FEFF
+        ["\\xc2\\xad"] = "\194\173", -- U+00AD soft hyphen
+        ["\\xd8\\x9c"] = "\216\156", -- U+061C Arabic letter mark
+        ["\\xe2\\x80\\xa8"] = "\226\128\168", -- U+2028 line separator
+        ["\\xe2\\x81\\xa0"] = "\226\129\160", -- U+2060 word joiner
+        ["\\xf3\\xa0\\x80\\xa1"] = "\243\160\128\161", -- U+E0021 tag character
+      }
+      local words = {}
+      for _, raw in pairs(invisible) do
+        words[#words + 1] = "x" .. raw .. "y"
+      end
       local f = assert(io.open(sessions.sidecar_path(path), "w"))
       f:write(vim.json.encode({
-        terminals = { { name = "Bäume", layout = "float", cmd = { "echo", "größe" } } },
+        terminals = { { name = "n", layout = "float", cmd = words } },
       }))
       f:close()
       local prompt
@@ -280,7 +292,26 @@ describe("terminal.sessions (definitions and a fake facade)", function()
         prompt = opts.prompt
         on_choice(nil)
       end)
-      assert.truthy(prompt:find("Bäume: echo größe", 1, true))
+      for spelled, raw in pairs(invisible) do
+        assert.is_nil(prompt:find(raw, 1, true), "raw " .. spelled .. " reached the prompt")
+        assert.truthy(prompt:find(spelled, 1, true), spelled .. " is not spelled out")
+      end
+    end)
+
+    it("ask: ordinary non-ASCII text is not touched", function()
+      local f = assert(io.open(sessions.sidecar_path(path), "w"))
+      f:write(vim.json.encode({
+        terminals = {
+          { name = "Bäume", layout = "float", cmd = { "echo", "größe £ © · – €" } },
+        },
+      }))
+      f:close()
+      local prompt
+      sessions.load(fake({}, {}), path, "ask", function(_, opts, on_choice)
+        prompt = opts.prompt
+        on_choice(nil)
+      end)
+      assert.truthy(prompt:find("Bäume: echo größe £ © · – €", 1, true))
     end)
 
     it("ask: one very long entry is cut", function()

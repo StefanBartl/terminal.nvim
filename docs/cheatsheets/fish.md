@@ -1,6 +1,6 @@
 # fish
 
-fish 3 (3.5 or newer for `path` and `&>`). fish is not POSIX: no `$(...)` word splitting, no `export`, no `fi`/`done`; blocks end with `end`. `<CR>` on a line types its command into the terminal.
+fish 3 (3.5 or newer for the `path` command). fish is not POSIX: command substitution is `(cmd)` and splits at newlines only, there is no `export`, no `fi`/`done`; blocks end with `end`. `<CR>` on a line types its command into the terminal.
 
 ## Pipes and redirection
 
@@ -29,7 +29,7 @@ fish 3 (3.5 or newer for `path` and `&>`). fish is not POSIX: no `$(...)` word s
 | `string length $x` | length of a string |
 | `sort \| uniq -c \| sort -rn` | count how often each line occurs |
 | `count $list` | number of elements |
-| `ls **.lua` | recursive glob: every `.lua` file below here |
+| `ls **/*.lua` | recursive glob: every `.lua` file below here |
 
 ## Variables and quoting
 
