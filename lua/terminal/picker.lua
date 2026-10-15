@@ -74,16 +74,16 @@ end
 ---@return string[]
 function M.preview_lines(h)
   if h.bufnr and vim.api.nvim_buf_is_valid(h.bufnr) then
-    -- Only the tail: a terminal buffer can hold thousands of lines of scrollback, and the rows
-    -- below the cursor are blank padding up to the window height (cut below).
-    local total = vim.api.nvim_buf_line_count(h.bufnr)
-    local from = math.max(0, total - M.PREVIEW_LINES * 4)
-    local lines = vim.api.nvim_buf_get_lines(h.bufnr, from, -1, false)
-    while #lines > 0 and lines[#lines] == "" do
-      lines[#lines] = nil
+    -- Only the tail: a terminal buffer can hold thousands of lines of scrollback. The rows below
+    -- the output are blank padding up to the window height, however tall that is, so the end is
+    -- found first (line by line from the bottom, a few hundred calls at most) and the tail read
+    -- from there.
+    local buf = h.bufnr
+    local last = vim.api.nvim_buf_line_count(buf)
+    while last > 0 and vim.api.nvim_buf_get_lines(buf, last - 1, last, false)[1] == "" do
+      last = last - 1
     end
-    local first = math.max(1, #lines - M.PREVIEW_LINES + 1)
-    return vim.list_slice(lines, first, #lines)
+    return vim.api.nvim_buf_get_lines(buf, math.max(0, last - M.PREVIEW_LINES), last, false)
   end
   return {
     ("%s pane %s"):format(h.backend, h.pane or "?"),

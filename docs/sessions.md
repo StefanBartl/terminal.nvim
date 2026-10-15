@@ -40,7 +40,7 @@ had.
   | `"never"` | open those terminals as plain shells |
 
   A session whose terminals are all plain shells is never asked about.
-  The prompt lists every command with the directory it would run in; control characters of the file are spelled out (`
+  The prompt lists every command with the directory it would run in; control characters of the file (also the Unicode ones that reorder or hide text) are spelled out (`
 `) and a long entry is cut, so a sidecar from a shared or cloned session directory cannot hide what *Start the commands* runs.
 - What cannot be reopened is reported in one warning, and the rest is reopened anyway.
 
