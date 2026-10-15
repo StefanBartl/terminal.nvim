@@ -71,7 +71,7 @@ answers.
 
 ### Cheatsheet
 
-- [Cheatsheet](docs/cheatsheet.md) — `:Terminal cheat`: pipes, filters, variables, loops and more for the shell the terminal runs (PowerShell, bash, common), one section at a time, searchable, your own sheets welcome.
+- [Cheatsheet](docs/cheatsheet.md) — `:Terminal cheat`: pipes, filters, variables, loops and more for the shell the terminal runs (PowerShell, bash, zsh, fish, cmd, common), one section at a time, searchable, your own sheets welcome.
 
 ### Navigation
 
