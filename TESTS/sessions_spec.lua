@@ -803,6 +803,47 @@ describe("terminal.sessions (the User events, on the real facade)", function()
     end))
   end)
 
+  it("a sidecar border nvim_open_win would refuse loses the border, not the terminal", function()
+    boot({ sessions = { commands = "run" } })
+    local session = dir .. "/work.vim"
+    local sidecar = require("terminal.sessions").sidecar_path(session)
+    -- Each of these passed a count-only check and made nvim_open_win fail the whole restore.
+    local bad = {
+      { 1 },
+      { "ab" },
+      { vim.NIL },
+      { {} },
+      { { "a", "b", "c" } },
+      { "", "a" },
+      { "\27" },
+      { "\229\173\151" }, -- a two-cell character
+    }
+    local terminals = {}
+    for i, border in ipairs(bad) do
+      terminals[i] = {
+        name = "t" .. i,
+        layout = "float",
+        cmd = jobs.sleeper(),
+        float = { border = border, width = 0.5 },
+      }
+    end
+    local f = assert(io.open(sidecar, "w"))
+    f:write(vim.json.encode({ version = 1, terminals = terminals }))
+    f:close()
+    for i, def in ipairs(require("terminal.sessions").read(session)) do
+      assert.same({ width = 0.5 }, def.float, vim.inspect(bad[i]))
+    end
+    fire("SessionsLoadPost", session)
+    local names = terminal.names()
+    table.sort(names)
+    local want = {}
+    for i = 1, #bad do
+      want[i] = "t" .. i
+    end
+    table.sort(want)
+    assert.same(want, names)
+  end)
+
   it("run refuses a session option that is not a boolean, and starts nothing", function()
     boot()
     local ok, err = terminal.run(jobs.sleeper(), { name = "lg", direct = true, session = "no" })
