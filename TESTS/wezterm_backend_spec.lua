@@ -670,6 +670,22 @@ describe("terminal facade with the wezterm backend", function()
     end
   )
 
+  it("run --direct with an env the pane cannot take keeps the earlier terminal", function()
+    local first = terminal.open({ name = "build" })
+    local ok, err = terminal.run({ "make" }, { direct = true, name = "build", env = { FOO = "1" } })
+    assert.is_false(ok)
+    assert.truthy(err:find("environment", 1, true), err)
+    assert.is_not_nil(state.panes[first.pane], "the earlier pane is not killed")
+    local function count(sub)
+      return #vim.tbl_filter(function(c)
+        return c.argv[1] == sub
+      end, state.calls)
+    end
+    assert.equals(0, count("kill-pane"))
+    assert.equals(1, count("split-pane"))
+    assert.equals(first, terminal.list()[1])
+  end)
+
   it(
     "a shell given as a string with arguments is split for the pane (no shell sits in between)",
     function()

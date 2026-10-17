@@ -357,7 +357,7 @@
 ---@field list fun(): Terminal.Handle[]
 ---@field close fun(handle: Terminal.Handle, opts?: Terminal.CloseOpts): boolean, string|nil
 ---@field ping? fun(): boolean, string|nil Whether the multiplexer answers right now (`pin` asks before it ends a terminal)
----@field preflight? fun(spec: Terminal.SpawnSpec): boolean, string|nil What the backend refuses to start, without side effects (multiplexer backends: `env`)
+---@field preflight? fun(spec: Terminal.SpawnSpec): boolean, string|nil What the backend refuses to start, without side effects (multiplexer backends: `env`, an unknown layout); `pin` and `run` with `direct` ask it before they close the terminal they replace
 ---@field capture? fun(handle: Terminal.Handle): string|nil, string|nil Screen text (multiplexer panes only)
 ---@field capture_async? fun(handle: Terminal.Handle, on_done: fun(text: string|nil, err: string|nil)) `capture` without blocking; `on_done` runs on the main loop
 ---@field visible? fun(handle: Terminal.Handle): boolean|nil nil = could not be asked (a multiplexer that did not answer); never "gone"

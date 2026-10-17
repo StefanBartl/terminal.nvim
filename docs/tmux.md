@@ -50,8 +50,9 @@ option values are not expanded, so only `-c` needs this. `TESTS/live/tmux.lua` s
 named `C#`, `a##b`, `#S`, `#{pane_id}` and `x#(echo hi)` and asks tmux for `#{pane_current_path}`.
 
 A layout the backend does not know (`float`, `split`, `vsplit` and `tab` are the four) is refused instead of being
-guessed as a split. The refusal is part of the backend's `preflight`, so `pin` finds out before it ends the native
-terminal.
+guessed as a split. The refusal is part of the backend's `preflight` (together with an `env` the pane cannot take),
+so `pin` finds out before it ends the native terminal, and `run` with `direct` before it closes an earlier terminal
+of the same name.
 
 `tmux 3.1+` takes `split-window -l 30%`; an older tmux gets `-p 30` (the version is asked once, on the
 first split; `:checkhealth terminal` shows it).
