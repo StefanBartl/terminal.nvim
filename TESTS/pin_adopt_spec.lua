@@ -187,6 +187,45 @@ describe("terminal pin / adopt", function()
       assert.is_false(again.session)
     end)
 
+    it("a run with direct started again keeps its close, title and float", function()
+      boot(true, { float = { border = "single", title = true, width = 0.8 } })
+      local ok = terminal.run(jobs.sleeper(), {
+        name = "lg",
+        direct = true,
+        layout = "float",
+        close = "never",
+        title = "Logs",
+        float = { width = 0.5 },
+      })
+      assert.is_true(ok)
+      jobs.settle()
+      local first = terminal.list()[1]
+      local first_width = vim.api.nvim_win_get_width(vim.fn.bufwinid(first.bufnr))
+      local undo = split_fails()
+      local pinned = terminal.pin({ name = "lg" })
+      undo()
+      vim.wait(100)
+      assert.is_false(pinned)
+      local again = terminal.list()[1]
+      assert.equals("native", again.backend)
+      -- kept for a saved session
+      assert.same({ close = "never", title = "Logs", float = { width = 0.5 } }, again.rerun)
+      -- the window: the run's title and float, not the configured ones
+      local win = vim.fn.bufwinid(again.bufnr)
+      assert.not_equals(-1, win)
+      local title = vim.api.nvim_win_get_config(win).title
+      assert.truthy(vim.inspect(title):find("Logs", 1, true), vim.inspect(title))
+      assert.equals(first_width, vim.api.nvim_win_get_width(win))
+      -- the exit handling: close = "never" keeps the ended terminal (the configured on_exit closes)
+      vim.fn.jobstop(again.job)
+      assert.is_true(vim.wait(5000, function()
+        return again.exited == true
+      end))
+      vim.wait(100)
+      assert.is_false(again.disposed == true)
+      assert.is_true(vim.api.nvim_buf_is_valid(again.bufnr))
+    end)
+
     it("starts a native terminal again when the pane cannot be split at run time", function()
       boot(true)
       local native = terminal.open({ name = "work" })

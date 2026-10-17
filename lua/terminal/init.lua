@@ -94,6 +94,27 @@ local function with_window(spec, title, float)
 end
 
 ---@internal
+--- `run`'s `close` mapped to the backend's `on_exit` mode.
+local CLOSE_MODES = { always = "close", success = "close_on_success", never = "keep" }
+
+---@internal
+--- What a `run` with `direct` was given (`close`, `title`, `float`), put on a spec built from the
+--- configuration: the exit handling, the window and the record itself, so the terminal it starts
+--- keeps them for a saved session. Used by `run` and by a `pin` that starts the native terminal
+--- again.
+---@param spec Terminal.SpawnSpec
+---@param rerun? Terminal.RunRecord nil: the spec stays as it is (a plain shell)
+---@return nil
+local function with_rerun(spec, rerun)
+  if type(rerun) ~= "table" then
+    return
+  end
+  with_window(spec, rerun.title, rerun.float)
+  spec.on_exit = CLOSE_MODES[rerun.close or "never"] or spec.on_exit
+  spec.rerun = vim.deepcopy(rerun)
+end
+
+---@internal
 --- The multiplexer backend `name`, registered on first use.
 ---@param name string "wezterm" or "tmux"
 ---@return Terminal.Backend|nil
@@ -295,6 +316,7 @@ local host = {
   multiplexer = multiplexer,
   backend = backend,
   build_spec = build_spec,
+  with_rerun = with_rerun,
   state = state,
 }
 
@@ -739,9 +761,6 @@ local function line_shell_kind(at, default)
 end
 
 ---@internal
-local CLOSE_MODES = { always = "close", success = "close_on_success", never = "keep" }
-
----@internal
 --- `run` with `direct = true`: the command IS the job.
 ---@param b Terminal.Backend
 ---@param cmd string[]
@@ -752,8 +771,7 @@ local CLOSE_MODES = { always = "close", success = "close_on_success", never = "k
 ---@return Terminal.Handle|nil handle
 local function run_direct(b, cmd, opts, at)
   local name, cwd, root = at.name, at.cwd, at.root
-  local close_mode = CLOSE_MODES[opts.close or "never"]
-  if not close_mode then
+  if not CLOSE_MODES[opts.close or "never"] then
     local msg = ("run: close must be always, success or never, got %s"):format(tostring(opts.close))
     fail(msg)
     return false, msg
@@ -787,20 +805,15 @@ local function run_direct(b, cmd, opts, at)
     end,
   })
   spec.cmd = cmd
-  with_window(spec, opts.title, opts.float)
+  -- The exit handling and window, kept on the handle: a saved session (and a pin that has to
+  -- start the native terminal again) starts the command with the same ones.
+  with_rerun(spec, { close = opts.close, title = opts.title, float = opts.float })
   if opts.session == false then
     spec.session = false
   end
   if opts.env then
     spec.env = vim.tbl_extend("force", spec.env or {}, opts.env)
   end
-  spec.on_exit = close_mode
-  -- A saved session starts the command again with the same exit handling and window.
-  spec.rerun = {
-    close = opts.close,
-    title = opts.title,
-    float = opts.float and vim.deepcopy(opts.float) or nil,
-  }
   -- What the backend is known to refuse (an `env` a multiplexer pane cannot take, a layout it
   -- does not know) is found out BEFORE the earlier terminal of the name is closed: such a run
   -- changes nothing instead of leaving the name without any terminal.

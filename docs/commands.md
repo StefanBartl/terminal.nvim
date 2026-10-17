@@ -37,7 +37,8 @@ or WezTerm, under the same name; output and shell history of the old one are gon
 known to refuse — `env` is set, which a pane cannot take — and a multiplexer that does not answer are
 checked first, so such a pin changes nothing; if the pane cannot be started anyway (no room, a CLI error
 after it answered), a native terminal is started again so you keep one (a new one: the old output is
-gone either way) and the message says whether that worked. From
+gone either way; a `run` with `direct` comes back with its `close`, `title`, `float` and `session`)
+and the message says whether that worked. From
 then on `toggle`, `send`, `close` act on the pane. The backend is tmux inside tmux, else WezTerm.
 
 `adopt` shows a pane's screen (`wezterm cli get-text` / `tmux capture-pane -p`) in a read-only

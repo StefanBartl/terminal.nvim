@@ -97,8 +97,10 @@ local function check(host, target, opts)
 
   local restore = host.build_spec(name, cwd, root, { layout = handle.layout, start_insert = false })
   restore.cmd = spec.cmd
-  -- A terminal kept out of the session stays out when it is started again here.
+  -- A terminal kept out of the session stays out when it is started again here, and a `run` with
+  -- `direct` keeps its exit handling, title and float (and saves them with a session).
   restore.session = handle.session
+  host.with_rerun(restore, handle.rerun)
   return {
     name = name,
     cwd = cwd,
