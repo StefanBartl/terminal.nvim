@@ -260,6 +260,75 @@ describe("terminal.config", function()
       end
     end)
 
+    it("checks each piece of a custom border, not only how many there are", function()
+      for _, bad in ipairs({
+        { 1 },
+        { "ab" },
+        { "\229\173\151" }, -- a two-cell character
+        { vim.NIL },
+        { {} },
+        { { 1 } },
+        { { "a", "b", "c" } },
+        { { "a", 1.5 } },
+        { { "a", "no such group" } },
+        { "", "a" }, -- edges without the corner between them
+        { "", "b", "", "d", "", "f", "", "h" },
+        { "a", x = 1 },
+        -- nvim_open_win takes these, a frame does not need them (and a sidecar is untrusted).
+        { "\27" },
+        { "\n" },
+      }) do
+        local problems = config.setup({ float = { border = bad } })
+        assert.equals(1, #problems, vim.inspect(bad))
+        assert.equals("rounded", config.get("float.border"))
+      end
+      for _, good in ipairs({
+        { "" },
+        { "a", "" },
+        { "é" },
+        { { "a" } },
+        { { "a", "Normal" } },
+        { { "a", "" } },
+        { { "a", 5 } },
+        { "a", { "b", "FloatBorder" } },
+        { "", "", "", "", "", "", "", "" },
+        { "a", "", "c", "", "e", "", "g", "" },
+      }) do
+        assert.same({}, config.setup({ float = { border = good } }), vim.inspect(good))
+      end
+    end)
+
+    it("a custom border agrees with nvim_open_win on every empty/set pattern", function()
+      -- The expected values come from Neovim: every way of leaving pieces empty, for each count.
+      local buf = vim.api.nvim_create_buf(false, true)
+      for _, n in ipairs({ 1, 2, 4, 8 }) do
+        for mask = 0, 2 ^ n - 1 do
+          local border = {}
+          for i = 1, n do
+            border[i] = math.floor(mask / 2 ^ (i - 1)) % 2 == 1 and "x" or ""
+          end
+          local opened, win = pcall(vim.api.nvim_open_win, buf, false, {
+            relative = "editor",
+            row = 1,
+            col = 1,
+            width = 5,
+            height = 2,
+            border = border,
+          })
+          if opened then
+            vim.api.nvim_win_close(win, true)
+          end
+          local problems = config.validate(DEFAULTS, { float = { border = border } })
+          assert.equals(
+            opened,
+            #problems == 0,
+            ("%s: nvim_open_win %s"):format(vim.inspect(border), tostring(opened))
+          )
+        end
+      end
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
     it("the border name list takes 'bold' only from Neovim 0.12 on", function()
       local with = config.border_names(function(feature)
         return feature == "nvim-0.12" and 1 or 0

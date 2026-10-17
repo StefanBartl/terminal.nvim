@@ -91,6 +91,66 @@ end
 local BORDER_NAMES = M.border_names(vim.fn.has)
 
 ---@internal
+--- The character of one border piece: empty (no border on that side) or one display cell. A
+--- control character is refused although `nvim_open_win` takes it: the value may come from a
+--- session sidecar (untrusted), and a raw ESC or newline has no business in a frame.
+---@param s any
+---@return boolean
+local function border_char_ok(s)
+  return type(s) == "string" and not s:find("%c") and vim.api.nvim_strwidth(s) <= 1
+end
+
+--- A custom border as `nvim_open_win` takes it (`:h nvim_open_win()` border): a list of 1, 2, 4
+--- or 8 pieces, each a character or `{ char }` / `{ char, hl_group }`, repeated round the frame
+--- from the top-left corner; and a corner may only be empty where an edge next to it is empty too
+--- ("expected corner char between edge chars"). The highlight is a group name (letters, digits,
+--- `_ . @ -`, or empty) or a group id. Checked here so that a value `nvim_open_win` would refuse is
+--- reported by `setup()` (and dropped from a session sidecar) instead of failing every float.
+---@param v any
+---@return boolean
+function M.custom_border_ok(v)
+  if type(v) ~= "table" or not vim.islist(v) then
+    return false
+  end
+  local n = #v
+  if n ~= 1 and n ~= 2 and n ~= 4 and n ~= 8 then
+    return false
+  end
+  local chars = {}
+  for i, piece in ipairs(v) do
+    local char = piece
+    if type(piece) == "table" then
+      if not vim.islist(piece) or #piece < 1 or #piece > 2 then
+        return false
+      end
+      local hl = piece[2]
+      local hl_ok = hl == nil
+        or (type(hl) == "string" and hl:find("^[%w_.@%-]*$") ~= nil)
+        or (type(hl) == "number" and hl >= 0 and hl % 1 == 0 and hl < 2 ^ 31)
+      if not hl_ok then
+        return false
+      end
+      char = piece[1]
+    end
+    if not border_char_ok(char) then
+      return false
+    end
+    chars[i] = char
+  end
+  -- Round the frame: 1 top-left, 2 top, 3 top-right, ... 8 left; the odd ones are corners.
+  local function at(i)
+    return chars[(i - 1) % n + 1]
+  end
+  for corner = 1, 7, 2 do
+    local before, after = at(corner == 1 and 8 or corner - 1), at(corner + 1)
+    if at(corner) == "" and before ~= "" and after ~= "" then
+      return false
+    end
+  end
+  return true
+end
+
+---@internal
 --- Keys whose value, once it has the right type, must also be in a range. A value that only
 --- passes the type check would be quietly replaced by a fallback deep inside the code that uses
 --- it (`layout.resolve_size`), so a typo in a size would never be reported.
@@ -180,13 +240,12 @@ DOMAINS["float.border"] = {
     if type(v) == "string" then
       return v == "" or vim.list_contains(BORDER_NAMES, v)
     end
-    -- A custom border: 1, 2, 4 or 8 pieces (`:h nvim_open_win()` border).
-    local n = #v
-    return n == 1 or n == 2 or n == 4 or n == 8
+    return M.custom_border_ok(v)
   end,
   want = "a border name ("
     .. table.concat(BORDER_NAMES, ", ")
-    .. ") or a list of 1, 2, 4 or 8 pieces",
+    .. ") or a list of 1, 2, 4 or 8 pieces, each a one-cell character or { char, hl_group }"
+    .. " (a corner set wherever both of its edges are)",
 }
 DOMAINS["window_options.signcolumn"] = {
   ok = function(v)

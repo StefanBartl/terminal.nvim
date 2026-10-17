@@ -23,7 +23,8 @@ For every live terminal of the project that runs in a native window: its **name*
 the `close`, `title` and `float` that `run` was given: a restore starts the command again with the
 same exit handling and window (shown again after `toggle`, the float has that title and size). A
 sidecar entry with an unknown `close`, a `title` with control characters or a `float` key the
-configuration would refuse loses that value, not the terminal. A command typed into a shell (`run`
+configuration would refuse (a `border` piece `nvim_open_win` would not take, among them) loses
+that value, not the terminal. A command typed into a shell (`run`
 without `direct`, `send`) is not recorded; the shell is. Terminals in a tmux or WezTerm pane are
 left out: the multiplexer keeps them, Neovim does not have to.
 
