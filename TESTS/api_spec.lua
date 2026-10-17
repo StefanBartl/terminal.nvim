@@ -447,6 +447,22 @@ describe("terminal (facade)", function()
       assert.equals(4, terminal.list()[1].exit_code)
     end)
 
+    it("direct: hidden and shown again, the window keeps its title and float overrides", function()
+      local _, _, h = terminal.run(jobs.sleeper(), {
+        direct = true,
+        name = "git",
+        layout = "float",
+        title = "lazygit",
+        float = { width = 0.5 },
+      })
+      jobs.settle()
+      assert.is_true((terminal.hide({ name = "git" })))
+      assert.truthy(terminal.open({ name = "git" }))
+      local cfg = vim.api.nvim_win_get_config(vim.fn.win_findbuf(h.bufnr)[1])
+      assert.truthy(vim.inspect(cfg.title):find("lazygit", 1, true))
+      assert.is_true(cfg.width < vim.o.columns * 0.6)
+    end)
+
     it("direct: title, cwd and float overrides reach the window and the job", function()
       local dir = vim.fn.tempname()
       vim.fn.mkdir(dir, "p")

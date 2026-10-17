@@ -192,9 +192,12 @@ out, or retries without it.
 
 `session = false` keeps the terminal out of the [sessions integration](sessions.md): it is not
 written beside a saved session, so loading the session never brings it back. Use it when the
-terminal only works with what the caller sets up: a restore reopens a command with its name,
-layout and directory only, without `close`, `title`, `float`, `env` or `on_open` (a function cannot
+terminal only works with what the caller sets up: a restore starts the command again with its name,
+layout, directory, `close`, `title` and `float`, but without `env` or `on_open` (a function cannot
 be saved). An older terminal.nvim ignores the option.
+
+`title` and `float` belong to the terminal, not only to its first window: hidden and shown again
+(`toggle`, `open`), the float has the same title and size.
 
 ## Picker
 
