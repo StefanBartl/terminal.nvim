@@ -198,6 +198,43 @@ describe("terminal.sessions (definitions and a fake facade)", function()
     assert.equals(3, #sessions.merge(live, left_over))
   end)
 
+  it("the drop of a saved definition outlives the terminal that was kept out", function()
+    local path = dir .. "/work.vim"
+    local f = assert(io.open(sessions.sidecar_path(path), "w"))
+    f:write(vim.json.encode({
+      version = 1,
+      terminals = {
+        { name = "lg", layout = "float", cmd = { "lazygit" } },
+        { name = "build", layout = "split", cmd = { "make" } },
+      },
+    }))
+    f:close()
+    -- Loaded without commands: both come back as plain shells, and both stay left over.
+    sessions.load(fake({}), path, "never")
+    -- `run{ direct, session = false }` replaces lg; build is not open at all.
+    local handles = {
+      { name = "lg", backend = "native", layout = "float", cmd = { "lazygit" }, session = false },
+    }
+    assert.is_true((sessions.save(fake(handles), path)))
+    local function names()
+      local out = {}
+      for _, def in ipairs(sessions.read(path)) do
+        out[#out + 1] = def.name
+      end
+      return out
+    end
+    assert.same({ "build" }, names())
+    -- lazygit ends (close = "always"): the handle is gone, and the next save must not bring the
+    -- old lg definition back.
+    assert.is_true((sessions.save(fake({}), path)))
+    assert.same({ "build" }, names())
+    -- An exited handle that is still listed counts as gone as well.
+    handles[1].exited = true
+    assert.is_true((sessions.save(fake(handles), path)))
+    assert.same({ "build" }, names())
+    sessions.delete(path)
+  end)
+
   it("save writes the sidecar and removes it when no terminal is left", function()
     local path = dir .. "/work.vim"
     local file = sessions.sidecar_path(path)

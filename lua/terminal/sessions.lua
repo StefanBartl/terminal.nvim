@@ -202,14 +202,26 @@ function M.merge(live, left_over, opted_out)
 end
 
 --- Write the definitions beside the session file; no terminals, no file (a stale one would bring
---- back terminals the session no longer has).
+--- back terminals the session no longer has). A left-over definition whose name a live terminal
+--- keeps out of the session is dropped for good, not only while that terminal is open.
 ---@param api Terminal.SessionsApi
 ---@param session_path string
 ---@return boolean ok
 ---@return string|nil err
 function M.save(api, session_path)
   local file = M.sidecar_path(session_path)
-  local defs = M.merge(M.snapshot(api), kept[session_path], M.opted_out(api))
+  local opted_out = M.opted_out(api)
+  -- `opted_out` only names live terminals: once the opted-out one is gone (a `close = "always"`
+  -- job ended, the user closed it) a definition still in `kept` would be written again. So the
+  -- names leave `kept` itself.
+  local left_over = kept[session_path]
+  if left_over and next(opted_out) ~= nil then
+    left_over = vim.tbl_filter(function(def)
+      return not opted_out[def.name]
+    end, left_over)
+    kept[session_path] = #left_over > 0 and left_over or nil
+  end
+  local defs = M.merge(M.snapshot(api), kept[session_path], opted_out)
   if #defs == 0 then
     os.remove(file)
     return true, nil
