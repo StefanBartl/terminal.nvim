@@ -97,6 +97,8 @@ local function check(host, target, opts)
 
   local restore = host.build_spec(name, cwd, root, { layout = handle.layout, start_insert = false })
   restore.cmd = spec.cmd
+  -- A terminal kept out of the session stays out when it is started again here.
+  restore.session = handle.session
   return {
     name = name,
     cwd = cwd,

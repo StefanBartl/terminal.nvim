@@ -241,7 +241,8 @@
 ---@field float? table With `direct`: overrides of the `float` config for this window
 ---@field close? "always"|"success"|"never" With `direct`: remove the terminal when the job ends (default "never")
 ---@field start_insert? boolean With `direct`: enter terminal mode when it has focus (default true)
----@field env? table<string, string> With `direct`: extra environment for the job
+---@field env? table<string, string> With `direct`: extra environment for the job (native backend only: tmux and WezTerm refuse it)
+---@field session? boolean With `direct`: `false` keeps the terminal out of a saved session (sessions integration), so it is never reopened without `close`, `title`, `float` and `on_open` (default true)
 ---@field on_open? fun(handle: Terminal.Handle) With `direct`: called once the window and job exist (set buffer keymaps here)
 
 --- The facade's mutable state.
@@ -281,6 +282,7 @@
 ---@field on_exit? Terminal.ExitMode
 ---@field on_exit_cb? fun(code: integer) Called once with the job's exit code.
 ---@field title? string Window title of a float (default: `name`).
+---@field session? boolean `false`: the terminal is left out of a saved session (native backend, `Terminal.Handle.session`).
 
 --- The extras `build_spec` takes on top of the configuration.
 ---@class Terminal.SpawnExtra
@@ -344,6 +346,7 @@
 ---@field disposed? boolean Set once the terminal was removed on purpose.
 ---@field cmd? string|string[] The command it was started with (nil: the shell). Used by `pin`.
 ---@field cwd? string The directory it was started in. Used by `pin`.
+---@field session? boolean `false`: started by `run` with `session = false`, left out of a saved session (native backend only).
 
 ---@class Terminal.Backend
 ---@field name string
