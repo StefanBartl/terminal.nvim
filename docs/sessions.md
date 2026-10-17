@@ -30,9 +30,9 @@ left out: the multiplexer keeps them, Neovim does not have to.
 A terminal started with `run(cmd, { direct = true, session = false })` is left out as well. A
 restore cannot repeat `env` (a sidecar holds no secrets) or `on_open` (a function), so a plugin
 that sets its terminal up in `on_open` (keymaps, buffer variables) keeps it out of the session
-instead. A definition of the same name saved before (a
-terminal the last load did not bring back) is dropped by the next save while such a terminal is
-open.
+instead. A definition of the same name saved before (a terminal the last load did not bring
+back) is dropped by the first save while such a terminal is open, and stays dropped after that
+terminal is gone.
 
 With no terminal left, the file is removed, so a session never brings back terminals it no longer
 had.
