@@ -186,7 +186,8 @@ terminal mode. Nothing here is lazygit-specific; the argv is the program.
 
 `env = { NAME = "value" }` adds environment variables for the job, on the **native** backend only:
 the tmux and WezTerm backends cannot pass them to a pane and refuse such a `run` (`the tmux backend
-cannot set environment variables for a pane`). A plugin that cannot know the backend leaves `env`
+cannot set environment variables for a pane`). The refusal comes before anything is touched: an
+earlier terminal of the same name stays as it was. A plugin that cannot know the backend leaves `env`
 out, or retries without it.
 
 `session = false` keeps the terminal out of the [sessions integration](sessions.md): it is not

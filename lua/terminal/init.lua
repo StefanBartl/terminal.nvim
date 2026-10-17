@@ -746,20 +746,6 @@ local function run_direct(b, cmd, opts, at)
     fail(msg)
     return false, msg
   end
-  local old = state.registry:find(root, name)
-  if old then
-    local closed, cerr = backend_of(old).close(old)
-    if not closed then
-      -- The earlier terminal is still there (a pane that could not be killed): starting another
-      -- under the same name would orphan it.
-      local msg = ("terminal '%s': cannot replace the earlier one: %s"):format(
-        name,
-        cerr or "cannot close"
-      )
-      fail(msg)
-      return false, msg
-    end
-  end
   local focus = opts.focus ~= false
   -- A throwing user callback is reported, not swallowed (and never takes the terminal with it).
   local on_exit = opts.on_exit
@@ -795,6 +781,31 @@ local function run_direct(b, cmd, opts, at)
     spec.env = vim.tbl_extend("force", spec.env or {}, opts.env)
   end
   spec.on_exit = close_mode
+  -- What the backend is known to refuse (an `env` a multiplexer pane cannot take, a layout it
+  -- does not know) is found out BEFORE the earlier terminal of the name is closed: such a run
+  -- changes nothing instead of leaving the name without any terminal.
+  if b.preflight then
+    local ok, refused = b.preflight(spec)
+    if not ok then
+      local msg = refused or "cannot start"
+      fail(("terminal '%s': %s"):format(name, msg))
+      return false, msg
+    end
+  end
+  local old = state.registry:find(root, name)
+  if old then
+    local closed, cerr = backend_of(old).close(old)
+    if not closed then
+      -- The earlier terminal is still there (a pane that could not be killed): starting another
+      -- under the same name would orphan it.
+      local msg = ("terminal '%s': cannot replace the earlier one: %s"):format(
+        name,
+        cerr or "cannot close"
+      )
+      fail(msg)
+      return false, msg
+    end
+  end
   local previous = vim.api.nvim_get_current_win()
   local handle, err = b.spawn(spec)
   if not handle then
