@@ -242,7 +242,7 @@
 ---@field close? "always"|"success"|"never" With `direct`: remove the terminal when the job ends (default "never")
 ---@field start_insert? boolean With `direct`: enter terminal mode when it has focus (default true)
 ---@field env? table<string, string> With `direct`: extra environment for the job (native backend only: tmux and WezTerm refuse it)
----@field session? boolean With `direct`: `false` keeps the terminal out of a saved session (sessions integration), so it is never reopened without `close`, `title`, `float` and `on_open` (default true)
+---@field session? boolean With `direct`: `false` keeps the terminal out of a saved session (sessions integration), so it is never reopened without `env` and `on_open` (default true)
 ---@field on_open? fun(handle: Terminal.Handle) With `direct`: called once the window and job exist (set buffer keymaps here)
 
 --- The facade's mutable state.
@@ -283,6 +283,14 @@
 ---@field on_exit_cb? fun(code: integer) Called once with the job's exit code.
 ---@field title? string Window title of a float (default: `name`).
 ---@field session? boolean `false`: the terminal is left out of a saved session (native backend, `Terminal.Handle.session`).
+---@field rerun? Terminal.RunRecord What `run` with `direct` was given, kept on the handle (native backend, `Terminal.Handle.rerun`).
+
+--- The options of a `run` with `direct` that a saved session repeats when it starts the command
+--- again (`env` and the callbacks are not: a sidecar holds no secrets and no code).
+---@class Terminal.RunRecord
+---@field close? "always"|"success"|"never"
+---@field title? string
+---@field float? table Overrides of the `float` config
 
 --- The extras `build_spec` takes on top of the configuration.
 ---@class Terminal.SpawnExtra
@@ -347,6 +355,7 @@
 ---@field cmd? string|string[] The command it was started with (nil: the shell). Used by `pin`.
 ---@field cwd? string The directory it was started in. Used by `pin`.
 ---@field session? boolean `false`: started by `run` with `session = false`, left out of a saved session (native backend only).
+---@field rerun? Terminal.RunRecord Started by `run` with `direct`: its `close`, `title` and `float`, which a saved session repeats (native backend only).
 
 ---@class Terminal.Backend
 ---@field name string

@@ -478,6 +478,7 @@ function M.new(registry)
       cmd = spec.cmd,
       cwd = spec.cwd,
       session = spec.session,
+      rerun = spec.rerun,
     }
 
     local cmd = spec.cmd

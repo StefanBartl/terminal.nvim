@@ -142,9 +142,10 @@ See docs/configuration.md for every option and its default.
 
                                                            *terminal-sessions*
 With sessions.nvim a session saves the definitions of the project's native
-terminals (name, layout, directory, and the command of a `run` with `direct`)
-in `.<session>.terminals.json` beside the session file and reopens them,
-hidden, when it is loaded. No process is saved. Terminals that already exist
+terminals (name, layout, directory, and the command of a `run` with `direct`
+with its `close`, `title` and `float`) in `.<session>.terminals.json` beside
+the session file and reopens them, hidden, when it is loaded. No process is
+saved. Terminals that already exist
 are left alone. The commands are asked about once (`sessions.commands`: "ask",
 "run" or "never"); `sessions.enable = false` turns it off. A terminal started
 by run() with `{ direct = true, session = false }` is never saved. See

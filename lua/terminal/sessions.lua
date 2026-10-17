@@ -1,6 +1,7 @@
 ---@module 'terminal.sessions'
 --- Terminals follow a session of sessions.nvim: the definitions (name, layout, directory and, for a
---- `run` with `direct`, the command) are written next to the session file when it is saved and
+--- `run` with `direct`, the command with its `close`, `title` and `float`) are written next to the
+--- session file when it is saved and
 --- reopened when it is loaded. No process is saved: a reopened terminal is a fresh shell (or a fresh
 --- start of the command), and it comes back hidden, so `toggle` shows it.
 ---
@@ -24,6 +25,9 @@ local GROUP = "terminal.sessions"
 ---@field layout Terminal.Layout
 ---@field cwd? string
 ---@field cmd? string[] The argv of a `run` with `direct`; nil: a shell
+---@field close? "always"|"success"|"never" With `cmd`: what `run` was given for the job's end
+---@field title? string With `cmd`: the window title `run` was given
+---@field float? table With `cmd`: the `float` overrides `run` was given
 
 --- The facade functions this module needs; specs hand in a double.
 ---@class Terminal.SessionsApi
@@ -56,6 +60,40 @@ local function argv_ok(v)
   return true
 end
 
+---@internal
+local CLOSE = { always = true, success = true, never = true }
+
+--- The `close`, `title` and `float` of a `run` with `direct` (`Terminal.RunRecord`), reduced to
+--- what a sidecar may hold and a restore may hand back to `run`: an unknown close mode, a title
+--- that is not a string or has control characters, and every `float` key the configuration would
+--- refuse are left out. Used both for what a handle carries (a caller's table may hold anything)
+--- and for what a sidecar says (untrusted: a shared or cloned session directory).
+---@param rec any
+---@param into table Gets `close`, `title`, `float`
+---@return table into
+function M.run_fields(rec, into)
+  if type(rec) ~= "table" then
+    return into
+  end
+  if CLOSE[rec.close] then
+    into.close = rec.close
+  end
+  if type(rec.title) == "string" and not rec.title:find("%c") then
+    into.title = rec.title
+  end
+  if type(rec.float) == "table" and not vim.islist(rec.float) then
+    local _, clean = require("terminal.config").validate(
+      require("terminal.config.DEFAULTS").float,
+      rec.float,
+      "float"
+    )
+    if next(clean) ~= nil then
+      into.float = clean
+    end
+  end
+  return into
+end
+
 --- What a file may say, reduced to what is safe to act on: a malformed entry is dropped, never
 --- repaired.
 ---@param decoded any
@@ -76,12 +114,13 @@ function M.validate(decoded)
       and vim.list_contains(layouts, d.layout)
     then
       seen[d.name] = true
-      out[#out + 1] = {
+      local def = {
         name = d.name,
         layout = d.layout,
         cwd = type(d.cwd) == "string" and d.cwd or nil,
         cmd = argv_ok(d.cmd) and d.cmd or nil,
       }
+      out[#out + 1] = def.cmd and M.run_fields(d, def) or def
     end
   end
   return out
@@ -99,12 +138,13 @@ function M.snapshot(api)
   for _, h in ipairs(api.list()) do
     if h.backend == "native" and not h.exited and not h.disposed and h.session ~= false then
       local is_command = type(h.cmd) == "table" and not vim.deep_equal(h.cmd, shell)
-      defs[#defs + 1] = {
+      local def = {
         name = h.name,
         layout = h.layout,
         cwd = h.cwd,
         cmd = is_command and h.cmd or nil,
       }
+      defs[#defs + 1] = is_command and M.run_fields(h.rerun, def) or def
     end
   end
   return defs
@@ -296,10 +336,16 @@ function M.restore(api, defs, with_commands)
     else
       local ok, err
       if def.cmd and with_commands then
-        ok, err = api.run(
-          def.cmd,
-          { name = def.name, layout = def.layout, focus = false, direct = true, cwd = def.cwd }
-        )
+        ok, err = api.run(def.cmd, {
+          name = def.name,
+          layout = def.layout,
+          focus = false,
+          direct = true,
+          cwd = def.cwd,
+          close = def.close,
+          title = def.title,
+          float = def.float,
+        })
       else
         local handle
         handle, err = api.open({ name = def.name, layout = def.layout, focus = false })

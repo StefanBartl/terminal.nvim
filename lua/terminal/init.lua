@@ -80,6 +80,20 @@ local function build_spec(name, cwd, root, extra)
 end
 
 ---@internal
+--- The window title and the `float` overrides of a `run` with `direct`, put on a spec built from
+--- the configuration.
+---@param spec Terminal.SpawnSpec
+---@param title? string
+---@param float? table
+---@return nil
+local function with_window(spec, title, float)
+  spec.title = title
+  if float then
+    spec.float = vim.tbl_extend("force", spec.float or {}, float)
+  end
+end
+
+---@internal
 --- The multiplexer backend `name`, registered on first use.
 ---@param name string "wezterm" or "tmux"
 ---@return Terminal.Backend|nil
@@ -340,6 +354,9 @@ local function open_impl(target, known, at)
     end
     local spec =
       build_spec(name, cwd, root, { layout = layout, start_insert = start_insert, focus = focus })
+    -- A `run` with `direct` shows again with the title and float it was started with.
+    local rerun = handle.rerun or {}
+    with_window(spec, rerun.title, rerun.float)
     local ok, err = b.show(handle, spec)
     if not ok then
       fail(("terminal '%s': %s"):format(name, err or "cannot show"))
@@ -770,17 +787,20 @@ local function run_direct(b, cmd, opts, at)
     end,
   })
   spec.cmd = cmd
-  spec.title = opts.title
+  with_window(spec, opts.title, opts.float)
   if opts.session == false then
     spec.session = false
-  end
-  if opts.float then
-    spec.float = vim.tbl_extend("force", spec.float or {}, opts.float)
   end
   if opts.env then
     spec.env = vim.tbl_extend("force", spec.env or {}, opts.env)
   end
   spec.on_exit = close_mode
+  -- A saved session starts the command again with the same exit handling and window.
+  spec.rerun = {
+    close = opts.close,
+    title = opts.title,
+    float = opts.float and vim.deepcopy(opts.float) or nil,
+  }
   -- What the backend is known to refuse (an `env` a multiplexer pane cannot take, a layout it
   -- does not know) is found out BEFORE the earlier terminal of the name is closed: such a run
   -- changes nothing instead of leaving the name without any terminal.

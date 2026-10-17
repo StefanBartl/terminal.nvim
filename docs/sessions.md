@@ -19,14 +19,18 @@ ignored.
 ## What is saved
 
 For every live terminal of the project that runs in a native window: its **name**, **layout**,
-**directory**, and the **command** when it was started with `run(cmd, { direct = true })`. A command
-typed into a shell (`run` without `direct`, `send`) is not recorded; the shell is. Terminals in a
-tmux or WezTerm pane are left out: the multiplexer keeps them, Neovim does not have to.
+**directory**, and the **command** when it was started with `run(cmd, { direct = true })`, with
+the `close`, `title` and `float` that `run` was given: a restore starts the command again with the
+same exit handling and window (shown again after `toggle`, the float has that title and size). A
+sidecar entry with an unknown `close`, a `title` with control characters or a `float` key the
+configuration would refuse loses that value, not the terminal. A command typed into a shell (`run`
+without `direct`, `send`) is not recorded; the shell is. Terminals in a tmux or WezTerm pane are
+left out: the multiplexer keeps them, Neovim does not have to.
 
 A terminal started with `run(cmd, { direct = true, session = false })` is left out as well. A
-restore reopens a command with its name, layout and directory only (no `close`, `title`, `float`,
-`env` or `on_open`), so a plugin that sets its terminal up in `on_open` (keymaps, buffer
-variables) keeps it out of the session instead. A definition of the same name saved before (a
+restore cannot repeat `env` (a sidecar holds no secrets) or `on_open` (a function), so a plugin
+that sets its terminal up in `on_open` (keymaps, buffer variables) keeps it out of the session
+instead. A definition of the same name saved before (a
 terminal the last load did not bring back) is dropped by the next save while such a terminal is
 open.
 

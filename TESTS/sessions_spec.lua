@@ -40,6 +40,9 @@ describe("terminal.sessions (definitions and a fake facade)", function()
       end,
       run = function(cmd, opts)
         calls[#calls + 1] = { "run", opts.name, table.concat(cmd, " "), opts.cwd, opts.direct }
+        -- The whole options of each run, by name (a named key: `#calls` and calls[i] stay as they are).
+        calls.run_opts = calls.run_opts or {}
+        calls.run_opts[opts.name] = opts
         if fail_for[opts.name] then
           return false, "no way"
         end
@@ -90,6 +93,82 @@ describe("terminal.sessions (definitions and a fake facade)", function()
     assert.equals("a", defs[1].name)
     assert.same({ "x" }, defs[2].cmd)
     assert.is_nil(defs[3].cmd) -- only an argv is a command worth restoring
+  end)
+
+  it("validate keeps close, title and float of a command, and only what is safe", function()
+    local defs = sessions.validate({
+      terminals = {
+        {
+          name = "lg",
+          layout = "float",
+          cmd = { "lazygit" },
+          close = "success",
+          title = "Git",
+          float = { width = 0.9, border = "single" },
+        },
+        {
+          name = "bad",
+          layout = "float",
+          cmd = { "x" },
+          close = "sometimes",
+          title = "a\nb",
+          float = { width = -1, border = "nonsense", unknown = 1 },
+        },
+        { name = "sh", layout = "float", close = "always", title = "Shell", float = { width = 1 } },
+        { name = "list-float", layout = "float", cmd = { "x" }, float = { 1, 2 } },
+      },
+    })
+    assert.equals(4, #defs)
+    assert.equals("success", defs[1].close)
+    assert.equals("Git", defs[1].title)
+    assert.same({ width = 0.9, border = "single" }, defs[1].float)
+    -- An unknown close mode, a title with a control character and every bad float key are dropped.
+    assert.is_nil(defs[2].close)
+    assert.is_nil(defs[2].title)
+    assert.is_nil(defs[2].float)
+    -- A plain shell has nothing `run` would be given.
+    assert.is_nil(defs[3].close)
+    assert.is_nil(defs[3].title)
+    assert.is_nil(defs[3].float)
+    assert.is_nil(defs[4].float)
+  end)
+
+  it("snapshot writes close, title and float of a run with direct", function()
+    local api = fake({
+      {
+        name = "lg",
+        backend = "native",
+        layout = "float",
+        cmd = { "lazygit" },
+        rerun = { close = "always", title = "Git", float = { height = 0.5, on_open = print } },
+      },
+      { name = "sh", backend = "native", layout = "float", rerun = { close = "always" } },
+    })
+    local defs = sessions.snapshot(api)
+    assert.equals("always", defs[1].close)
+    assert.equals("Git", defs[1].title)
+    -- Only what the configuration knows: a function cannot go into a sidecar.
+    assert.same({ height = 0.5 }, defs[1].float)
+    assert.is_nil(defs[2].close)
+  end)
+
+  it("restore gives run the saved close, title and float", function()
+    local calls = {}
+    sessions.restore(fake({}, calls), {
+      {
+        name = "lg",
+        layout = "float",
+        cmd = { "lazygit" },
+        close = "success",
+        title = "Git",
+        float = { width = 0.5 },
+      },
+    }, true)
+    local opts = calls.run_opts.lg
+    assert.equals("success", opts.close)
+    assert.equals("Git", opts.title)
+    assert.same({ width = 0.5 }, opts.float)
+    assert.is_true(opts.direct)
   end)
 
   it("snapshot leaves out a terminal that run kept out of the session", function()
@@ -631,6 +710,60 @@ describe("terminal.sessions (the User events, on the real facade)", function()
     local saved = sessions.read(session)
     assert.equals(1, #saved)
     assert.equals("watch", saved[1].name)
+  end)
+
+  it("a direct run comes back from the session with its close, title and float", function()
+    boot({ sessions = { commands = "run" } })
+    local session = dir .. "/work.vim"
+    -- Not the configured shell's argv (that would be saved as a plain shell): 61 s, not 60.
+    local cmd = vim.tbl_map(function(word)
+      return word == "60" and "61" or word
+    end, jobs.sleeper())
+    assert.truthy(terminal.run(cmd, {
+      name = "lg",
+      direct = true,
+      layout = "float",
+      close = "success",
+      title = "Git",
+      float = { width = 0.5 },
+    }))
+    fire("SessionsSavePost", session)
+    for _, h in ipairs(terminal.list(true)) do
+      jobs.settle()
+      terminal.close({ name = h.name })
+    end
+    assert.equals(0, #terminal.list(true))
+
+    fire("SessionsLoadPost", session)
+    local h = terminal.list()[1]
+    assert.equals("lg", h.name)
+    assert.same({ close = "success", title = "Git", float = { width = 0.5 } }, h.rerun)
+    -- It came back hidden; shown again it has the title and size it was started with.
+    jobs.settle()
+    assert.truthy(terminal.open({ name = "lg" }))
+    local cfg = vim.api.nvim_win_get_config(vim.fn.win_findbuf(h.bufnr)[1])
+    assert.truthy(vim.inspect(cfg.title):find("Git", 1, true))
+    assert.is_true(cfg.width < vim.o.columns * 0.6)
+  end)
+
+  it("a restored direct run ends the way its saved close says", function()
+    boot({ sessions = { commands = "run" } })
+    local session = dir .. "/work.vim"
+    local sidecar = require("terminal.sessions").sidecar_path(session)
+    local f = assert(io.open(sidecar, "w"))
+    f:write(vim.json.encode({
+      version = 1,
+      terminals = {
+        { name = "once", layout = "float", cmd = jobs.exit_with(0), close = "always" },
+      },
+    }))
+    f:close()
+    fire("SessionsLoadPost", session)
+    assert.equals(1, #terminal.list(true), "the command was started")
+    -- close = "always": the terminal goes when the job ends (without it, "never" keeps it).
+    assert.is_true(jobs.wait(function()
+      return #terminal.list(true) == 0
+    end))
   end)
 
   it("run refuses a session option that is not a boolean, and starts nothing", function()
