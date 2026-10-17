@@ -265,6 +265,7 @@
 ---@field multiplexer fun(name: string): Terminal.Backend|nil, string|nil
 ---@field backend fun(): Terminal.Backend
 ---@field build_spec fun(name: string, cwd: string, root: string, extra?: Terminal.SpawnExtra): Terminal.SpawnSpec
+---@field with_rerun fun(spec: Terminal.SpawnSpec, rerun?: Terminal.RunRecord) Put a `run` with `direct`'s `close`, `title` and `float` (and the record) on a spec
 ---@field state Terminal.State
 
 --- What a backend needs to start a terminal.
