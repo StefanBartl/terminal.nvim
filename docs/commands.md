@@ -172,7 +172,7 @@ local ok, err, handle = require("terminal").run({ "lazygit", "-p", repo_root }, 
   cwd = repo_root,
   float = { width = 0.9, height = 0.9 },
   close = "always",              -- remove window and buffer when the program ends
-  env = { NVIM = vim.v.servername },
+  session = false,               -- not saved with a sessions.nvim session (see below)
   on_open = function(h)          -- buffer keymaps etc.; h.bufnr, h.job
     vim.keymap.set("n", "q", "<Cmd>close<CR>", { buffer = h.bufnr })
   end,
@@ -183,6 +183,17 @@ local ok, err, handle = require("terminal").run({ "lazygit", "-p", repo_root }, 
 `close` is `"always"`, `"success"` (only exit code 0, failures stay readable) or `"never"`
 (default). `focus = false` keeps the cursor where it was; `start_insert = false` does not enter
 terminal mode. Nothing here is lazygit-specific; the argv is the program.
+
+`env = { NAME = "value" }` adds environment variables for the job, on the **native** backend only:
+the tmux and WezTerm backends cannot pass them to a pane and refuse such a `run` (`the tmux backend
+cannot set environment variables for a pane`). A plugin that cannot know the backend leaves `env`
+out, or retries without it.
+
+`session = false` keeps the terminal out of the [sessions integration](sessions.md): it is not
+written beside a saved session, so loading the session never brings it back. Use it when the
+terminal only works with what the caller sets up: a restore reopens a command with its name,
+layout and directory only, without `close`, `title`, `float`, `env` or `on_open` (a function cannot
+be saved). An older terminal.nvim ignores the option.
 
 ## Picker
 

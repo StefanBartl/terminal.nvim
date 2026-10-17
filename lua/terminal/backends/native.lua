@@ -477,6 +477,7 @@ function M.new(registry)
       layout = spec.layout,
       cmd = spec.cmd,
       cwd = spec.cwd,
+      session = spec.session,
     }
 
     local cmd = spec.cmd

@@ -23,6 +23,13 @@ For every live terminal of the project that runs in a native window: its **name*
 typed into a shell (`run` without `direct`, `send`) is not recorded; the shell is. Terminals in a
 tmux or WezTerm pane are left out: the multiplexer keeps them, Neovim does not have to.
 
+A terminal started with `run(cmd, { direct = true, session = false })` is left out as well. A
+restore reopens a command with its name, layout and directory only (no `close`, `title`, `float`,
+`env` or `on_open`), so a plugin that sets its terminal up in `on_open` (keymaps, buffer
+variables) keeps it out of the session instead. A definition of the same name saved before (a
+terminal the last load did not bring back) is dropped by the next save while such a terminal is
+open.
+
 With no terminal left, the file is removed, so a session never brings back terminals it no longer
 had.
 

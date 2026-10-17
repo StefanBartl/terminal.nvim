@@ -11,7 +11,8 @@
 ---
 --- The sidecar `.<session>.terminals.json` sits beside the session file, like sessions.nvim's own
 --- `.<session>.meta.json` and `.<session>.bufs.json`. Only the project's native terminals are
---- written: a multiplexer pane outlives Neovim and needs no restoring.
+--- written: a multiplexer pane outlives Neovim and needs no restoring. A terminal started by `run`
+--- with `session = false` is not written either.
 ---@see terminal.pin
 
 local M = {}
@@ -86,7 +87,9 @@ function M.validate(decoded)
   return out
 end
 
---- The definitions of this project's live native terminals, in creation order.
+--- The definitions of this project's live native terminals, in creation order. A terminal started
+--- by `run` with `session = false` is left out: its caller sets it up in `on_open`, which a restore
+--- cannot repeat.
 ---@param api Terminal.SessionsApi
 ---@return Terminal.SessionDef[]
 function M.snapshot(api)
@@ -94,7 +97,7 @@ function M.snapshot(api)
   -- A configured `shell` given as an argv is every terminal's job, not a command of its own.
   local shell = require("terminal.config").shell_command()
   for _, h in ipairs(api.list()) do
-    if h.backend == "native" and not h.exited and not h.disposed then
+    if h.backend == "native" and not h.exited and not h.disposed and h.session ~= false then
       local is_command = type(h.cmd) == "table" and not vim.deep_equal(h.cmd, shell)
       defs[#defs + 1] = {
         name = h.name,
@@ -114,12 +117,29 @@ end
 ---@type table<string, Terminal.SessionDef[]>
 local kept = {}
 
+--- The names of this project's live native terminals that `run` kept out of the session
+--- (`session = false`).
+---@param api Terminal.SessionsApi
+---@return table<string, true>
+function M.opted_out(api)
+  local names = {}
+  for _, h in ipairs(api.list()) do
+    if h.backend == "native" and not h.exited and not h.disposed and h.session == false then
+      names[h.name] = true
+    end
+  end
+  return names
+end
+
 --- The live terminals plus the definitions a load left behind. A live terminal of the same name
 --- wins, except that it takes over the saved command when it was only opened as a plain shell.
+--- A live terminal kept out of the session (`opted_out`) wins too: a definition of its name saved
+--- before is dropped, not written again.
 ---@param live Terminal.SessionDef[]
 ---@param left_over Terminal.SessionDef[]|nil
+---@param opted_out? table<string, true> Names of live terminals kept out of the session
 ---@return Terminal.SessionDef[]
-function M.merge(live, left_over)
+function M.merge(live, left_over, opted_out)
   if not left_over or #left_over == 0 then
     return live
   end
@@ -127,7 +147,7 @@ function M.merge(live, left_over)
   for _, def in ipairs(left_over) do
     saved[def.name] = def
   end
-  local out, seen = {}, {}
+  local out, seen = {}, vim.deepcopy(opted_out or {})
   for _, def in ipairs(live) do
     seen[def.name] = true
     local before = saved[def.name]
@@ -149,7 +169,7 @@ end
 ---@return string|nil err
 function M.save(api, session_path)
   local file = M.sidecar_path(session_path)
-  local defs = M.merge(M.snapshot(api), kept[session_path])
+  local defs = M.merge(M.snapshot(api), kept[session_path], M.opted_out(api))
   if #defs == 0 then
     os.remove(file)
     return true, nil

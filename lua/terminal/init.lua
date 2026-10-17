@@ -741,6 +741,11 @@ local function run_direct(b, cmd, opts, at)
     fail(msg)
     return false, msg
   end
+  if opts.session ~= nil and type(opts.session) ~= "boolean" then
+    local msg = ("run: session must be a boolean, got %s"):format(type(opts.session))
+    fail(msg)
+    return false, msg
+  end
   local old = state.registry:find(root, name)
   if old then
     local closed, cerr = backend_of(old).close(old)
@@ -780,6 +785,9 @@ local function run_direct(b, cmd, opts, at)
   })
   spec.cmd = cmd
   spec.title = opts.title
+  if opts.session == false then
+    spec.session = false
+  end
   if opts.float then
     spec.float = vim.tbl_extend("force", spec.float or {}, opts.float)
   end

@@ -92,6 +92,33 @@ describe("terminal.sessions (definitions and a fake facade)", function()
     assert.is_nil(defs[3].cmd) -- only an argv is a command worth restoring
   end)
 
+  it("snapshot leaves out a terminal that run kept out of the session", function()
+    local api = fake({
+      { name = "keep", backend = "native", layout = "float", cmd = { "x" }, cwd = "/p" },
+      { name = "lg", backend = "native", layout = "float", cmd = { "lazygit" }, session = false },
+    })
+    local defs = sessions.snapshot(api)
+    assert.equals(1, #defs)
+    assert.equals("keep", defs[1].name)
+    assert.same({ lg = true }, sessions.opted_out(api))
+  end)
+
+  it("a live terminal kept out of the session drops its saved definition", function()
+    local live = { { name = "a", layout = "float" } }
+    local left_over = {
+      { name = "lg", layout = "float", cmd = { "lazygit" } },
+      { name = "build", layout = "split", cmd = { "make" } },
+    }
+    local merged = sessions.merge(live, left_over, { lg = true })
+    local names = {}
+    for _, def in ipairs(merged) do
+      names[#names + 1] = def.name
+    end
+    assert.same({ "a", "build" }, names)
+    -- Without opted-out names the left-over definition is written again.
+    assert.equals(3, #sessions.merge(live, left_over))
+  end)
+
   it("save writes the sidecar and removes it when no terminal is left", function()
     local path = dir .. "/work.vim"
     local file = sessions.sidecar_path(path)
@@ -583,6 +610,35 @@ describe("terminal.sessions (the User events, on the real facade)", function()
       by_name[d.name] = d
     end
     assert.is_nil(by_name.alpha.cmd)
+  end)
+
+  it("run with direct and session = false is not saved; a normal direct run is", function()
+    boot()
+    local sessions = require("terminal.sessions")
+    local session = dir .. "/work.vim"
+    local ok, _, lg = terminal.run(jobs.sleeper(), { name = "lg", direct = true, session = false })
+    assert.is_true(ok)
+    assert.is_false(lg.session)
+    local ok2, _, watch = terminal.run(jobs.sleeper(), { name = "watch", direct = true })
+    assert.is_true(ok2)
+    assert.is_nil(watch.session)
+    local names = {}
+    for _, d in ipairs(sessions.snapshot(terminal)) do
+      names[#names + 1] = d.name
+    end
+    assert.same({ "watch" }, names)
+    fire("SessionsSavePost", session)
+    local saved = sessions.read(session)
+    assert.equals(1, #saved)
+    assert.equals("watch", saved[1].name)
+  end)
+
+  it("run refuses a session option that is not a boolean, and starts nothing", function()
+    boot()
+    local ok, err = terminal.run(jobs.sleeper(), { name = "lg", direct = true, session = "no" })
+    assert.is_false(ok)
+    assert.truthy(err:find("session must be a boolean", 1, true))
+    assert.equals(0, #terminal.list(true))
   end)
 
   it("a tab snapshot carries no terminals", function()
