@@ -13,10 +13,39 @@ local notify = require("terminal.notify")
 
 local M = {}
 
--- A deep copy, not DEFAULTS itself: `M.options` is public, a write through it before `setup()`
--- must not corrupt DEFAULTS for the rest of the session.
+-- The config object: a fresh copy of DEFAULTS on every `setup()`, merged without sharing a table
+-- with it. `M.validate` below owns the checks (closed sets, ranges, the wide types), so to the
+-- schema `lib.lua.config` infers from DEFAULTS every top-level option is open; an unknown
+-- top-level key is still caught there.
+local ANY = "boolean|number|string|table|function"
+---@type table<string, string>
+local SCHEMA = {}
+for key in pairs(DEFAULTS) do
+  SCHEMA[key] = ANY
+end
+
+local cfg = lib_config.new(DEFAULTS, {
+  name = "terminal",
+  schema = SCHEMA,
+  -- Liberal in, canonical out: `true` means "auto" for the two keys that choose among
+  -- environments, so nothing downstream has to know the spelling.
+  resolve = function(current)
+    if current.status.export == true then
+      current.status.export = "auto"
+    end
+    if current.navigate.handoff == true then
+      current.navigate.handoff = "auto"
+    end
+  end,
+  on_change = function(current)
+    M.options = current
+  end,
+})
+
+-- `M.options` is public: the live table, replaced by every `setup()`. A write through it before
+-- `setup()` changes this config, never DEFAULTS (the object holds its own copy).
 ---@type Terminal.Config
-M.options = vim.deepcopy(DEFAULTS)
+M.options = cfg.get()
 
 --- What the last `setup()` found wrong with the options (so `:checkhealth` can show it after the
 --- notification is gone). Empty before `setup()` ran.
@@ -344,8 +373,7 @@ function M.validate(schema, opts, prefix)
       end
     elseif OPEN_TABLES[path] then
       if type(v) == "table" then
-        -- An empty table means "no overrides": merged over the defaults it would replace them
-        -- (see the section branch below).
+        -- An empty table means "no overrides".
         if next(v) ~= nil then
           clean[k] = v
         end
@@ -378,9 +406,7 @@ function M.validate(schema, opts, prefix)
       if type(v) == "table" then
         local sub_problems, sub_clean = M.validate(default_v, v, path)
         vim.list_extend(problems, sub_problems)
-        -- A section whose every key was dropped (or that was empty) must not reach the merge:
-        -- `lib.lua.config.deep_merge` takes an empty table for an empty *list* and would replace
-        -- the whole default section with it.
+        -- A section whose every key was dropped (or that was empty) has nothing to merge.
         if next(sub_clean) ~= nil then
           clean[k] = sub_clean
         end
@@ -413,10 +439,8 @@ function M.validate(schema, opts, prefix)
   return problems, clean
 end
 
---- Apply user options. A value that fails validation is reported and the default stays.
----
---- `deep_merge` copies `base` one level at a time, so untouched sub-tables of the result would
---- alias DEFAULTS again; `vim.deepcopy` severs that.
+--- Apply user options. A value that fails validation is reported and the default stays. Every
+--- call starts from DEFAULTS.
 ---@param opts Terminal.Options|nil
 ---@return string[] problems
 function M.setup(opts)
@@ -429,15 +453,7 @@ function M.setup(opts)
   end
 
   -- Offending keys were dropped by `validate`, so a typo keeps that key's default.
-  M.options = vim.deepcopy(lib_config.deep_merge(DEFAULTS, merged_opts))
-  -- Liberal in, canonical out: `true` means "auto" for the two keys that choose among
-  -- environments, so nothing downstream has to know the spelling.
-  if M.options.status.export == true then
-    M.options.status.export = "auto"
-  end
-  if M.options.navigate.handoff == true then
-    M.options.navigate.handoff = "auto"
-  end
+  cfg.setup(merged_opts)
   M.problems = problems
   if #problems > 0 then
     -- Deferred: `setup()` can run during plugin load, before notifying is safe.
