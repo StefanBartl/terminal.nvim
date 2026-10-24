@@ -159,8 +159,8 @@ jobs:
           ref: ci-verified
       - uses: actions/checkout@v5
         with:
-          repository: StefanBartl/documentation.nvim
-          path: .deps/documentation.nvim
+          repository: StefanBartl/docmap.nvim
+          path: .deps/docmap.nvim
           ref: ci-verified
       - uses: rhysd/action-setup-vim@v1
         with:

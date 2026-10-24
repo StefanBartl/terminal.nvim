@@ -8,10 +8,10 @@ The checks a change has to pass, and the tools behind them. All run from the rep
 | Lint | `luacheck .` | [luacheck](https://github.com/lunarmodules/luacheck) |
 | Specs | `scripts/test.sh` (`--file <part of a name>`, `--filter <text>`) | [testing.nvim](https://github.com/StefanBartl/testing.nvim), [lib.nvim](https://github.com/StefanBartl/lib.nvim) |
 | Types | `scripts/luals-check.sh` | `lua-language-server`, lib.nvim, testing.nvim |
-| Module map and layer rules | `nvim --headless -l scripts/gen_map.lua` | [documentation.nvim](https://github.com/StefanBartl/documentation.nvim) (dev dependency), lib.nvim |
+| Module map and layer rules | `nvim --headless -l scripts/gen_map.lua` | [docmap.nvim](https://github.com/StefanBartl/docmap.nvim) (dev dependency), lib.nvim |
 
-lib.nvim, testing.nvim and documentation.nvim are found through `$LIB_NVIM_DIR`, `$TESTING_NVIM_DIR`,
-`$DOCUMENTATION_NVIM_DIR`, then `.deps/<name>`, then a sibling checkout. CI checks them out into `.deps/`.
+lib.nvim, testing.nvim and docmap.nvim are found through `$LIB_NVIM_DIR`, `$TESTING_NVIM_DIR`,
+`$DOCMAP_NVIM_DIR`, then `.deps/<name>`, then a sibling checkout. CI checks them out into `.deps/`.
 
 ## Types
 
@@ -24,7 +24,7 @@ declared in `TESTS/support/busted_meta.lua`, which is never loaded.
 
 ## Module map
 
-`scripts/gen_map.lua` is documentation.nvim's script with this repository's options at the bottom;
+`scripts/gen_map.lua` is docmap.nvim's script with this repository's options at the bottom;
 `.docmap.json` holds the facts about the tree. It writes `docs/map/` (ignored by git, derived output)
 and exits non-zero on an error-level finding. The **layer rules** in `.docmap.json` are the part CI
 enforces (job `map`): `terminal.core` does not reach into `backends`, `bindings` or `status`, and a

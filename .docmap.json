@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/StefanBartl/documentation.nvim/main/docs/docmap.schema.json",
+  "$schema": "https://raw.githubusercontent.com/StefanBartl/docmap.nvim/main/docs/docmap.schema.json",
   "source": "lua/terminal",
   "title": "terminal.nvim",
   "repo_url": "https://github.com/StefanBartl/terminal.nvim",
