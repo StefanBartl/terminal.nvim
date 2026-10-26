@@ -4,8 +4,8 @@
 
 ```lua
 {
-  "StefanBartl/terminal.nvim",
-  dependencies = { "StefanBartl/lib.nvim" },
+  "WKDSteve/terminal.nvim",
+  dependencies = { "WKDSteve/lib.nvim" },
   -- The toggle key and the terminal-mode keys are global; load at startup (cheap: setup()
   -- only registers keymaps, autocommands and one command).
   event = "VeryLazy",

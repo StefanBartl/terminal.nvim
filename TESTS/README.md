@@ -5,7 +5,7 @@ scripts/test.sh                 # every spec, on testing.nvim
 scripts/test.sh --file native   # only spec files whose name contains "native"
 ```
 
-The runner is [testing.nvim](https://github.com/StefanBartl/testing.nvim); `scripts/test.sh`
+The runner is [testing.nvim](https://github.com/WKDSteve/testing.nvim); `scripts/test.sh`
 finds it and `lib.nvim` (`$TESTING_NVIM_DIR` / `$LIB_NVIM_DIR`, `.deps/`, a sibling checkout,
 the plugin manager's folder) and exits non-zero when anything is missing or red.
 

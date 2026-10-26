@@ -1,8 +1,8 @@
 {
-  "$schema": "https://raw.githubusercontent.com/StefanBartl/docmap.nvim/main/docs/docmap.schema.json",
+  "$schema": "https://raw.githubusercontent.com/WKDSteve/docmap.nvim/main/docs/docmap.schema.json",
   "source": "lua/terminal",
   "title": "terminal.nvim",
-  "repo_url": "https://github.com/StefanBartl/terminal.nvim",
+  "repo_url": "https://github.com/WKDSteve/terminal.nvim",
   "layers": [
     { "from": "terminal.core", "to": "terminal.backends", "why": "core logic is independent of the terminal backend, so it runs and is tested without one" },
     { "from": "terminal.core", "to": "terminal.bindings", "why": "core logic never reaches into keymaps, commands or autocommands" },

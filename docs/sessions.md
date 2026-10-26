@@ -1,6 +1,6 @@
 # Terminals in sessions
 
-With [sessions.nvim](https://github.com/StefanBartl/sessions.nvim) a session brings its terminals
+With [sessions.nvim](https://github.com/WKDSteve/sessions.nvim) a session brings its terminals
 back: the terminals of the project are written next to the session file when it is saved and
 reopened when it is loaded. **No process is saved.** A reopened terminal is a fresh shell, or a
 fresh start of its command, and it comes back **hidden**; `toggle` shows it.

@@ -6,9 +6,9 @@ The checks a change has to pass, and the tools behind them. All run from the rep
 |---|---|---|
 | Format | `stylua --check .` | [StyLua](https://github.com/JohnnyMorganz/StyLua) |
 | Lint | `luacheck .` | [luacheck](https://github.com/lunarmodules/luacheck) |
-| Specs | `scripts/test.sh` (`--file <part of a name>`, `--filter <text>`) | [testing.nvim](https://github.com/StefanBartl/testing.nvim), [lib.nvim](https://github.com/StefanBartl/lib.nvim) |
+| Specs | `scripts/test.sh` (`--file <part of a name>`, `--filter <text>`) | [testing.nvim](https://github.com/WKDSteve/testing.nvim), [lib.nvim](https://github.com/WKDSteve/lib.nvim) |
 | Types | `scripts/luals-check.sh` | `lua-language-server`, lib.nvim, testing.nvim |
-| Module map and layer rules | `nvim --headless -l scripts/gen_map.lua` | [docmap.nvim](https://github.com/StefanBartl/docmap.nvim) (dev dependency), lib.nvim |
+| Module map and layer rules | `nvim --headless -l scripts/gen_map.lua` | [docmap.nvim](https://github.com/WKDSteve/docmap.nvim) (dev dependency), lib.nvim |
 
 lib.nvim, testing.nvim and docmap.nvim are found through `$LIB_NVIM_DIR`, `$TESTING_NVIM_DIR`,
 `$DOCMAP_NVIM_DIR`, then `.deps/<name>`, then a sibling checkout. CI checks them out into `.deps/`.

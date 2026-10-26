@@ -7,7 +7,7 @@
   stays off and `:checkhealth terminal` says why.
 - **tmux 3.1+** for the `tmux` backend's percentage sizes (`split-window -l 30%`); older releases
   get `-p 30` instead (detected once, on the first split).
-- **[lib.nvim](https://github.com/StefanBartl/lib.nvim)** — required. It provides the
+- **[lib.nvim](https://github.com/WKDSteve/lib.nvim)** — required. It provides the
   keymap registry, the autocommand helpers, the `:Terminal` command composer, notifications
   and the config helpers.
 

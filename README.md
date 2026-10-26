@@ -14,19 +14,19 @@
                                                             .nvim
 ```
 
-> Built on [lib.nvim](https://github.com/StefanBartl/lib.nvim) — keymaps, autocommands,
+> Built on [lib.nvim](https://github.com/WKDSteve/lib.nvim) — keymaps, autocommands,
 > the `:Terminal` command and notifications all come from it. Pairs well with
-> [sessions.nvim](https://github.com/StefanBartl/sessions.nvim) and
-> [ui.nvim](https://github.com/StefanBartl/ui.nvim).
+> [sessions.nvim](https://github.com/WKDSteve/sessions.nvim) and
+> [ui.nvim](https://github.com/WKDSteve/ui.nvim).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Neovim](https://img.shields.io/badge/Neovim-0.11%2B-57A143?logo=neovim&logoColor=white)](https://neovim.io)
 [![Lua](https://img.shields.io/badge/Lua-5.1%2FLuaJIT-2C2D72?logo=lua&logoColor=white)](https://www.lua.org)
 ![Status](https://img.shields.io/badge/status-beta-orange)
-[![CI](https://github.com/StefanBartl/terminal.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/StefanBartl/terminal.nvim/actions/workflows/ci.yml)
-[![wkd](https://img.shields.io/badge/wkd-family-c6ff3d)](https://stefanbartl.github.io/wkd/p/terminal/)
+[![CI](https://github.com/WKDSteve/terminal.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/WKDSteve/terminal.nvim/actions/workflows/ci.yml)
+[![wkd](https://img.shields.io/badge/wkd-family-c6ff3d)](https://wkdsteve.github.io/wkd/p/terminal/)
 
-> Part of the [wkd](https://stefanbartl.github.io/wkd/) family — see this plugin's [page](https://stefanbartl.github.io/wkd/p/terminal/) on the site.
+> Part of the [wkd](https://wkdsteve.github.io/wkd/) family — see this plugin's [page](https://wkdsteve.github.io/wkd/p/terminal/) on the site.
 
 Named, per-project terminals in Neovim: a float, split, vsplit or tab that you toggle
 with one key, that keeps running while it is hidden, and that you can **type into** from

@@ -129,7 +129,7 @@ function M.check()
     else
       health.error(
         ("%s not found -- %s will not work"):format(r[1], r[2]),
-        { 'Install "StefanBartl/lib.nvim" (a hard dependency) or update it' }
+        { 'Install "WKDSteve/lib.nvim" (a hard dependency) or update it' }
       )
     end
   end
