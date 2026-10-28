@@ -28,8 +28,10 @@ local function has(log, prefix, text)
   return false
 end
 
---- Run `fn` with lib.nvim.terminal.ask unloadable.
+--- Run `fn` with lib.nvim.terminal.ask unloadable. Forgets the cached path first: a path
+--- resolved by an earlier test must not short-circuit this one.
 local function without_lib_ask(fn)
+  ask._forget_cache()
   local saved_loaded = package.loaded["lib.nvim.terminal.ask"]
   local saved_preload = package.preload["lib.nvim.terminal.ask"]
   package.loaded["lib.nvim.terminal.ask"] = nil
@@ -50,6 +52,29 @@ describe("terminal.ask", function()
     assert.is_truthy(env.NVIM_ASK:match("/bin/nvim%-ask$"))
     assert.equals(1, vim.fn.filereadable(env.NVIM_ASK))
     assert.same({}, ask.env({ enable = false }))
+  end)
+
+  it("script() resolves once, then returns the cached path", function()
+    ask._forget_cache()
+    local calls = 0
+    local real = require("lib.nvim.terminal.ask")
+    local saved_loaded = package.loaded["lib.nvim.terminal.ask"]
+    package.loaded["lib.nvim.terminal.ask"] = {
+      script = function()
+        calls = calls + 1
+        return real.script()
+      end,
+    }
+    local ok, err = pcall(function()
+      local first = ask.script()
+      local second = ask.script()
+      assert.equals(first, second)
+      assert.equals(1, calls)
+    end)
+    package.loaded["lib.nvim.terminal.ask"] = saved_loaded
+    if not ok then
+      error(err, 0)
+    end
   end)
 
   it("without the bridge in lib.nvim: no env, and health says why", function()

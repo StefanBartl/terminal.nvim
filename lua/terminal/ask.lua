@@ -13,10 +13,18 @@
 
 local M = {}
 
+--- The resolved script path, once found: a native terminal open must not re-run `require` and
+--- `filereadable` on every open. A failure is not cached (lib.nvim may still show up later).
+---@type string|nil
+local _cached_path = nil
+
 ---The client script, when lib.nvim has the bridge and the script is on disk.
 ---@return string|nil path
 ---@return string|nil reason  when there is none
 function M.script()
+  if _cached_path then
+    return _cached_path, nil
+  end
   local ok, ask = pcall(require, "lib.nvim.terminal.ask")
   if not ok or type(ask) ~= "table" or type(ask.script) ~= "function" then
     return nil, "lib.nvim has no lib.nvim.terminal.ask (update lib.nvim)"
@@ -25,7 +33,13 @@ function M.script()
   if vim.fn.filereadable(path) ~= 1 then
     return nil, "not on disk: " .. path
   end
+  _cached_path = path
   return path, nil
+end
+
+---Test-only: forget the cached path, so the next `script()` resolves again.
+function M._forget_cache()
+  _cached_path = nil
 end
 
 ---The variables a native terminal gets for the bridge (empty when it is off or not available).
