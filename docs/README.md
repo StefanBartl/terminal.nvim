@@ -10,6 +10,7 @@
 | Which keys does it bind? | [BINDINGS.md](BINDINGS.md) |
 | How do I move across pane borders? | [navigation.md](navigation.md) |
 | How do sessions bring their terminals back? | [sessions.md](sessions.md) |
+| How does a git hook in a terminal (or lazygit) ask me something? | [ask.md](ask.md) |
 | What about tmux? | [tmux.md](tmux.md) |
 | Where can terminals live? | [backends.md](backends.md) |
 | What does it tell WezTerm? | [status.md](status.md) |

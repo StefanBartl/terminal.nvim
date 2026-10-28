@@ -193,6 +193,11 @@ function M.check()
       health.info("Navigation hand-off: none (not inside a multiplexer, or disabled)")
     end
   end
+  require("terminal.ask").check(
+    health,
+    config.get("ask"),
+    ok and terminal.status().ready and terminal.status().backend or nil
+  )
   if vim.v.servername ~= "" then
     health.ok("RPC address for control from outside: " .. vim.v.servername)
   else

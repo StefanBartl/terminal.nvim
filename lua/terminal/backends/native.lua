@@ -485,9 +485,17 @@ function M.new(registry)
     if cmd == nil or cmd == "" then
       cmd = vim.o.shell
     end
+    -- Native terminals are Neovim's children: they also get the ask bridge's $NVIM_ASK (the
+    -- multiplexer backends refuse `env`, so it is added here, not in the shared spec). The user's
+    -- own `env` wins.
+    local ask_env = require("terminal.ask").env(require("terminal.config").get("ask"))
+    local env = spec.env
+    if next(ask_env) ~= nil then
+      env = vim.tbl_extend("force", ask_env, spec.env or {})
+    end
     local job_opts = {
       cwd = spec.cwd,
-      env = spec.env,
+      env = env,
       on_exit = function(_, code)
         vim.schedule(function()
           handle.exited = true

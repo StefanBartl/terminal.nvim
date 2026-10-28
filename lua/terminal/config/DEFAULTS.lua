@@ -30,6 +30,12 @@ local DEFAULTS = {
   shell = "",
   env = {},
 
+  -- Programs in a native terminal can ask this Neovim: they get $NVIM_ASK, the path of lib.nvim's
+  -- `bin/nvim-ask` (a git hook on Windows has no terminal to ask on otherwise). See docs/ask.md.
+  ask = {
+    enable = true,
+  },
+
   start_insert = true,
   on_exit = "close",
   default_name = "main",

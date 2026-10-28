@@ -43,6 +43,12 @@ require("terminal").setup({
   shell = "",               -- "" = the 'shell' option; or a string / argv list
   env = {},                 -- extra environment variables, e.g. { FOO = "1" }
 
+  -- Native terminals get $NVIM_ASK, the path of lib.nvim's `bin/nvim-ask`: a git hook or
+  -- script in the terminal asks this Neovim with a dialog. See ask.md.
+  ask = {
+    enable = true,
+  },
+
   start_insert = true,      -- enter terminal mode when a terminal gets focus through the API
   -- What happens when the job ends: "close" (remove window and buffer),
   -- "close_on_success" (only for exit code 0; failures stay readable), "keep".
