@@ -82,3 +82,5 @@ vim.opt.rtp:prepend(root)
 for _, name in ipairs(DEPS) do
   vim.opt.rtp:append(found[name])
 end
+
+return { root = root, deps = found }
