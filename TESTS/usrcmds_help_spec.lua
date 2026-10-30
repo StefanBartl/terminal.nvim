@@ -25,13 +25,12 @@ describe(":Terminal option float", function()
 
   it("leaves no flag and no positional argument without a description", function()
     assert.is_truthy(composer.registry().Terminal)
-    -- A lib.nvim older than `help.undocumented` cannot answer the question; that is a missing
-    -- feature of the dependency, not a defect of this plugin; the case is reported as skipped.
-    if type(composer.help.undocumented) ~= "function" then
-      -- Inside a running case busted's pending(name) alone marks it pending; the stub also wants a block.
-      ---@diagnostic disable-next-line: missing-parameter
-      return pending("this lib.nvim has no help.undocumented")
-    end
+    -- The case needs `help.undocumented` from lib.nvim: an older checkout fails here by name
+    -- instead of skipping the case (NEW-43).
+    assert(
+      type(composer.help.undocumented) == "function",
+      "lib.nvim lacks composer.help.undocumented: update lib.nvim, this case cannot run without it"
+    )
     local missing = {}
     for _, m in ipairs(composer.help.undocumented("Terminal", { args = true })) do
       missing[#missing + 1] = ("%s %s %s"):format(m.route, m.kind, m.name)
